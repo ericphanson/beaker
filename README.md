@@ -118,11 +118,17 @@ uv run python infer.py --source path/to/image.jpg --show
 # Run inference on a directory of images and save results
 uv run python infer.py --source path/to/images/ --save
 
+# Create square crops around detected bird heads
+uv run python infer.py --source path/to/images/ --crop --crop-dir head_crops
+
 # Use a specific model file
 uv run python infer.py --model path/to/model.pt --source image.jpg
 
 # Adjust confidence threshold
 uv run python infer.py --source image.jpg --conf 0.5 --show
+
+# Combine options: save results and create crops
+uv run python infer.py --source image.jpg --save --crop --show
 ```
 
 #### Model Auto-Download
@@ -146,6 +152,25 @@ The script intelligently handles:
 - **Flexible output**: Display and/or save results
 - **M1/M2 optimized**: Uses MPS acceleration on Apple Silicon
 - **Detection counting**: Reports number of bird heads found
+- **Square cropping**: Creates square crops around detected bird heads (--crop)
+
+#### Head Cropping
+
+The `--crop` option creates square image crops centered on detected bird heads:
+- **Highest confidence**: Uses the detection with highest confidence when multiple found
+- **Square format**: Automatically expands bounding box to square dimensions
+- **Smart padding**: Adds 20% padding around the detection for context
+- **Boundary handling**: Adjusts crop to stay within image boundaries
+- **Custom output**: Specify crop directory with `--crop-dir` (default: `crops/`)
+- **Filename format**: Saves as `{original_name}_head_crop.jpg`
+
+```bash
+# Create crops for all images with bird head detections
+uv run python infer.py --source bird_photos/ --crop
+
+# Save crops to specific directory
+uv run python infer.py --source image.jpg --crop --crop-dir my_crops
+```
 
 ## Release Management
 

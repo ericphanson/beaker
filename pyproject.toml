@@ -11,4 +11,5 @@ dependencies = [
     "tqdm>=4.66.0",
     "ultralytics>=8.3.172",
     "comet-ml>=3.41.0",
+    "opencv-python>=4.8.0",
 ]

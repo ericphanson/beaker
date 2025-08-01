@@ -9,6 +9,8 @@ import subprocess
 import urllib.request
 import json
 from pathlib import Path
+import cv2
+import numpy as np
 from ultralytics import YOLO
 
 
@@ -119,6 +121,62 @@ def find_or_download_model(model_path_arg):
     return None
 
 
+def create_square_crop(image_path, bbox, output_dir):
+    """Create a square crop around the detection bounding box."""
+    # Load image
+    img = cv2.imread(str(image_path))
+    if img is None:
+        return None
+    
+    h, w = img.shape[:2]
+    x1, y1, x2, y2 = bbox
+    
+    # Calculate center and current dimensions
+    center_x = (x1 + x2) / 2
+    center_y = (y1 + y2) / 2
+    width = x2 - x1
+    height = y2 - y1
+    
+    # Make square by using the larger dimension
+    size = max(width, height)
+    
+    # Add some padding (20% larger)
+    size = int(size * 1.2)
+    half_size = size // 2
+    
+    # Calculate square bounds
+    crop_x1 = max(0, int(center_x - half_size))
+    crop_y1 = max(0, int(center_y - half_size))
+    crop_x2 = min(w, int(center_x + half_size))
+    crop_y2 = min(h, int(center_y + half_size))
+    
+    # Adjust if we hit image boundaries to maintain square
+    actual_width = crop_x2 - crop_x1
+    actual_height = crop_y2 - crop_y1
+    
+    if actual_width < actual_height:
+        # Adjust width
+        diff = actual_height - actual_width
+        crop_x1 = max(0, crop_x1 - diff // 2)
+        crop_x2 = min(w, crop_x2 + diff // 2)
+    elif actual_height < actual_width:
+        # Adjust height
+        diff = actual_width - actual_height
+        crop_y1 = max(0, crop_y1 - diff // 2)
+        crop_y2 = min(h, crop_y2 + diff // 2)
+    
+    # Crop the image
+    cropped = img[crop_y1:crop_y2, crop_x1:crop_x2]
+    
+    # Save cropped image
+    output_dir.mkdir(parents=True, exist_ok=True)
+    input_name = Path(image_path).stem
+    output_path = output_dir / f"{input_name}_head_crop.jpg"
+    
+    cv2.imwrite(str(output_path), cropped)
+    return output_path
+
+
 def main():
     parser = argparse.ArgumentParser(description="Bird head detection inference")
     parser.add_argument(
@@ -131,6 +189,8 @@ def main():
     parser.add_argument("--save", action="store_true", help="Save detection results")
     parser.add_argument("--show", action="store_true", help="Show detection results")
     parser.add_argument("--conf", type=float, default=0.25, help="Confidence threshold")
+    parser.add_argument("--crop", action="store_true", help="Create square crops around detected heads")
+    parser.add_argument("--crop-dir", type=str, default="crops", help="Directory to save cropped images")
     
     args = parser.parse_args()
     
@@ -159,12 +219,48 @@ def main():
         device="mps"  # Use MPS on Mac
     )
     
+    # Process results and create crops if requested
+    total_detections = 0
+    crops_created = 0
+    crop_output_dir = Path(args.crop_dir) if args.crop else None
+    
+    for i, result in enumerate(results):
+        if result.boxes is not None:
+            detections = len(result.boxes)
+            total_detections += detections
+            
+            # Create crop if requested and at least one detection
+            if args.crop and detections >= 1:
+                # Get the source image path
+                source_path = Path(result.path) if hasattr(result, 'path') else Path(args.source)
+                
+                # Get the highest confidence detection
+                confidences = result.boxes.conf.cpu().numpy()
+                best_idx = confidences.argmax()
+                
+                # Get bounding box for highest confidence detection (in xyxy format)
+                bbox = result.boxes.xyxy[best_idx].cpu().numpy()
+                best_conf = confidences[best_idx]
+                
+                # Create square crop
+                crop_path = create_square_crop(source_path, bbox, crop_output_dir)
+                if crop_path:
+                    crops_created += 1
+                    if detections == 1:
+                        print(f"✂️  Created crop: {crop_path}")
+                    else:
+                        print(f"✂️  Created crop: {crop_path} (used highest confidence: {best_conf:.3f}, {detections} total detections)")
+            elif args.crop and detections == 0:
+                print(f"ℹ️  No detections in {result.path}, no crop created")
+    
     # Print summary
-    total_detections = sum(len(result.boxes) if result.boxes is not None else 0 for result in results)
     print(f"✅ Completed! Found {total_detections} bird head detections")
     
     if args.save:
         print(f"💾 Results saved to: runs/detect/predict/")
+    
+    if args.crop:
+        print(f"✂️  Created {crops_created} square head crops in: {crop_output_dir}")
 
 
 if __name__ == "__main__":
