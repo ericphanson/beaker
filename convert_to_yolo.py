@@ -127,7 +127,7 @@ def convert_to_yolo():
     # Process each unique image
     unique_images = data.select(["img_id", "filepath", "is_training"]).unique()
     total_images = len(unique_images)
-    
+
     print(f"Processing {total_images} unique images...")
 
     processed = 0
