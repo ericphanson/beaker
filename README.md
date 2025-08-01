@@ -122,3 +122,41 @@ The inference script (`infer.py`) supports:
 - Adjustable confidence threshold
 - Option to display or save results
 - Automatic detection counting
+
+## Release Management
+
+The `release.py` script automates the process of creating GitHub releases with trained models.
+
+### Prerequisites
+
+```bash
+# Install GitHub CLI
+# macOS: brew install gh
+# Other: https://cli.github.com/
+
+# Authenticate with GitHub
+gh auth login
+```
+
+### Creating a Release
+
+```bash
+# Create a release with the trained model
+uv run python release.py
+```
+
+The release script will:
+1. **Check prerequisites** - Verify gh CLI and authentication
+2. **Validate repository** - Ensure no uncommitted changes
+3. **Show existing versions** - Display current tags/releases
+4. **Prompt for version** - Request new semantic version (e.g., 1.0.0)
+5. **Create git tag** - Tag the current commit
+6. **Upload model** - Add best.pt as release asset
+7. **Push to GitHub** - Create public release
+
+### Safety Features
+
+- ❌ **Blocks dirty repos** - Won't proceed with uncommitted changes
+- 🏷️ **Version validation** - Enforces semantic versioning
+- 🔍 **Duplicate detection** - Prevents overwriting existing releases
+- 📋 **Confirmation prompt** - Shows summary before proceeding
