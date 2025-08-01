@@ -54,6 +54,23 @@ The training script (`train.py`) will:
 - Train for 100 epochs with optimized M1 settings
 - Save the best model to `runs/detect/bird_head_yolov8n/weights/best.pt`
 
+#### Debug Mode
+
+For quick testing, enable debug mode by editing `train.py`:
+
+```python
+# In TRAINING_CONFIG dictionary
+'debug_run': True,  # Set to True for quick testing
+'debug_epochs': 5,   # Reduced epochs for debug
+'debug_fraction': 0.1,  # Use 10% of data for debug
+```
+
+Debug mode will:
+- Use only 10% of the training/validation data
+- Train for only 5 epochs (vs 100 normal)
+- Create a separate `data/yolo_debug/` dataset
+- Save model as `bird_head_yolov8n_debug`
+
 #### Comet.ml Integration (Optional)
 
 For experiment tracking with Comet.ml, set these environment variables:
