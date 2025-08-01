@@ -17,11 +17,10 @@ Example:
     export COMET_WORKSPACE="your-username"
     uv run python train.py
 """
-
+import comet_ml
 from ultralytics import YOLO
 import torch
 import os
-import comet_ml
 
 # Training Configuration
 TRAINING_CONFIG = {
@@ -40,7 +39,7 @@ TRAINING_CONFIG = {
     'architecture': 'YOLOv8n',
 
     # Debug Configuration
-    'debug_run': False,  # Set to True for quick testing
+    'debug_run': True,  # Set to True for quick testing
     'debug_epochs': 5,   # Reduced epochs for debug
     'debug_fraction': 0.1,  # Use 10% of data for debug (0.1 = 10%)
 }

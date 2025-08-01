@@ -106,6 +106,11 @@ The integration will automatically log:
 
 ### Inference
 
+Run detection on new images using the trained model. The inference script will automatically:
+1. Look for locally trained models
+2. Check for previously downloaded models 
+3. Download the latest model from GitHub releases if none found
+
 ```bash
 # Run inference on a single image
 uv run python infer.py --source path/to/image.jpg --show
@@ -113,15 +118,34 @@ uv run python infer.py --source path/to/image.jpg --show
 # Run inference on a directory of images and save results
 uv run python infer.py --source path/to/images/ --save
 
+# Use a specific model file
+uv run python infer.py --model path/to/model.pt --source image.jpg
+
 # Adjust confidence threshold
 uv run python infer.py --source image.jpg --conf 0.5 --show
 ```
 
-The inference script (`infer.py`) supports:
-- Single images, videos, or directories
-- Adjustable confidence threshold
-- Option to display or save results
-- Automatic detection counting
+#### Model Auto-Download
+
+The inference script automatically downloads models from GitHub releases:
+- Checks local training outputs first (`runs/detect/bird_head_yolov8n/weights/best.pt`)
+- Falls back to downloaded models directory (`models/`)
+- Downloads latest release model if none found locally
+- Supports any GitHub repository with `.pt` model files in releases
+
+The script intelligently handles:
+- Repository detection from git remote
+- Model caching to avoid re-downloads
+- Graceful fallbacks with helpful error messages
+
+#### Inference Features
+
+- **Auto-discovery**: Finds models locally or downloads from releases
+- **Multi-format support**: Single images, videos, or directories  
+- **Adjustable confidence**: Custom detection thresholds
+- **Flexible output**: Display and/or save results
+- **M1/M2 optimized**: Uses MPS acceleration on Apple Silicon
+- **Detection counting**: Reports number of bird heads found
 
 ## Release Management
 
