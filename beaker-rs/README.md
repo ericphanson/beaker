@@ -8,7 +8,7 @@ A fast, self-contained Rust implementation of the Beaker bird head detection CLI
 - ✅ **Embedded model**: Downloads latest ONNX model from GitHub releases during build
 - ✅ **Cross-platform**: Supports Linux, macOS, and Windows
 - ✅ **Fast**: Optimized release builds with LTO and strip
-- ✅ **Real-time inference**: YOLOv8n bird head detection with ONNX Runtime
+- ✅ **Real-time inference**: YOLOv8n bird head detection with ONNX Runtime v2
 - ✅ **Multiple outputs**: Individual crops per detection, bounding box visualization, TOML metadata
 - ✅ **Smart file naming**: Automatic numbering for multiple detections with zero-padding
 - ✅ **Relative paths**: TOML output uses paths relative to output location

@@ -1,10 +1,13 @@
 use anyhow::Result;
 use image::{DynamicImage, GenericImageView, Rgb};
 use ndarray::Array;
-use ort::{Environment, ExecutionProvider, SessionBuilder, Value};
+use ort::{
+    execution_providers::{CPUExecutionProvider, CoreMLExecutionProvider},
+    session::Session,
+    value::TensorRef,
+};
 use serde::Serialize;
 use std::path::Path;
-use std::sync::Arc;
 
 use crate::yolo_postprocessing::{postprocess_output, Detection};
 use crate::yolo_preprocessing::preprocess_image;
@@ -225,32 +228,29 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
 
     println!("📷 Loaded image: {orig_width}x{orig_height}");
 
-    // Initialize ONNX Runtime
-    let environment = Arc::new(Environment::builder().with_name("beaker").build()?);
-
     // Determine execution provider based on device
     let execution_providers = match config.device {
-        "cpu" => vec![ExecutionProvider::CPU(Default::default())],
+        "cpu" => vec![CPUExecutionProvider::default().build()],
         "auto" => {
             #[cfg(target_os = "macos")]
             {
                 vec![
-                    ExecutionProvider::CoreML(Default::default()),
-                    ExecutionProvider::CPU(Default::default()),
+                    CoreMLExecutionProvider::default().build(),
+                    CPUExecutionProvider::default().build(),
                 ]
             }
             #[cfg(not(target_os = "macos"))]
             {
-                vec![ExecutionProvider::CPU(Default::default())]
+                vec![CPUExecutionProvider::default().build()]
             }
         }
-        _ => vec![ExecutionProvider::CPU(Default::default())],
+        _ => vec![CPUExecutionProvider::default().build()],
     };
 
-    // Load the embedded model
-    let session = SessionBuilder::new(&environment)?
+    // Load the embedded model using ORT v2 API
+    let mut session = Session::builder()?
         .with_execution_providers(execution_providers)?
-        .with_model_from_memory(MODEL_BYTES)?;
+        .commit_from_memory(MODEL_BYTES)?;
 
     println!(
         "🤖 Loaded embedded ONNX model ({} bytes)",
@@ -263,21 +263,14 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
 
     println!("🔄 Preprocessed image to {model_size}x{model_size}");
 
-    // Create input for ONNX Runtime
-    let input_view = input_tensor.view();
-    let input_cow = ndarray::CowArray::from(input_view);
-    let input_value = Value::from_array(session.allocator(), &input_cow)?;
-
-    // Run inference
-    let outputs = session.run(vec![input_value])?;
+    // Run inference using ORT v2 API
+    let outputs =
+        session.run(ort::inputs!["images" => TensorRef::from_array_view(input_tensor.view())?])?;
 
     println!("⚡ Inference completed");
 
-    // Extract output tensor
-    let output_tensor = outputs[0].try_extract::<f32>()?;
-    let output_view = output_tensor.view();
-
-    // Convert to ndarray for easier manipulation
+    // Extract output tensor using ORT v2 API and convert to owned array
+    let output_view = outputs["output0"].try_extract_array::<f32>()?;
     let output_array =
         Array::from_shape_vec(output_view.shape(), output_view.iter().cloned().collect())?;
 
