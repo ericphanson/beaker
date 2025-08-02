@@ -5,18 +5,26 @@ Release script for bird-head-detector models.
 This script:
 1. Checks if the repository is clean (no uncommitted changes)
 2. Shows existing tags/versions
-3. Prompts for a new version number
-4. Creates a git tag
-5. Uploads the best model as a GitHub release asset
-6. Pushes everything to the remote repository
+3. Finds available model files or uses specified model
+4. Prompts for a new version number (or uses provided version)
+5. Creates a git tag
+6. Uploads the selected model as a GitHub release asset
+7. Pushes everything to the remote repository
 
 Requirements:
 - gh CLI tool installed and authenticated
 - Clean git repository (no uncommitted changes)
-- Trained model exists at the expected location
+- Trained model exists or is specified
 
 Usage:
+    # Interactive mode - choose from available models
     uv run python release.py
+
+    # Specify model and version
+    uv run python release.py --model runs/detect/best_model/weights/best.pt --version 1.2.0
+
+    # Specify just the model (will prompt for version)
+    uv run python release.py --model my_custom_model.pt
 """
 
 import subprocess
@@ -24,6 +32,7 @@ import sys
 from pathlib import Path
 import re
 import os
+import argparse
 
 
 def run_command(cmd, capture=True, check=True):
@@ -102,22 +111,98 @@ def validate_version(version):
 
 
 def get_model_path():
-    """Find the best model file."""
-    # Try different possible paths
-    possible_paths = [
-        "runs/detect/bird_head_yolov8n/weights/best.pt",
-        "runs/detect/bird_head_yolov8n_debug/weights/best.pt",
+    """Find available model files and let user choose."""
+    # Search for all .pt files in runs/detect subdirectories
+    available_models = []
+
+    # Check if runs/detect exists
+    runs_detect = Path("runs/detect")
+    if runs_detect.exists():
+        # Find all subdirectories in runs/detect
+        for run_dir in runs_detect.iterdir():
+            if run_dir.is_dir():
+                weights_dir = run_dir / "weights"
+                if weights_dir.exists():
+                    # Look for best.pt and last.pt in each weights directory
+                    for model_file in ["best.pt", "last.pt"]:
+                        model_path = weights_dir / model_file
+                        if model_path.exists():
+                            available_models.append(model_path)
+
+    # Also search in models directory and current directory
+    for pattern in ["models/*.pt", "*.pt"]:
+        for path in Path(".").glob(pattern):
+            if path.is_file():
+                available_models.append(path)
+
+    # Remove duplicates and sort
+    available_models = sorted(list(set(available_models)))
+
+    if not available_models:
+        return None
+
+    if len(available_models) == 1:
+        return available_models[0]
+
+    # Multiple models found - let user choose
+    print(f"\n📦 Found {len(available_models)} model files:")
+    for i, model_path in enumerate(available_models, 1):
+        size_mb = model_path.stat().st_size / (1024 * 1024)
+        mod_time = model_path.stat().st_mtime
+        from datetime import datetime
+        mod_date = datetime.fromtimestamp(mod_time).strftime("%Y-%m-%d %H:%M")
+        print(f"   {i}. {model_path} ({size_mb:.1f} MB, modified: {mod_date})")
+
+    while True:
+        try:
+            choice = input(f"\n🎯 Select model to upload (1-{len(available_models)}): ").strip()
+            if not choice:
+                continue
+
+            choice_idx = int(choice) - 1
+            if 0 <= choice_idx < len(available_models):
+                return available_models[choice_idx]
+            else:
+                print(f"   Please enter a number between 1 and {len(available_models)}")
+        except ValueError:
+            print("   Please enter a valid number")
+        except KeyboardInterrupt:
+            print("\n❌ Selection cancelled")
+            return None
+
+
+def collect_run_assets(model_path):
+    """Collect all assets from the training run directory."""
+    # Get the run directory from the model path
+    # Model path should be like: runs/detect/run_name/weights/best.pt
+    if "runs/detect" in str(model_path):
+        run_dir = model_path.parent.parent  # Go up from weights/ to run directory
+    else:
+        return []
+
+    if not run_dir.exists():
+        return []
+
+    # Define file patterns to include in the release
+    include_patterns = [
+        "*.png",     # All plots and visualizations
+        "*.jpg",     # Training/validation batch images
+        "*.yaml",    # Training arguments
+        "*.csv",     # Results data
+        "weights/*.pt"  # Model weights
     ]
 
-    for path in possible_paths:
-        if Path(path).exists():
-            return Path(path)
+    assets = []
+    for pattern in include_patterns:
+        for file_path in run_dir.glob(pattern):
+            if file_path.is_file():
+                assets.append(file_path)
 
-    return None
+    return sorted(assets)
 
 
 def create_release(version, model_path):
-    """Create a GitHub release with the model as an asset."""
+    """Create a GitHub release with the model and training assets."""
     print(f"🚀 Creating release {version}...")
 
     # Ensure version starts with 'v'
@@ -135,12 +220,46 @@ def create_release(version, model_path):
     print(f"📤 Pushing tag to remote...")
     stdout, stderr = run_command(f"git push origin {version}")
 
-    # Create release with model asset
+    # Collect all training run assets
+    assets = collect_run_assets(model_path)
+
+    # Create release notes with asset list
+    asset_list = []
+    model_files = []
+    plot_files = []
+    data_files = []
+
+    for asset in assets:
+        if asset.suffix == '.pt':
+            model_files.append(asset.name)
+        elif asset.suffix in ['.png', '.jpg']:
+            plot_files.append(asset.name)
+        elif asset.suffix in ['.csv', '.yaml']:
+            data_files.append(asset.name)
+
+    # Build file list for release notes
+    files_section = f"## Files\n"
+    if model_files:
+        files_section += f"### Model Weights\n"
+        for f in model_files:
+            files_section += f"- `{f}`: Trained model weights\n"
+
+    if plot_files:
+        files_section += f"\n### Training Visualizations\n"
+        for f in plot_files:
+            files_section += f"- `{f}`: Training plots and visualizations\n"
+
+    if data_files:
+        files_section += f"\n### Training Data\n"
+        for f in data_files:
+            files_section += f"- `{f}`: Training configuration and results\n"
+
+    # Create release with all assets
     print(f"🎁 Creating GitHub release...")
     release_title = f"Bird Head Detector {version}"
     release_notes = f"""# Bird Head Detector {version}
 
-This release includes a trained YOLOv8n model for bird head detection.
+This release includes a trained YOLOv8n model for bird head detection with complete training artifacts.
 
 ## Model Details
 - **Architecture**: YOLOv8n
@@ -154,12 +273,11 @@ Download the model file and use with the inference script:
 uv run python infer.py --model {model_path.name} --source your_image.jpg --show
 ```
 
-## Files
-- `{model_path.name}`: Trained YOLOv8n model weights
+{files_section}
 """
 
-    # Create the release
-    cmd = f'gh release create {version} "{model_path}" --title "{release_title}" --notes "{release_notes}"'
+    # Create the release (without assets first)
+    cmd = f'gh release create {version} --title "{release_title}" --notes "{release_notes}"'
     stdout, stderr = run_command(cmd)
 
     if stderr and "already exists" in stderr:
@@ -168,6 +286,25 @@ uv run python infer.py --model {model_path.name} --source your_image.jpg --show
         run_command(f"git tag -d {version}", check=False)
         run_command(f"git push origin --delete {version}", check=False)
         return False
+
+    # Upload assets to the release
+    if assets:
+        print(f"📦 Uploading {len(assets)} assets to release...")
+        asset_paths = [str(asset) for asset in assets]
+        assets_str = " ".join(f'"{path}"' for path in asset_paths)
+
+        upload_cmd = f'gh release upload {version} {assets_str}'
+        stdout, stderr = run_command(upload_cmd)
+
+        if stderr:
+            print(f"⚠️ Warning during asset upload: {stderr}")
+
+        print(f"✅ Uploaded {len(assets)} assets:")
+        for asset in assets:
+            size_mb = asset.stat().st_size / (1024 * 1024)
+            print(f"   - {asset.name} ({size_mb:.1f} MB)")
+    else:
+        print(f"ℹ️ No additional assets to upload")
 
     print(f"✅ Release {version} created successfully!")
     print(f"🔗 View at: https://github.com/{get_repo_info()}/releases/tag/{version}")
@@ -195,6 +332,11 @@ def get_repo_info():
 
 def main():
     """Main release process."""
+    parser = argparse.ArgumentParser(description="Release bird head detector models to GitHub")
+    parser.add_argument("--model", type=str, help="Path to specific model file to upload")
+    parser.add_argument("--version", type=str, help="Version number for the release (e.g., 1.0.0)")
+    args = parser.parse_args()
+
     print("🚀 Bird Head Detector Release Script")
     print("=" * 40)
 
@@ -206,19 +348,44 @@ def main():
     if not check_repo_clean():
         sys.exit(1)
 
-    # Find model file
-    model_path = get_model_path()
-    if not model_path:
-        print("❌ No trained model found!")
-        print("   Expected locations:")
-        print("   - runs/detect/bird_head_yolov8n/weights/best.pt")
-        print("   - runs/detect/bird_head_yolov8n_debug/weights/best.pt")
-        print("\n   Train a model first using: uv run python train.py")
-        sys.exit(1)
+    # Find or use specified model file
+    if args.model:
+        model_path = Path(args.model)
+        if not model_path.exists():
+            print(f"❌ Specified model not found: {model_path}")
+            sys.exit(1)
+        if not model_path.suffix == '.pt':
+            print(f"❌ Model file must have .pt extension: {model_path}")
+            sys.exit(1)
+        print(f"✅ Using specified model: {model_path}")
+    else:
+        model_path = get_model_path()
+        if not model_path:
+            print("❌ No trained models found!")
+            print("   Searched in:")
+            print("   - runs/detect/*/weights/*.pt")
+            print("   - models/*.pt")
+            print("   - *.pt")
+            print("\n   Train a model first using: uv run python train.py")
+            print("   Or specify a model with: --model path/to/model.pt")
+            sys.exit(1)
 
     print(f"✅ Found model: {model_path}")
     model_size = model_path.stat().st_size / (1024 * 1024)  # MB
     print(f"   Size: {model_size:.1f} MB")
+
+    # Show what assets will be uploaded
+    assets = collect_run_assets(model_path)
+    if assets:
+        print(f"\n📦 Assets to upload ({len(assets)} files):")
+        total_size = 0
+        for asset in assets:
+            size_mb = asset.stat().st_size / (1024 * 1024)
+            total_size += size_mb
+            print(f"   - {asset.name} ({size_mb:.1f} MB)")
+        print(f"   Total size: {total_size:.1f} MB")
+    else:
+        print(f"\n📦 Only model file will be uploaded (no training run detected)")
 
     # Show existing tags
     existing_tags = get_existing_tags()
@@ -231,27 +398,41 @@ def main():
     else:
         print("\n📋 No existing versions found")
 
-    # Get version from user
-    print(f"\n🏷️  Enter new version number:")
-    while True:
-        version = input("   Version (e.g., 1.0.0 or v1.0.0): ").strip()
-
-        if not version:
-            print("   Version cannot be empty!")
-            continue
-
+    # Get version from user or command line
+    if args.version:
+        version = args.version
         if not validate_version(version):
-            print("   Invalid version format! Use semantic versioning (e.g., 1.0.0)")
-            continue
+            print(f"❌ Invalid version format: {version}")
+            print("   Use semantic versioning (e.g., 1.0.0)")
+            sys.exit(1)
 
         # Normalize version (add 'v' prefix if missing)
         normalized_version = version if version.startswith('v') else f'v{version}'
 
         if normalized_version in existing_tags:
-            print(f"   Version {normalized_version} already exists!")
-            continue
+            print(f"❌ Version {normalized_version} already exists!")
+            sys.exit(1)
+    else:
+        print(f"\n🏷️  Enter new version number:")
+        while True:
+            version = input("   Version (e.g., 1.0.0 or v1.0.0): ").strip()
 
-        break
+            if not version:
+                print("   Version cannot be empty!")
+                continue
+
+            if not validate_version(version):
+                print("   Invalid version format! Use semantic versioning (e.g., 1.0.0)")
+                continue
+
+            # Normalize version (add 'v' prefix if missing)
+            normalized_version = version if version.startswith('v') else f'v{version}'
+
+            if normalized_version in existing_tags:
+                print(f"   Version {normalized_version} already exists!")
+                continue
+
+            break
 
     # Confirm release
     print(f"\n📋 Release Summary:")
