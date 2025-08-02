@@ -27,6 +27,7 @@ dependencies = [
     { name = "opencv-python" },
     { name = "pillow" },
     { name = "polars" },
+    { name = "pyyaml" },
     { name = "tqdm" },
     { name = "ultralytics" },
 ]
@@ -38,6 +39,7 @@ requires-dist = [
     { name = "opencv-python", specifier = ">=4.8.0" },
     { name = "pillow", specifier = ">=11.3.0" },
     { name = "polars", specifier = ">=1.32.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "tqdm", specifier = ">=4.66.0" },
     { name = "ultralytics", specifier = ">=8.3.172" },
 ]

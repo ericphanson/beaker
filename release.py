@@ -33,17 +33,22 @@ from pathlib import Path
 import re
 import os
 import argparse
+import tempfile
+import yaml
 
 
-def run_command(cmd, capture=True, check=True):
+def run_command(cmd, capture=True, check=True, timeout=60):
     """Run a shell command and return the result."""
     try:
         if capture:
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=check)
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=check, timeout=timeout)
             return result.stdout.strip(), result.stderr.strip()
         else:
-            result = subprocess.run(cmd, shell=True, check=check)
+            result = subprocess.run(cmd, shell=True, check=check, timeout=timeout)
             return None, None
+    except subprocess.TimeoutExpired:
+        print(f"⏰ Command timed out after {timeout} seconds: {cmd}")
+        return "", "Command timed out"
     except subprocess.CalledProcessError as e:
         if capture:
             return e.stdout.strip() if e.stdout else "", e.stderr.strip() if e.stderr else ""
@@ -201,6 +206,71 @@ def collect_run_assets(model_path):
     return sorted(assets)
 
 
+def get_training_info(model_path):
+    """Extract training information from args.yaml and dataset configuration."""
+    # Get the run directory from the model path
+    if "runs/detect" in str(model_path):
+        run_dir = model_path.parent.parent  # Go up from weights/ to run directory
+        args_file = run_dir / "args.yaml"
+    else:
+        return {"is_debug": False, "train_images": "~5,990", "val_images": "~5,794"}
+
+    if not args_file.exists():
+        return {"is_debug": False, "train_images": "~5,990", "val_images": "~5,794"}
+
+    try:
+        with open(args_file, 'r') as f:
+            args = yaml.safe_load(f)
+
+        # Check if this is a debug run by looking at the data path
+        data_path = args.get('data', '')
+        is_debug = 'debug' in data_path.lower()
+
+        # Try to read the actual dataset configuration
+        if data_path and Path(data_path).exists():
+            with open(data_path, 'r') as f:
+                dataset_config = yaml.safe_load(f)
+
+            # Count actual images if possible
+            train_images = "unknown"
+            val_images = "unknown"
+
+            # Look for train and val paths in dataset config
+            train_path = dataset_config.get('train', '')
+            val_path = dataset_config.get('val', '')
+
+            if train_path and Path(train_path).exists():
+                train_labels = list(Path(train_path).glob('*.txt'))
+                train_images = str(len(train_labels))
+
+            if val_path and Path(val_path).exists():
+                val_labels = list(Path(val_path).glob('*.txt'))
+                val_images = str(len(val_labels))
+
+            # If we couldn't count, use estimates based on debug status
+            if train_images == "unknown":
+                train_images = "~599" if is_debug else "~5,990"
+            if val_images == "unknown":
+                val_images = "~579" if is_debug else "~5,794"
+
+        else:
+            # Fallback estimates
+            train_images = "~599" if is_debug else "~5,990"
+            val_images = "~579" if is_debug else "~5,794"
+
+        return {
+            "is_debug": is_debug,
+            "train_images": train_images,
+            "val_images": val_images,
+            "epochs": args.get('epochs', 'unknown'),
+            "data_path": data_path
+        }
+
+    except Exception as e:
+        print(f"⚠️ Could not parse training config: {e}")
+        return {"is_debug": False, "train_images": "~5,990", "val_images": "~5,794"}
+
+
 def create_release(version, model_path):
     """Create a GitHub release with the model and training assets."""
     print(f"🚀 Creating release {version}...")
@@ -222,6 +292,9 @@ def create_release(version, model_path):
 
     # Collect all training run assets
     assets = collect_run_assets(model_path)
+
+    # Get training information from args.yaml
+    training_info = get_training_info(model_path)
 
     # Create release notes with asset list
     asset_list = []
@@ -254,17 +327,22 @@ def create_release(version, model_path):
         for f in data_files:
             files_section += f"- `{f}`: Training configuration and results\n"
 
+    # Build model details section with dynamic training info
+    debug_note = " (Debug Training)" if training_info["is_debug"] else ""
+    epochs_info = f"- **Epochs**: {training_info['epochs']}\n" if training_info.get('epochs') != 'unknown' else ""
+
     # Create release with all assets
     print(f"🎁 Creating GitHub release...")
-    release_title = f"Bird Head Detector {version}"
-    release_notes = f"""# Bird Head Detector {version}
+    release_title = f"Bird Head Detector {version}{debug_note}"
+    release_notes = f"""# Bird Head Detector {version}{debug_note}
 
 This release includes a trained YOLOv8n model for bird head detection with complete training artifacts.
 
 ## Model Details
 - **Architecture**: YOLOv8n
 - **Dataset**: CUB-200-2011 (bird head parts)
-- **Training Images**: ~5,990 (train) + ~5,794 (val)
+{epochs_info}- **Training Images**: {training_info['train_images']}
+- **Validation Images**: {training_info['val_images']}
 - **Classes**: 1 (bird_head)
 
 ## Usage
@@ -276,16 +354,31 @@ uv run python infer.py --model {model_path.name} --source your_image.jpg --show
 {files_section}
 """
 
-    # Create the release (without assets first)
-    cmd = f'gh release create {version} --title "{release_title}" --notes "{release_notes}"'
-    stdout, stderr = run_command(cmd)
+    # Write release notes to temporary file to avoid shell escaping issues
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        f.write(release_notes)
+        notes_file = f.name
 
-    if stderr and "already exists" in stderr:
-        print(f"❌ Release {version} already exists!")
-        # Clean up the tag we just created
-        run_command(f"git tag -d {version}", check=False)
-        run_command(f"git push origin --delete {version}", check=False)
-        return False
+    try:
+        # Create the release (without assets first)
+        cmd = f'gh release create {version} --title "{release_title}" --notes-file "{notes_file}"'
+        print(f"🔧 Running: {cmd}")
+        stdout, stderr = run_command(cmd)
+
+        if stderr and "already exists" in stderr:
+            print(f"❌ Release {version} already exists!")
+            # Clean up the tag we just created
+            run_command(f"git tag -d {version}", check=False)
+            run_command(f"git push origin --delete {version}", check=False)
+            return False
+
+        print(f"✅ Release created successfully!")
+    finally:
+        # Clean up temporary file
+        try:
+            os.unlink(notes_file)
+        except:
+            pass
 
     # Upload assets to the release
     if assets:
@@ -294,9 +387,13 @@ uv run python infer.py --model {model_path.name} --source your_image.jpg --show
         assets_str = " ".join(f'"{path}"' for path in asset_paths)
 
         upload_cmd = f'gh release upload {version} {assets_str}'
-        stdout, stderr = run_command(upload_cmd)
+        print(f"🔧 Running upload command...")
+        stdout, stderr = run_command(upload_cmd, timeout=300)  # 5 minute timeout for uploads
 
-        if stderr:
+        if stderr and "timed out" in stderr:
+            print(f"❌ Upload timed out. Try uploading fewer assets or check network connection.")
+            return False
+        elif stderr:
             print(f"⚠️ Warning during asset upload: {stderr}")
 
         print(f"✅ Uploaded {len(assets)} assets:")
