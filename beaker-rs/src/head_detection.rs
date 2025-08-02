@@ -70,22 +70,9 @@ pub struct BeakerOutput {
     pub head: HeadResult,
 }
 
-impl Detection {
-    pub fn to_head_detection(&self) -> HeadDetection {
-        HeadDetection {
-            x1: self.x1,
-            y1: self.y1,
-            x2: self.x2,
-            y2: self.y2,
-            confidence: self.confidence,
-            crop_path: None,
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct HeadDetectionConfig {
-    pub source: String,
+    pub sources: Vec<String>,
     pub confidence: f32,
     pub iou_threshold: f32,
     pub device: String,
@@ -124,6 +111,72 @@ fn find_image_files(dir_path: &Path) -> Result<Vec<std::path::PathBuf>> {
     // Sort for consistent ordering
     image_files.sort();
     Ok(image_files)
+}
+
+/// Collect all image files from multiple sources (files, directories, or glob patterns)
+fn collect_image_files_from_sources(sources: &[String]) -> Result<Vec<std::path::PathBuf>> {
+    let mut all_image_files = Vec::new();
+
+    for source in sources {
+        let source_path = Path::new(source);
+
+        if source_path.is_file() {
+            // Single file - check if it's an image
+            if is_image_file(source_path) {
+                all_image_files.push(source_path.to_path_buf());
+            } else {
+                return Err(anyhow::anyhow!(
+                    "File is not a supported image format: {}",
+                    source_path.display()
+                ));
+            }
+        } else if source_path.is_dir() {
+            // Directory - find all images inside
+            let dir_images = find_image_files(source_path)?;
+            all_image_files.extend(dir_images);
+        } else {
+            // Could be a glob pattern or non-existent path
+            match glob::glob(source) {
+                Ok(paths) => {
+                    let mut found_any = false;
+                    for path_result in paths {
+                        match path_result {
+                            Ok(path) => {
+                                if path.is_file() && is_image_file(&path) {
+                                    all_image_files.push(path);
+                                    found_any = true;
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("⚠️  Warning: Error reading path in glob {source}: {e}");
+                            }
+                        }
+                    }
+                    if !found_any {
+                        return Err(anyhow::anyhow!(
+                            "No image files found matching pattern: {}",
+                            source
+                        ));
+                    }
+                }
+                Err(_) => {
+                    // Not a valid glob pattern, treat as non-existent path
+                    return Err(anyhow::anyhow!(
+                        "Source path does not exist and is not a valid glob pattern: {}",
+                        source
+                    ));
+                }
+            }
+        }
+    }
+
+    // Sort all collected files for consistent ordering
+    all_image_files.sort();
+
+    // Remove duplicates (in case same file is specified multiple ways)
+    all_image_files.dedup();
+
+    Ok(all_image_files)
 }
 
 /// Determine optimal device based on number of images and user preference
@@ -572,7 +625,7 @@ fn handle_image_outputs(
 
     // Create metadata output unless skipped
     if !config.skip_metadata {
-        let source_path = Path::new(&config.source);
+        let source_path = image_path;
         let input_stem = source_path.file_stem().unwrap().to_str().unwrap();
 
         let toml_filename = if let Some(output_dir) = &config.output_dir {
@@ -606,40 +659,23 @@ fn handle_image_outputs(
 }
 
 pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
-    let source_path = Path::new(&config.source);
-
-    // Get list of images to process (either single file or directory)
-    let image_files = if source_path.is_file() {
-        if is_image_file(source_path) {
-            vec![source_path.to_path_buf()]
-        } else {
-            return Err(anyhow::anyhow!(
-                "File is not a supported image format: {}",
-                source_path.display()
-            ));
-        }
-    } else if source_path.is_dir() {
-        find_image_files(source_path)?
-    } else {
-        return Err(anyhow::anyhow!(
-            "Source path does not exist or is not a file/directory: {}",
-            source_path.display()
-        ));
-    };
+    // Collect all image files from the provided sources
+    let image_files = collect_image_files_from_sources(&config.sources)?;
 
     if image_files.is_empty() {
-        println!("⚠️  No image files found in: {}", source_path.display());
+        println!("⚠️  No image files found in the provided sources");
         return Ok(0);
     }
 
     // Log what we're processing
     if image_files.len() == 1 {
-        println!("� Processing single image: {}", image_files[0].display());
+        println!("🔍 Processing single image: {}", image_files[0].display());
     } else {
         println!(
-            "📁 Processing {} images from directory: {}",
+            "📁 Processing {} images from {} source{}",
             image_files.len(),
-            source_path.display()
+            config.sources.len(),
+            if config.sources.len() == 1 { "" } else { "s" }
         );
     }
 
@@ -663,7 +699,7 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
 
         // Create individual config for each image
         let mut image_config = config.clone();
-        image_config.source = image_path.to_string_lossy().to_string();
+        image_config.sources = vec![image_path.to_string_lossy().to_string()];
 
         match process_single_image(&mut session, image_path, &image_config) {
             Ok(detections) => {

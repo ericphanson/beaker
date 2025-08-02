@@ -10,9 +10,9 @@ use head_detection::{run_head_detection, HeadDetectionConfig, MODEL_VERSION};
 pub enum Commands {
     /// Detect bird heads in images
     Head {
-        /// Path to the input image or directory
-        #[arg(value_name = "IMAGE_OR_DIR")]
-        source: String,
+        /// Path(s) to input images or directories. Supports glob patterns like *.jpg
+        #[arg(value_name = "IMAGES_OR_DIRS", required = true)]
+        sources: Vec<String>,
 
         /// Confidence threshold for detections (0.0-1.0)
         #[arg(short, long, default_value = "0.25")]
@@ -60,14 +60,23 @@ fn main() {
 
     match &cli.command {
         Some(Commands::Head {
-            source,
+            sources,
             confidence,
             iou_threshold,
             device,
             crop,
             bounding_box,
         }) => {
-            println!("🔍 Running head detection on: {source}");
+            // Display what we're processing
+            if sources.len() == 1 {
+                println!("🔍 Running head detection on: {}", sources[0]);
+            } else {
+                println!("🔍 Running head detection on {} inputs:", sources.len());
+                for source in sources {
+                    println!("   • {source}");
+                }
+            }
+
             println!(
                 "   Model: embedded ONNX model (version: {})",
                 MODEL_VERSION.trim()
@@ -90,7 +99,7 @@ fn main() {
 
             // Run actual detection
             let config = HeadDetectionConfig {
-                source: source.to_string(),
+                sources: sources.clone(),
                 confidence: *confidence,
                 iou_threshold: *iou_threshold,
                 device: device.to_string(),
