@@ -448,6 +448,303 @@ fn test_output_file_naming() {
     }
 }
 
+#[test]
+fn test_png_transparency_preservation() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+
+    // Copy the PNG file with transparency to temp directory for testing
+    let source_png = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("example-no-bg.png");
+    let test_png = temp_dir.path().join("test-transparent.png");
+    fs::copy(&source_png, &test_png).expect("Failed to copy PNG test file");
+
+    let output_dir = temp_dir.path().join("output");
+    fs::create_dir(&output_dir).expect("Failed to create output directory");
+
+    let (exit_code, stdout, stderr) = run_beaker_command(&[
+        "head",
+        test_png.to_str().unwrap(),
+        "--confidence",
+        "0.5",
+        "--crop",
+        "--output-dir",
+        output_dir.to_str().unwrap(),
+    ]);
+
+    assert_eq!(
+        exit_code, 0,
+        "PNG processing should exit successfully. Stderr: {stderr}"
+    );
+    assert!(stdout.contains("Found"), "Should report found detections");
+
+    // Check that PNG crop files were created (not JPEG)
+    let png_crop_files: Vec<_> = fs::read_dir(&output_dir)
+        .expect("Failed to read output directory")
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            let binding = entry.file_name();
+            let name = binding.to_string_lossy();
+            name.contains("crop") && name.ends_with(".png")
+        })
+        .collect();
+
+    assert!(
+        !png_crop_files.is_empty(),
+        "Should create PNG crop files for PNG input"
+    );
+
+    // Verify no JPEG crop files were created
+    let jpeg_crop_files: Vec<_> = fs::read_dir(&output_dir)
+        .expect("Failed to read output directory")
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            let binding = entry.file_name();
+            let name = binding.to_string_lossy();
+            name.contains("crop") && (name.ends_with(".jpg") || name.ends_with(".jpeg"))
+        })
+        .collect();
+
+    assert!(
+        jpeg_crop_files.is_empty(),
+        "Should not create JPEG crop files for PNG input"
+    );
+
+    // Verify crop files have content and are actually PNG format
+    for crop_file in png_crop_files {
+        assert_file_exists_with_content(&crop_file.path());
+
+        // Read the file and verify it's a valid PNG by checking magic bytes
+        let crop_data = fs::read(crop_file.path()).expect("Failed to read crop file");
+        assert!(
+            crop_data.len() > 8 && &crop_data[0..8] == b"\x89PNG\r\n\x1a\n",
+            "Crop file should be valid PNG format"
+        );
+    }
+}
+
+#[test]
+fn test_jpeg_format_preservation() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+
+    // Copy the JPEG file to temp directory for testing
+    let source_jpg = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("example.jpg");
+    let test_jpg = temp_dir.path().join("test-image.jpg");
+    fs::copy(&source_jpg, &test_jpg).expect("Failed to copy JPEG test file");
+
+    let output_dir = temp_dir.path().join("output");
+    fs::create_dir(&output_dir).expect("Failed to create output directory");
+
+    let (exit_code, stdout, stderr) = run_beaker_command(&[
+        "head",
+        test_jpg.to_str().unwrap(),
+        "--confidence",
+        "0.5",
+        "--crop",
+        "--output-dir",
+        output_dir.to_str().unwrap(),
+    ]);
+
+    assert_eq!(
+        exit_code, 0,
+        "JPEG processing should exit successfully. Stderr: {stderr}"
+    );
+    assert!(stdout.contains("Found"), "Should report found detections");
+
+    // Check that JPEG crop files were created (not PNG)
+    let jpeg_crop_files: Vec<_> = fs::read_dir(&output_dir)
+        .expect("Failed to read output directory")
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            let binding = entry.file_name();
+            let name = binding.to_string_lossy();
+            name.contains("crop") && (name.ends_with(".jpg") || name.ends_with(".jpeg"))
+        })
+        .collect();
+
+    assert!(
+        !jpeg_crop_files.is_empty(),
+        "Should create JPEG crop files for JPEG input"
+    );
+
+    // Verify no PNG crop files were created
+    let png_crop_files: Vec<_> = fs::read_dir(&output_dir)
+        .expect("Failed to read output directory")
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            let binding = entry.file_name();
+            let name = binding.to_string_lossy();
+            name.contains("crop") && name.ends_with(".png")
+        })
+        .collect();
+
+    assert!(
+        png_crop_files.is_empty(),
+        "Should not create PNG crop files for JPEG input"
+    );
+
+    // Verify crop files have content and are actually JPEG format
+    for crop_file in jpeg_crop_files {
+        assert_file_exists_with_content(&crop_file.path());
+
+        // Read the file and verify it's a valid JPEG by checking magic bytes
+        let crop_data = fs::read(crop_file.path()).expect("Failed to read crop file");
+        assert!(
+            crop_data.len() > 2 && crop_data[0] == 0xFF && crop_data[1] == 0xD8,
+            "Crop file should be valid JPEG format"
+        );
+    }
+}
+
+#[test]
+fn test_bounding_box_format_consistency() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+
+    // Test PNG input produces PNG bounding box
+    let source_png = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("example-no-bg.png");
+    let test_png = temp_dir.path().join("test-transparent.png");
+    fs::copy(&source_png, &test_png).expect("Failed to copy PNG test file");
+
+    let output_dir = temp_dir.path().join("output");
+    fs::create_dir(&output_dir).expect("Failed to create output directory");
+
+    let (exit_code, _stdout, stderr) = run_beaker_command(&[
+        "head",
+        test_png.to_str().unwrap(),
+        "--confidence",
+        "0.5",
+        "--bounding-box",
+        "--output-dir",
+        output_dir.to_str().unwrap(),
+    ]);
+
+    assert_eq!(
+        exit_code, 0,
+        "PNG bounding box should exit successfully. Stderr: {stderr}"
+    );
+
+    // Check that PNG bounding box file was created
+    let png_bbox_path = output_dir.join("test-transparent-bounding-box.png");
+    assert_file_exists_with_content(&png_bbox_path);
+
+    // Verify it's a valid PNG
+    let bbox_data = fs::read(&png_bbox_path).expect("Failed to read bounding box file");
+    assert!(
+        bbox_data.len() > 8 && &bbox_data[0..8] == b"\x89PNG\r\n\x1a\n",
+        "Bounding box file should be valid PNG format"
+    );
+
+    // Test JPEG input produces JPEG bounding box
+    let source_jpg = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("example.jpg");
+    let test_jpg = temp_dir.path().join("test-image.jpg");
+    fs::copy(&source_jpg, &test_jpg).expect("Failed to copy JPEG test file");
+
+    let (exit_code, _stdout, stderr) = run_beaker_command(&[
+        "head",
+        test_jpg.to_str().unwrap(),
+        "--confidence",
+        "0.5",
+        "--bounding-box",
+        "--output-dir",
+        output_dir.to_str().unwrap(),
+    ]);
+
+    assert_eq!(
+        exit_code, 0,
+        "JPEG bounding box should exit successfully. Stderr: {stderr}"
+    );
+
+    // Check that JPEG bounding box file was created
+    let jpg_bbox_path = output_dir.join("test-image-bounding-box.jpg");
+    assert_file_exists_with_content(&jpg_bbox_path);
+
+    // Verify it's a valid JPEG
+    let bbox_data = fs::read(&jpg_bbox_path).expect("Failed to read bounding box file");
+    assert!(
+        bbox_data.len() > 2 && bbox_data[0] == 0xFF && bbox_data[1] == 0xD8,
+        "Bounding box file should be valid JPEG format"
+    );
+}
+
+#[test]
+fn test_mixed_format_batch_processing() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let test_data_dir = temp_dir.path().join("test_images");
+    fs::create_dir(&test_data_dir).expect("Failed to create test data directory");
+
+    // Copy both PNG and JPEG files to test directory
+    let source_dir = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    fs::copy(
+        source_dir.join("example.jpg"),
+        test_data_dir.join("test1.jpg"),
+    )
+    .expect("Failed to copy JPEG test file");
+    fs::copy(
+        source_dir.join("example-no-bg.png"),
+        test_data_dir.join("test2.png"),
+    )
+    .expect("Failed to copy PNG test file");
+
+    let output_dir = temp_dir.path().join("output");
+    fs::create_dir(&output_dir).expect("Failed to create output directory");
+
+    let (exit_code, stdout, stderr) = run_beaker_command(&[
+        "head",
+        test_data_dir.to_str().unwrap(),
+        "--confidence",
+        "0.5",
+        "--crop",
+        "--bounding-box",
+        "--output-dir",
+        output_dir.to_str().unwrap(),
+    ]);
+
+    assert_eq!(
+        exit_code, 0,
+        "Mixed format batch processing should exit successfully. Stderr: {stderr}"
+    );
+
+    // Should process multiple images
+    assert!(
+        stdout.contains("Processing 2 images") || stdout.contains("Processing 2"),
+        "Should process 2 images"
+    );
+
+    // Check that both JPEG and PNG output files were created with correct extensions
+    let jpg_crop = output_dir.join("test1-crop.jpg");
+    let png_crop = output_dir.join("test2-crop.png");
+    let jpg_bbox = output_dir.join("test1-bounding-box.jpg");
+    let png_bbox = output_dir.join("test2-bounding-box.png");
+
+    assert_file_exists_with_content(&jpg_crop);
+    assert_file_exists_with_content(&png_crop);
+    assert_file_exists_with_content(&jpg_bbox);
+    assert_file_exists_with_content(&png_bbox);
+
+    // Verify file formats are correct
+    let jpg_crop_data = fs::read(&jpg_crop).expect("Failed to read JPEG crop");
+    assert!(
+        jpg_crop_data.len() > 2 && jpg_crop_data[0] == 0xFF && jpg_crop_data[1] == 0xD8,
+        "JPEG crop should be valid JPEG format"
+    );
+
+    let png_crop_data = fs::read(&png_crop).expect("Failed to read PNG crop");
+    assert!(
+        png_crop_data.len() > 8 && &png_crop_data[0..8] == b"\x89PNG\r\n\x1a\n",
+        "PNG crop should be valid PNG format"
+    );
+}
+
 // ============================================================================
 // NEW TESTS FOR MULTIPLE INPUT SOURCES (directories, globs, multiple files)
 // ============================================================================
