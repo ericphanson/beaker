@@ -99,6 +99,7 @@ jobs:
         restore-keys: |
           bird-detector-models-${{ steps.cache-path.outputs.latest-tag }}-
           bird-detector-models-
+        enableCrossOsArchive: true
 
     - name: Show cache status
       run: |
