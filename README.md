@@ -1,8 +1,6 @@
 # Bird Head Detector
 
-A simple YOLOv8n-based bird head detection model trained on the CUB-200-2011 dataset. The model attempts to identify bird head regions in images, though performance varies significantly with image quality, bird pose, and species.
-
-The code was largely written by Claude Sonnet 4 via GitHub copilot.
+A tool to crop bird images to around their heads using a finetuned YOLOv8n model trained on the CUB-200-2011 dataset.
 
 ## 1. License & Usage
 
@@ -17,9 +15,7 @@ Commercial use would require **separate rights to the images** *and* a **non-AGP
 
 *No warranty. Provided "as is."*
 
-## 2. Quick Start Inference
-
-### Option A: Install as a Tool (Recommended)
+## 2. Quick Start
 
 Install directly from GitHub using [`uv`](https://docs.astral.sh/uv/getting-started/installation/):
 
@@ -35,38 +31,6 @@ bird-head-detector --source path/to/images/ --crop
 
 # Save to specific directory with custom padding
 bird-head-detector --source example.jpg --crop --output-dir crops/ --padding 0.5
-```
-
-### Option B: Clone and Run Locally
-
-You'll need `git` and [`uv`](https://docs.astral.sh/uv/getting-started/installation/).
-
-```bash
-# Clone the repository
-git clone https://github.com/ericphanson/bird-head-detector
-
-cd bird-head-detector
-
-# Install dependencies
-uv sync
-
-# Basic inference (downloads model automatically)
-uv run python infer.py --source example.jpg --show
-
-# Process all images in a directory
-uv run python infer.py --source path/to/images/ --crop
-
-# Save results
-uv run python infer.py --source example.jpg --save
-
-# Create square crops around detected heads (saves next to input as -crop suffix)
-uv run python infer.py --source example.jpg --crop
-
-# Save crops to specific directory
-uv run python infer.py --source example.jpg --crop --output-dir crops/
-
-# Adjust crop padding (default 25%, 0.5 = 50% padding)
-uv run python infer.py --source example.jpg --crop --padding 0.5
 ```
 
 For example, the example image
@@ -168,3 +132,7 @@ uv run python release.py
 ```
 
 The script uploads the selected model as `bird-head-detector.pt` along with training artifacts (plots, configs, results).
+
+## 5. Note
+
+The code in this repository was largely written by Claude Sonnet 4 via GitHub copilot.
