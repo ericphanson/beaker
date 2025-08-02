@@ -233,9 +233,20 @@ def detect_device():
     """Detect the best available device for inference."""
     try:
         import torch
-
+        
         if torch.backends.mps.is_available():
-            return "mps"  # Apple Silicon Mac
+            # Test if MPS actually works by trying a small operation
+            try:
+                test_tensor = torch.zeros(1, device="mps")
+                del test_tensor
+                return "mps"  # Apple Silicon Mac with working MPS
+            except RuntimeError as e:
+                if "MPS backend out of memory" in str(e):
+                    print("⚠️  MPS out of memory, falling back to CPU")
+                    return "cpu"
+                else:
+                    print(f"⚠️  MPS test failed ({e}), falling back to CPU")
+                    return "cpu"
         elif torch.cuda.is_available():
             return "cuda"  # NVIDIA GPU
         else:
@@ -325,13 +336,31 @@ def main():
     device = detect_device()
     if device:
         print(f"🚀 Using device: {device}")
-    results = model(
-        args.source,
-        save=False,  # We handle saving manually
-        show=args.show,
-        conf=args.conf,
-        device=device,  # Auto-detect best device
-    )
+    
+    # Try inference with the detected device, fallback to CPU if MPS fails
+    try:
+        results = model(
+            args.source,
+            save=False,  # We handle saving manually
+            show=args.show,
+            conf=args.conf,
+            device=device,  # Auto-detect best device
+        )
+    except RuntimeError as e:
+        if device == "mps" and "MPS backend out of memory" in str(e):
+            print("⚠️  MPS out of memory during inference, retrying with CPU...")
+            device = "cpu"
+            print(f"🚀 Retrying with device: {device}")
+            results = model(
+                args.source,
+                save=False,  # We handle saving manually
+                show=args.show,
+                conf=args.conf,
+                device=device,  # Fallback to CPU
+            )
+        else:
+            # Re-raise if it's not an MPS memory error
+            raise
 
     # Process results and create outputs
     total_detections = 0
