@@ -336,9 +336,7 @@ def create_release(version, model_path):
     # Create release with all assets
     print(f"🎁 Creating GitHub release...")
     release_title = f"Bird Head Detector {version}{debug_note}"
-    release_notes = f"""# Bird Head Detector {version}{debug_note}
-
-This release includes a trained YOLOv8n model for bird head detection with complete training artifacts.
+    release_notes = f"""This release includes a trained YOLOv8n model for bird head detection with complete training artifacts.
 
 ## Model Details
 - **Architecture**: YOLOv8n
