@@ -40,7 +40,7 @@ TRAINING_CONFIG = {
     "dataset": "CUB-200-2011",
     "architecture": "YOLOv8n",
     # Debug Configuration
-    "debug_run": True,  # Set to True for quick testing
+    "debug_run": False,  # Set to True for quick testing
     "debug_epochs": 5,  # Reduced epochs for debug
     "debug_fraction": 0.1,  # Use 10% of data for debug (0.1 = 10%)
 }
