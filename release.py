@@ -37,6 +37,14 @@ from pathlib import Path
 
 import yaml
 
+# Import YOLO for ONNX export
+try:
+    from ultralytics import YOLO
+
+    YOLO_AVAILABLE = True
+except ImportError:
+    YOLO_AVAILABLE = False
+
 
 def run_command(cmd, capture=True, check=True, timeout=60):
     """Run a shell command and return the result."""
@@ -118,6 +126,60 @@ def validate_version(version):
     return re.match(pattern, version) is not None
 
 
+def generate_onnx_model(model_path, output_dir=None):
+    """Generate ONNX model from PyTorch model."""
+    if not YOLO_AVAILABLE:
+        raise RuntimeError(
+            "❌ Ultralytics package not available! ONNX export is required for releases.\n"
+            "   Install with: uv sync --extra onnx"
+        )
+
+    try:
+        print(f"🔄 Generating ONNX model from {model_path.name}...")
+
+        # Load the model
+        model = YOLO(str(model_path))
+
+        # Determine output directory
+        if output_dir is None:
+            output_dir = model_path.parent
+        else:
+            output_dir = Path(output_dir)
+            output_dir.mkdir(exist_ok=True)
+
+        # Generate ONNX file path
+        onnx_path = output_dir / f"{model_path.stem}.onnx"
+
+        # Export to ONNX with optimized settings
+        print("   🚀 Exporting to ONNX format...")
+        export_path = model.export(
+            format="onnx",
+            imgsz=640,  # Standard input size
+            dynamic=False,  # Static input shape for better compatibility
+            simplify=True,  # Simplify the ONNX model
+            opset=11,  # ONNX opset 11 for good compatibility
+            half=False,  # Use FP32 for CPU compatibility
+        )
+
+        # Move to desired location if needed
+        export_path = Path(export_path)
+        if export_path != onnx_path:
+            if onnx_path.exists():
+                onnx_path.unlink()
+            export_path.rename(onnx_path)
+
+        # Verify ONNX file was created successfully
+        if not onnx_path.exists():
+            raise RuntimeError(f"ONNX export completed but file not found: {onnx_path}")
+
+        onnx_size = onnx_path.stat().st_size / (1024 * 1024)
+        print(f"✅ ONNX model generated: {onnx_path.name} ({onnx_size:.1f} MB)")
+        return onnx_path
+
+    except Exception as e:
+        raise RuntimeError(f"❌ Failed to generate ONNX model: {e}") from e
+
+
 def get_model_path():
     """Find available model files and let user choose."""
     # Search for all .pt files in runs/detect subdirectories
@@ -188,10 +250,18 @@ def collect_run_assets(model_path):
         run_dir = model_path.parent.parent  # Go up from weights/ to run directory
     else:
         # If not from a training run, just return the model file itself
-        return [model_path]
+        assets = [model_path]
+        # Generate ONNX model (will raise exception if it fails)
+        onnx_path = generate_onnx_model(model_path)
+        assets.append(onnx_path)
+        return assets
 
     if not run_dir.exists():
-        return [model_path]
+        assets = [model_path]
+        # Generate ONNX model (will raise exception if it fails)
+        onnx_path = generate_onnx_model(model_path)
+        assets.append(onnx_path)
+        return assets
 
     # Define file patterns to include in the release (excluding other .pt files)
     include_patterns = [
@@ -209,6 +279,10 @@ def collect_run_assets(model_path):
 
     # Add only the selected model file
     assets.append(model_path)
+
+    # Generate ONNX model (will raise exception if it fails)
+    onnx_path = generate_onnx_model(model_path, run_dir)
+    assets.append(onnx_path)
 
     return sorted(assets)
 
@@ -309,12 +383,15 @@ def create_release(version, model_path):
     # Create release notes with asset list
     asset_list = []
     model_files = []
+    onnx_files = []
     plot_files = []
     data_files = []
 
     for asset in assets:
         if asset.suffix == ".pt":
             model_files.append(asset.name)
+        elif asset.suffix == ".onnx":
+            onnx_files.append(asset.name)
         elif asset.suffix in [".png", ".jpg"]:
             plot_files.append(asset.name)
         elif asset.suffix in [".csv", ".yaml"]:
@@ -324,7 +401,10 @@ def create_release(version, model_path):
     files_section = "## Files\n"
     if model_files:
         files_section += "### Model Weights\n"
-        files_section += "- `bird-head-detector.pt`: Trained model weights\n"
+        files_section += "- `bird-head-detector.pt`: Trained model weights (PyTorch)\n"
+
+    if onnx_files:
+        files_section += "- `bird-head-detector.onnx`: Trained model weights (ONNX format)\n"
 
     if plot_files:
         files_section += "\n### Training Visualizations\n"
@@ -357,9 +437,18 @@ def create_release(version, model_path):
 - **Classes**: 1 (bird_head)
 
 ## Usage
-Download the model file and use with the inference script:
+Download the model files and use with the inference script:
+
+**PyTorch model:**
 ```bash
 uv run python beaker/infer.py --model bird-head-detector.pt --source your_image.jpg --show
+```
+
+**ONNX model (for production deployment):**
+```bash
+# Use with ONNX runtime or other frameworks that support ONNX
+# Model input: [1, 3, 640, 640] (NCHW format)
+# Model output: [1, 84, 8400] (detection results)
 ```
 
 {files_section}
@@ -395,13 +484,17 @@ uv run python beaker/infer.py --model bird-head-detector.pt --source your_image.
     if assets:
         print(f"📦 Uploading {len(assets)} assets to release...")
 
-        # Prepare asset paths, renaming the model file
+        # Prepare asset paths, renaming the model files
         asset_args = []
         for asset in assets:
             if asset.suffix == ".pt":
                 # Rename model to standardized name
                 asset_args.append(f'"{asset}"#bird-head-detector.pt')
                 print(f"   📝 Renaming {asset.name} → bird-head-detector.pt")
+            elif asset.suffix == ".onnx":
+                # Rename ONNX model to standardized name
+                asset_args.append(f'"{asset}"#bird-head-detector.onnx')
+                print(f"   📝 Renaming {asset.name} → bird-head-detector.onnx")
             else:
                 asset_args.append(f'"{asset}"')
 
@@ -422,6 +515,8 @@ uv run python beaker/infer.py --model bird-head-detector.pt --source your_image.
             size_mb = asset.stat().st_size / (1024 * 1024)
             if asset.suffix == ".pt":
                 print(f"   - bird-head-detector.pt ({size_mb:.1f} MB)")
+            elif asset.suffix == ".onnx":
+                print(f"   - bird-head-detector.onnx ({size_mb:.1f} MB)")
             else:
                 print(f"   - {asset.name} ({size_mb:.1f} MB)")
     else:
@@ -495,8 +590,27 @@ def main():
     model_size = model_path.stat().st_size / (1024 * 1024)  # MB
     print(f"   Size: {model_size:.1f} MB")
 
+    # Test ONNX generation early to fail fast
+    print("\n🔍 Validating ONNX export capability...")
+    try:
+        # Test with a temporary directory to avoid cluttering
+        with tempfile.TemporaryDirectory() as temp_dir:
+            test_onnx_path = generate_onnx_model(model_path, temp_dir)
+            print(f"✅ ONNX export test successful: {test_onnx_path.name}")
+    except Exception as e:
+        print(f"❌ ONNX export validation failed: {e}")
+        print("\n💡 This could be due to:")
+        print("   - Missing ONNX dependencies (run: uv sync --extra onnx)")
+        print("   - Incompatible model format")
+        print("   - System/environment issues")
+        sys.exit(1)
+
     # Show what assets will be uploaded
-    assets = collect_run_assets(model_path)
+    try:
+        assets = collect_run_assets(model_path)
+    except Exception as e:
+        print(f"❌ Failed to collect release assets: {e}")
+        sys.exit(1)
     if assets:
         print(f"\n📦 Assets to upload ({len(assets)} files):")
         total_size = 0
