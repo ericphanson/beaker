@@ -2,6 +2,19 @@
 
 A bird head detection dataset converter and tools for YOLO training.
 
+## Licence & Usage (inherited conditions)
+
+| Origin | Original terms | What that means for these weights |
+|--------|----------------|-----------------------------------|
+| **Dataset:** Caltech-UCSD Birds-200-2011 | “Images are for **non-commercial research and educational purposes only**.” | ➜ **No commercial use** of the weights or any derivative work. |
+| **Training code:** Ultralytics YOLOv8 | Source and official models released under **GNU AGPL-3.0** | ➜ If you **redistribute or serve** the weights, you must also release the full source & weights **under AGPL-3.0**. |
+
+### Summary  
+Because the weights were trained on CUB images *and* with AGPL-licensed code, they are provided **solely for non-commercial research/education** under **AGPL-3.0**.  
+Commercial use would require **separate rights to the images** *and* a **non-AGPL licence from Ultralytics**.
+
+*No warranty. Provided “as is.”*
+
 ## Convert CUB-200-2011 to YOLO Format
 
 The `convert_to_yolo.py` script converts the CUB-200-2011 bird dataset into YOLO format for bird head detection training. It extracts head-related parts (beak, crown, forehead, eyes, nape, throat) and creates bounding boxes with proper train/validation splits.
