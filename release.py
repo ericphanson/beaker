@@ -177,24 +177,24 @@ def get_model_path():
 
 
 def collect_run_assets(model_path):
-    """Collect all assets from the training run directory."""
+    """Collect all assets from the training run directory, including only the selected model."""
     # Get the run directory from the model path
     # Model path should be like: runs/detect/run_name/weights/best.pt
     if "runs/detect" in str(model_path):
         run_dir = model_path.parent.parent  # Go up from weights/ to run directory
     else:
-        return []
+        # If not from a training run, just return the model file itself
+        return [model_path]
 
     if not run_dir.exists():
-        return []
+        return [model_path]
 
-    # Define file patterns to include in the release
+    # Define file patterns to include in the release (excluding other .pt files)
     include_patterns = [
         "*.png",     # All plots and visualizations
         "*.jpg",     # Training/validation batch images
         "*.yaml",    # Training arguments
         "*.csv",     # Results data
-        "weights/*.pt"  # Model weights
     ]
 
     assets = []
@@ -202,6 +202,9 @@ def collect_run_assets(model_path):
         for file_path in run_dir.glob(pattern):
             if file_path.is_file():
                 assets.append(file_path)
+    
+    # Add only the selected model file
+    assets.append(model_path)
 
     return sorted(assets)
 
@@ -314,8 +317,7 @@ def create_release(version, model_path):
     files_section = f"## Files\n"
     if model_files:
         files_section += f"### Model Weights\n"
-        for f in model_files:
-            files_section += f"- `{f}`: Trained model weights\n"
+        files_section += f"- `bird-head-detector.pt`: Trained model weights\n"
 
     if plot_files:
         files_section += f"\n### Training Visualizations\n"
@@ -348,7 +350,7 @@ This release includes a trained YOLOv8n model for bird head detection with compl
 ## Usage
 Download the model file and use with the inference script:
 ```bash
-uv run python infer.py --model {model_path.name} --source your_image.jpg --show
+uv run python infer.py --model bird-head-detector.pt --source your_image.jpg --show
 ```
 
 {files_section}
@@ -383,8 +385,18 @@ uv run python infer.py --model {model_path.name} --source your_image.jpg --show
     # Upload assets to the release
     if assets:
         print(f"📦 Uploading {len(assets)} assets to release...")
-        asset_paths = [str(asset) for asset in assets]
-        assets_str = " ".join(f'"{path}"' for path in asset_paths)
+        
+        # Prepare asset paths, renaming the model file
+        asset_args = []
+        for asset in assets:
+            if asset.suffix == '.pt':
+                # Rename model to standardized name
+                asset_args.append(f'"{asset}"#bird-head-detector.pt')
+                print(f"   📝 Renaming {asset.name} → bird-head-detector.pt")
+            else:
+                asset_args.append(f'"{asset}"')
+        
+        assets_str = " ".join(asset_args)
 
         upload_cmd = f'gh release upload {version} {assets_str}'
         print(f"🔧 Running upload command...")
@@ -399,7 +411,10 @@ uv run python infer.py --model {model_path.name} --source your_image.jpg --show
         print(f"✅ Uploaded {len(assets)} assets:")
         for asset in assets:
             size_mb = asset.stat().st_size / (1024 * 1024)
-            print(f"   - {asset.name} ({size_mb:.1f} MB)")
+            if asset.suffix == '.pt':
+                print(f"   - bird-head-detector.pt ({size_mb:.1f} MB)")
+            else:
+                print(f"   - {asset.name} ({size_mb:.1f} MB)")
     else:
         print(f"ℹ️ No additional assets to upload")
 
