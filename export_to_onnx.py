@@ -25,7 +25,7 @@ Usage:
     uv run python export_to_onnx.py --model model.pt --name custom_model
 
     # Export with specific image size
-    uv run python export_to_onnx.py --tag v1.0.0 --imgsz 640
+    uv run python export_to_onnx.py --tag bird-head-detector-v1.0.0 --imgsz 640
 """
 
 import argparse
@@ -270,8 +270,8 @@ def main():
     if args.tag:
         # Download from GitHub release
         if not output_name:
-            # Use tag as output name (remove 'v' prefix if present)
-            output_name = args.tag.lstrip("v")
+            # Use full tag as output name
+            output_name = args.tag
 
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)

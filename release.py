@@ -7,7 +7,7 @@ This script:
 2. Shows existing tags/versions
 3. Finds available model files or uses specified model
 4. Prompts for a new version number (or uses provided version)
-5. Creates a git tag
+5. Creates a git tag with format 'bird-head-detector-v{version}'
 6. Uploads the selected model as a GitHub release asset
 7. Pushes everything to the remote repository
 
@@ -20,7 +20,7 @@ Usage:
     # Interactive mode - choose from available models
     uv run python release.py
 
-    # Specify model and version
+    # Specify model and version (creates tag: bird-head-detector-v1.2.0)
     uv run python release.py --model runs/detect/best_model/weights/best.pt --version 1.2.0
 
     # Specify just the model (will prompt for version)
@@ -282,9 +282,12 @@ def create_release(version, model_path):
     """Create a GitHub release with the model and training assets."""
     print(f"🚀 Creating release {version}...")
 
-    # Ensure version starts with 'v'
-    if not version.startswith("v"):
-        version = f"v{version}"
+    # Ensure version starts with 'bird-head-detector-v'
+    if not version.startswith("bird-head-detector-"):
+        if version.startswith("v"):
+            version = f"bird-head-detector-{version}"
+        else:
+            version = f"bird-head-detector-v{version}"
 
     # Create git tag
     print(f"📝 Creating git tag: {version}")
@@ -343,7 +346,7 @@ def create_release(version, model_path):
 
     # Create release with all assets
     print("🎁 Creating GitHub release...")
-    release_title = f"Bird Head Detector {version}{debug_note}"
+    release_title = f"Bird Head Detector Model {version}{debug_note}"
     release_notes = f"""This release includes a trained YOLOv8n model for bird head detection with complete training artifacts.
 
 ## Model Details
@@ -524,8 +527,13 @@ def main():
             print("   Use semantic versioning (e.g., 1.0.0)")
             sys.exit(1)
 
-        # Normalize version (add 'v' prefix if missing)
-        normalized_version = version if version.startswith("v") else f"v{version}"
+        # Normalize version (add 'bird-head-detector-v' prefix if missing)
+        if version.startswith("bird-head-detector-"):
+            normalized_version = version
+        elif version.startswith("v"):
+            normalized_version = f"bird-head-detector-{version}"
+        else:
+            normalized_version = f"bird-head-detector-v{version}"
 
         if normalized_version in existing_tags:
             print(f"❌ Version {normalized_version} already exists!")
@@ -543,8 +551,13 @@ def main():
                 print("   Invalid version format! Use semantic versioning (e.g., 1.0.0)")
                 continue
 
-            # Normalize version (add 'v' prefix if missing)
-            normalized_version = version if version.startswith("v") else f"v{version}"
+            # Normalize version (add 'bird-head-detector-v' prefix if missing)
+            if version.startswith("bird-head-detector-"):
+                normalized_version = version
+            elif version.startswith("v"):
+                normalized_version = f"bird-head-detector-{version}"
+            else:
+                normalized_version = f"bird-head-detector-v{version}"
 
             if normalized_version in existing_tags:
                 print(f"   Version {normalized_version} already exists!")

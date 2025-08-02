@@ -145,6 +145,26 @@ uv run python release.py
 
 The script uploads the selected model as `bird-head-detector.pt` along with training artifacts (plots, configs, results).
 
+### 4.5. ONNX Export
+
+After creating a release, convert models to ONNX format for deployment:
+
+```bash
+# Install ONNX dependencies
+uv sync --extra onnx
+
+# Export from GitHub release
+uv run python export_to_onnx.py --tag bird-head-detector-v1.0.0
+
+# Export from local model file
+uv run python export_to_onnx.py --model runs/detect/best_model/weights/best.pt
+
+# Export with custom settings
+uv run python export_to_onnx.py --tag bird-head-detector-v1.0.0 --name my_model --imgsz 640
+```
+
+ONNX models are saved in the `models/` directory for deployment to production environments or frameworks that support ONNX inference.
+
 ## 5. Note
 
 The code in this repository was largely written by Claude Sonnet 4 via GitHub copilot.
