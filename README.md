@@ -34,10 +34,17 @@ cargo build --release
 cargo install --path .
 ```
 
-### Usage
+### Usage examples
 
 ```bash
-beaker head example.jpg --confidence 0.75
+beaker --help
+beaker version
+
+beaker head --crop example.jpg
+beaker head --bounding-box example.jpg
+beaker head --crop --device cpu example.jpg
+beaker head --crop *.jpg
+beaker head --crop my_folder
 ```
 
 
@@ -69,11 +76,7 @@ yielding the output crop saved as `example-crop.jpg` (with 25% padding around th
 **Classes:** 1 (bird_head)
 **Input size:** 640×640 pixels
 
-**Expected performance:**
-- Generally reliable on clear photos of common bird species
-- May miss small or distant birds
-- Accuracy not evaluated on real-world deployment scenarios
-- Model size: ~6MB (nano variant prioritizes speed and portability)
+Here are the validation metrics from the [v1](https://github.com/ericphanson/beaker/releases/tag/bird-head-detector-v1.0.0) model currently used by `beaker`:
 
 | **Epoch** | **Precision** | **Recall** | **mAP@0.5** | **mAP@0.5:0.95** | **Val Box Loss** | **Val CLS Loss** | **Val DFL Loss** |
 |----------:|--------------:|-----------:|------------:|-----------------:|-----------------:|-----------------:|-----------------:|
