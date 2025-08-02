@@ -1,6 +1,7 @@
 use clap::Parser;
 
 mod head_detection;
+mod raw_processing;
 mod yolo_postprocessing;
 mod yolo_preprocessing;
 
