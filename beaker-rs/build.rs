@@ -23,21 +23,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Ok(cached_tag) = fs::read_to_string(cached_version_path) {
                 if let Ok(latest_tag) = get_latest_release_tag() {
                     if cached_tag.trim() == latest_tag.trim() {
-                        println!(
-                            "cargo:warning=Using cached ONNX model (version: {})",
-                            cached_tag.trim()
-                        );
+                        println!("Using cached ONNX model (version: {})", cached_tag.trim());
                         fs::copy(cached_path, &model_path)?;
                         fs::copy(cached_version_path, &version_path)?;
                         use_cache = true;
                     } else {
                         println!(
-                            "cargo:warning=Cache outdated (cached: {}, latest: {}), downloading new model",
-                            cached_tag.trim(), latest_tag.trim()
+                            "Cache outdated (cached: {}, latest: {}), downloading new model",
+                            cached_tag.trim(),
+                            latest_tag.trim()
                         );
                     }
                 } else {
-                    println!("cargo:warning=Could not check latest release, using cached model");
+                    println!("Could not check latest release, using cached model");
                     fs::copy(cached_path, &model_path)?;
                     fs::copy(cached_version_path, &version_path)?;
                     use_cache = true;
@@ -50,11 +48,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    // Only download if the model doesn't exist or if we're in CI
-    let force_download = env::var("CI").is_ok() || !model_path.exists();
+    // Only download if the model doesn't exist or if we're in CI or if forced
+    let force_download =
+        env::var("CI").is_ok() || env::var("FORCE_DOWNLOAD").is_ok() || !model_path.exists();
 
     if force_download {
-        println!("cargo:warning=Downloading latest ONNX model from GitHub releases...");
+        println!("Downloading latest ONNX model from GitHub releases...");
         let release_tag = download_latest_model(&model_path)?;
 
         // Write version file
@@ -72,14 +71,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
 
                 println!(
-                    "cargo:warning=Cached model (version: {}) for future builds at: {}",
+                    "Cached model (version: {}) for future builds at: {}",
                     release_tag,
                     cached_path.display()
                 );
             }
         }
     } else {
-        println!("cargo:warning=Using existing ONNX model");
+        println!("Using existing ONNX model");
 
         // If we have an existing model but no version file, try to get version
         if !version_path.exists() {
@@ -100,10 +99,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("cargo:rerun-if-env-changed=ONNX_MODEL_CACHE_DIR");
     }
 
+    // Tell cargo to rebuild if FORCE_DOWNLOAD is set
+    println!("cargo:rerun-if-env-changed=FORCE_DOWNLOAD");
+
     Ok(())
 }
 fn get_latest_release_tag() -> Result<String, Box<dyn std::error::Error>> {
-    let api_url = "https://api.github.com/repos/ericphanson/beaker/releases/latest";
+    let api_url = "https://api.github.com/repos/ericphanson/beaker/releases";
 
     let client = ureq::Agent::new();
     let response = client
@@ -111,20 +113,29 @@ fn get_latest_release_tag() -> Result<String, Box<dyn std::error::Error>> {
         .set("User-Agent", "beaker-rs-build-script/0.1.0")
         .call()?;
 
-    let release_info: serde_json::Value = response.into_json()?;
+    let releases: serde_json::Value = response.into_json()?;
 
-    let tag_name = release_info["tag_name"]
-        .as_str()
-        .ok_or("No tag_name found in release")?;
+    let releases_array = releases.as_array().ok_or("No releases found")?;
 
-    Ok(tag_name.to_string())
+    // Find the latest release that matches the bird-head-detector pattern
+    for release in releases_array {
+        let tag_name = release["tag_name"]
+            .as_str()
+            .ok_or("No tag_name found in release")?;
+
+        if tag_name.starts_with("bird-head-detector-v") {
+            return Ok(tag_name.to_string());
+        }
+    }
+
+    Err("No bird-head-detector release found".into())
 }
 
 fn download_latest_model(output_path: &Path) -> Result<String, Box<dyn std::error::Error>> {
-    // GitHub API to get the latest release
-    let api_url = "https://api.github.com/repos/ericphanson/beaker/releases/latest";
+    // GitHub API to get all releases
+    let api_url = "https://api.github.com/repos/ericphanson/beaker/releases";
 
-    println!("cargo:warning=Fetching latest release info from: {api_url}");
+    println!("Fetching releases from: {api_url}");
 
     let client = ureq::Agent::new();
     let response = client
@@ -132,53 +143,60 @@ fn download_latest_model(output_path: &Path) -> Result<String, Box<dyn std::erro
         .set("User-Agent", "beaker-rs-build-script/0.1.0")
         .call()?;
 
-    let release_info: serde_json::Value = response.into_json()?;
+    let releases: serde_json::Value = response.into_json()?;
 
-    // Get the release tag
-    let tag_name = release_info["tag_name"]
-        .as_str()
-        .ok_or("No tag_name found in release")?
-        .to_string();
+    let releases_array = releases.as_array().ok_or("No releases found")?;
 
-    // Find the ONNX model asset
-    let assets = release_info["assets"]
-        .as_array()
-        .ok_or("No assets found in release")?;
+    // Find the latest release that matches the bird-head-detector pattern
+    for release in releases_array {
+        let tag_name = release["tag_name"]
+            .as_str()
+            .ok_or("No tag_name found in release")?;
 
-    let onnx_asset = assets
-        .iter()
-        .find(|asset| {
-            asset["name"]
+        if tag_name.starts_with("bird-head-detector-v") {
+            // Find the ONNX model asset in this release
+            let assets = release["assets"]
+                .as_array()
+                .ok_or("No assets found in release")?;
+
+            let onnx_asset = assets
+                .iter()
+                .find(|asset| {
+                    asset["name"]
+                        .as_str()
+                        .map(|name| name.ends_with(".onnx"))
+                        .unwrap_or(false)
+                })
+                .ok_or("No ONNX model found in bird-head-detector release")?;
+
+            let download_url = onnx_asset["browser_download_url"]
                 .as_str()
-                .map(|name| name.ends_with(".onnx"))
-                .unwrap_or(false)
-        })
-        .ok_or("No ONNX model found in latest release")?;
+                .ok_or("No download URL found for ONNX asset")?;
 
-    let download_url = onnx_asset["browser_download_url"]
-        .as_str()
-        .ok_or("No download URL found for ONNX asset")?;
+            let model_name = onnx_asset["name"]
+                .as_str()
+                .unwrap_or("bird-head-detector.onnx");
 
-    let model_name = onnx_asset["name"]
-        .as_str()
-        .unwrap_or("bird-head-detector.onnx");
+            println!("Downloading {model_name} (version: {tag_name}) from: {download_url}");
 
-    println!("cargo:warning=Downloading {model_name} (version: {tag_name}) from: {download_url}");
+            // Download the model
+            let response = client
+                .get(download_url)
+                .set("User-Agent", "beaker-rs-build-script/0.1.0")
+                .call()?;
 
-    // Download the model
-    let response = client
-        .get(download_url)
-        .set("User-Agent", "beaker-rs-build-script/0.1.0")
-        .call()?;
+            let mut reader = response.into_reader();
+            let mut file = fs::File::create(output_path)?;
+            std::io::copy(&mut reader, &mut file)?;
 
-    let mut reader = response.into_reader();
-    let mut file = fs::File::create(output_path)?;
-    std::io::copy(&mut reader, &mut file)?;
+            println!(
+                "Successfully downloaded model to: {}",
+                output_path.display()
+            );
 
-    println!(
-        "cargo:warning=Successfully downloaded model to: {}",
-        output_path.display()
-    );
+            return Ok(tag_name.to_string());
+        }
+    }
 
-    Ok(tag_name)
+    Err("No bird-head-detector release found".into())
 }
