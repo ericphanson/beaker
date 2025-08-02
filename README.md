@@ -137,6 +137,8 @@ uv run python -c "import torch; print(f'MPS available: {torch.backends.mps.is_av
 
 ### 4.3. Training
 
+If using [comet](https://www.comet.com/), update [`.envrc`](./envrc) to set the `COMET_WORKSPACE` variable and add your API key to your environment (`export COMET_API_KEY="your-api-key"`).
+
 **Basic training:**
 ```bash
 uv run python train.py
@@ -144,12 +146,6 @@ uv run python train.py
 
 **Debug mode** (faster, less data):
 Edit `train.py` and set `'debug_run': True` in `TRAINING_CONFIG`.
-
-**Comet.ml tracking** (optional):
-```bash
-export COMET_API_KEY="your-api-key"
-uv run python train.py
-```
 
 **Training notes:**
 - Expects ~2-4 hours on M1 MacBook Pro for full training
