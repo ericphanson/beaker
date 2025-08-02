@@ -143,7 +143,7 @@ uv run python release.py
 # Follow prompts for version number and model selection
 ```
 
-The script uploads the selected model as `bird-head-detector.pt` along with training artifacts (plots, configs, results).
+The script uploads the selected model as `bird-head-detector.pt` along with training artifacts (plots, configs, results) and an ONNX export ``bird-head-detector.onnx`.
 
 ### 4.5. ONNX Export
 
