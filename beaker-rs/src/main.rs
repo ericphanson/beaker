@@ -636,51 +636,72 @@ fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
             None
         };
 
-        // Use the highest confidence detection (first in sorted list) for outputs
-        let best_detection = &sorted_detections[0];
-
-        // Create crop if requested
+        // Create crops if requested (one per detection)
         if config.crop {
-            let crop_filename = if let Some(output_dir) = config.output_dir {
-                let output_dir = Path::new(output_dir);
-                output_dir.join(format!("{input_stem}-crop.{input_ext}"))
-            } else {
-                source_path
-                    .parent()
-                    .unwrap()
-                    .join(format!("{input_stem}-crop.{input_ext}"))
-            };
+            // Determine if we need zero-padding for filenames
+            let use_padding = sorted_detections.len() >= 10;
+            let use_suffix = sorted_detections.len() > 1;
 
-            match create_square_crop(&img, best_detection, &crop_filename, 0.25) {
-                Ok(()) => {
-                    crops_created += 1;
-                    if detections.len() == 1 {
-                        println!("✂️  Created crop: {}", crop_filename.display());
+            for (i, detection) in sorted_detections.iter().enumerate() {
+                let crop_filename = if let Some(output_dir) = config.output_dir {
+                    let output_dir = Path::new(output_dir);
+                    if use_suffix {
+                        if use_padding {
+                            output_dir.join(format!("{input_stem}-crop-{:02}.{input_ext}", i + 1))
+                        } else {
+                            output_dir.join(format!("{input_stem}-crop-{}.{input_ext}", i + 1))
+                        }
                     } else {
-                        println!(
-                            "✂️  Created crop: {} (used highest confidence: {:.3}, {} total detections)",
-                            crop_filename.display(),
-                            best_detection.confidence,
-                            detections.len()
-                        );
+                        output_dir.join(format!("{input_stem}-crop.{input_ext}"))
                     }
-
-                    // Update only the highest confidence detection with crop path
-                    // Make path relative to TOML file if TOML will be created
-                    let crop_path = if let Some(ref toml_path) = toml_filename {
-                        make_path_relative_to_toml(&crop_filename, toml_path)?
+                } else if use_suffix {
+                    if use_padding {
+                        source_path
+                            .parent()
+                            .unwrap()
+                            .join(format!("{input_stem}-crop-{:02}.{input_ext}", i + 1))
                     } else {
-                        crop_filename.to_string_lossy().to_string()
-                    };
-                    head_detections[0].crop_path = Some(crop_path);
-                }
-                Err(e) => {
-                    eprintln!("❌ Failed to create crop: {e}");
+                        source_path
+                            .parent()
+                            .unwrap()
+                            .join(format!("{input_stem}-crop-{}.{input_ext}", i + 1))
+                    }
+                } else {
+                    source_path
+                        .parent()
+                        .unwrap()
+                        .join(format!("{input_stem}-crop.{input_ext}"))
+                };
+
+                match create_square_crop(&img, detection, &crop_filename, 0.25) {
+                    Ok(()) => {
+                        crops_created += 1;
+                        if sorted_detections.len() == 1 {
+                            println!("✂️  Created crop: {}", crop_filename.display());
+                        } else {
+                            println!(
+                                "✂️  Created crop {}: {} (confidence: {:.3})",
+                                i + 1,
+                                crop_filename.display(),
+                                detection.confidence
+                            );
+                        }
+
+                        // Update the corresponding detection with crop path
+                        // Make path relative to TOML file if TOML will be created
+                        let crop_path = if let Some(ref toml_path) = toml_filename {
+                            make_path_relative_to_toml(&crop_filename, toml_path)?
+                        } else {
+                            crop_filename.to_string_lossy().to_string()
+                        };
+                        head_detections[i].crop_path = Some(crop_path);
+                    }
+                    Err(e) => {
+                        eprintln!("❌ Failed to create crop {}: {e}", i + 1);
+                    }
                 }
             }
-        }
-
-        // Save bounding box image if requested
+        } // Save bounding box image if requested
         if config.bounding_box {
             let bbox_filename = if let Some(output_dir) = config.output_dir {
                 let output_dir = Path::new(output_dir);
