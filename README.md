@@ -129,7 +129,7 @@ Edit `train.py` and set `'debug_run': True` in `TRAINING_CONFIG`.
 - Batch size may need adjustment based on available memory
 - No hyperparameter tuning has been performed
 
-### 4.4. Releases
+### 4.4. Upload training results as GitHub releases
 
 Create GitHub releases with trained models:
 
@@ -138,39 +138,12 @@ Create GitHub releases with trained models:
 git add . && git commit -m "Update before release"
 
 # Create release
-uv run python release.py
+uv run python upload_train.py
 
 # Follow prompts for version number and model selection
 ```
 
 The script uploads the selected model as `bird-head-detector.pt` along with training artifacts (plots, configs, results) and an ONNX export ``bird-head-detector.onnx`.
-
-### 4.5. ONNX Export
-
-After creating a release, convert models to ONNX format for deployment:
-
-```bash
-# Install ONNX dependencies
-uv sync --extra onnx
-
-# Export from GitHub release (optimized by default)
-uv run python export_to_onnx.py --tag bird-head-detector-v1.0.0
-
-# Export from local model file
-uv run python export_to_onnx.py --model runs/detect/best_model/weights/best.pt
-
-# Export with smaller input size for reduced model size
-uv run python export_to_onnx.py --tag bird-head-detector-v1.0.0 --imgsz 320
-
-# Export without optimizations for maximum compatibility
-uv run python export_to_onnx.py --tag bird-head-detector-v1.0.0 --no-optimize
-
-# Export with custom settings
-uv run python export_to_onnx.py --tag bird-head-detector-v1.0.0 --name my_model --opset 12
-```
-
-
-ONNX models are saved in the `models/` directory for deployment to production environments or frameworks that support ONNX inference.
 
 ## 5. Note
 
