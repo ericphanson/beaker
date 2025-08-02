@@ -110,7 +110,14 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
         """Run beaker with given arguments."""
         # First try using the installed tool
         cmd = ["beaker"] + args
-        result = subprocess.run(cmd, capture_output=True, text=True, cwd=self.temp_dir)
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=self.temp_dir,
+        )
 
         # Always print the full output for debugging CI issues
         print(f"🔍 Running command: {' '.join(cmd)}")
@@ -180,7 +187,12 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
         # Check tool installation
         try:
             tool_check = subprocess.run(
-                ["uv", "tool", "list"], capture_output=True, text=True, timeout=10
+                ["uv", "tool", "list"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
             )
             if "beaker" in tool_check.stdout:
                 debug_lines.append("✅ beaker is installed via uv tool")
@@ -206,7 +218,12 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
 
         try:
             help_result = subprocess.run(
-                ["beaker", "--help"], capture_output=True, text=True, timeout=10
+                ["beaker", "--help"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
             )
             debug_lines.extend(
                 [
@@ -591,7 +608,9 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
 
     def test_help_option(self):
         """Test --help option."""
-        result = subprocess.run(["beaker", "--help"], capture_output=True, text=True)
+        result = subprocess.run(
+            ["beaker", "--help"], capture_output=True, text=True, encoding="utf-8", errors="replace"
+        )
 
         self.assertEqual(result.returncode, 0)
         self.assertIn("Bird head detection inference", result.stdout)
