@@ -451,9 +451,12 @@ fn create_session(config: &HeadDetectionConfig, device: &str) -> Result<(Session
 
     // Load the embedded model using ORT v2 API
     let session_start = Instant::now();
-    let session = Session::builder()?
-        .with_execution_providers(execution_providers)?
-        .commit_from_memory(MODEL_BYTES)?;
+    let session = Session::builder()
+        .map_err(|e| anyhow::anyhow!("Failed to create session builder: {}", e))?
+        .with_execution_providers(execution_providers)
+        .map_err(|e| anyhow::anyhow!("Failed to set execution providers: {}", e))?
+        .commit_from_memory(MODEL_BYTES)
+        .map_err(|e| anyhow::anyhow!("Failed to load model from memory: {}", e))?;
     let session_load_time = session_start.elapsed();
 
     verbose_println!(
@@ -497,12 +500,17 @@ fn process_single_image(
 
     // Run inference using ORT v2 API with timing
     let inference_start = Instant::now();
-    let input_value = Value::from_array(input_tensor)?;
-    let outputs = session.run(ort::inputs!["images" => &input_value])?;
+    let input_value = Value::from_array(input_tensor)
+        .map_err(|e| anyhow::anyhow!("Failed to create input value: {}", e))?;
+    let outputs = session
+        .run(ort::inputs!["images" => &input_value])
+        .map_err(|e| anyhow::anyhow!("Failed to run inference: {}", e))?;
     let inference_time = inference_start.elapsed();
 
     // Extract the output tensor using ORT v2 API and convert to owned array
-    let output_view = outputs["output0"].try_extract_array::<f32>()?;
+    let output_view = outputs["output0"]
+        .try_extract_array::<f32>()
+        .map_err(|e| anyhow::anyhow!("Failed to extract output array: {}", e))?;
     let output_array =
         Array::from_shape_vec(output_view.shape(), output_view.iter().cloned().collect())?;
 
