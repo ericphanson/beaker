@@ -58,6 +58,18 @@ yielding the output crop saved as `example-crop.jpg` (with 25% padding around th
 - Accuracy not evaluated on real-world deployment scenarios
 - Model size: ~6MB (nano variant prioritizes speed and portability)
 
+| **Epoch** | **Precision** | **Recall** | **mAP@0.5** | **mAP@0.5:0.95** | **Val Box Loss** | **Val CLS Loss** | **Val DFL Loss** |
+|----------:|--------------:|-----------:|------------:|-----------------:|-----------------:|-----------------:|-----------------:|
+| 17        | 0.9771        | 0.9646     | 0.9851      | 0.6779           | 1.1704           | 0.4518           | 1.2195           |
+
+- **Precision**: Proportion of predicted bird heads that are correct (≈ 97.7%).
+- **Recall**: Proportion of actual bird heads detected (≈ 96.5%).
+- **mAP@0.5**: Mean Average Precision at IoU threshold 0.5 — primary object detection metric; high (≈ 98.5%).
+- **mAP@0.5:0.95**: Averaged mAP over IoU thresholds from 0.5 to 0.95 (in steps of 0.05); more stringent (≈ 67.8%).
+- **Box Loss**: Localization loss – how well bounding boxes fit bird heads.
+- **CLS Loss**: Classification loss – low, as expected for single-class task.
+- **DFL Loss**: Distribution Focal Loss – helps with bounding box quality.
+
 ## 4. Development & Training
 
 ### 4.1. Data
