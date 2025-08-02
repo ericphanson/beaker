@@ -73,10 +73,10 @@ fn main() {
             show,
             model,
         }) => {
-            println!("🔍 Would detect bird heads in: {}", source);
-            println!("   Model: {}", model);
-            println!("   Confidence threshold: {}", confidence);
-            println!("   Device: {}", device);
+            println!("🔍 Would detect bird heads in: {source}");
+            println!("   Model: {model}");
+            println!("   Confidence threshold: {confidence}");
+            println!("   Device: {device}");
             if *skip_crop {
                 println!("   Skipping crop generation");
             }
@@ -87,7 +87,7 @@ fn main() {
                 println!("   Will show results");
             }
             if let Some(output) = output {
-                println!("   Output directory: {}", output);
+                println!("   Output directory: {output}");
             }
 
             // Run actual detection
@@ -103,10 +103,10 @@ fn main() {
             };
             match run_detection(config) {
                 Ok(detections) => {
-                    println!("✅ Found {} detections", detections);
+                    println!("✅ Found {detections} detections");
                 }
                 Err(e) => {
-                    eprintln!("❌ Detection failed: {}", e);
+                    eprintln!("❌ Detection failed: {e}");
                     std::process::exit(1);
                 }
             }
@@ -121,9 +121,9 @@ fn main() {
         }
         None => {
             if let Some(image) = &cli.image {
-                println!("🔍 Would detect bird heads in: {}", image);
+                println!("🔍 Would detect bird heads in: {image}");
                 println!("   [Not implemented yet - this is a skeleton]");
-                println!("   Hint: Use 'beaker detect {}' for more options", image);
+                println!("   Hint: Use 'beaker detect {image}' for more options");
             } else {
                 // Show help if no command or image specified
                 use clap::CommandFactory;
@@ -274,7 +274,7 @@ fn run_detection(config: DetectionConfig) -> Result<usize> {
     let img = image::open(config.source)?;
     let (orig_width, orig_height) = img.dimensions();
 
-    println!("📷 Loaded image: {}x{}", orig_width, orig_height);
+    println!("📷 Loaded image: {orig_width}x{orig_height}");
 
     // Initialize ONNX Runtime
     let environment = Arc::new(Environment::builder().with_name("beaker").build()?);
@@ -309,7 +309,7 @@ fn run_detection(config: DetectionConfig) -> Result<usize> {
     let model_size = 640; // Standard YOLO input size
     let input_tensor = preprocess_image(&img, model_size)?;
 
-    println!("🔄 Preprocessed image to {}x{}", model_size, model_size);
+    println!("🔄 Preprocessed image to {model_size}x{model_size}");
 
     // Create input for ONNX Runtime
     let input_view = input_tensor.view();
@@ -338,23 +338,21 @@ fn run_detection(config: DetectionConfig) -> Result<usize> {
         model_size,
     )?;
 
+    let detection_count = detections.len();
+    let confidence_threshold = config.confidence;
     println!(
-        "🎯 Found {} detections above confidence threshold {}",
-        detections.len(),
-        config.confidence
+        "🎯 Found {detection_count} detections above confidence threshold {confidence_threshold}"
     );
 
     // Print detection details
     for (i, detection) in detections.iter().enumerate() {
-        println!(
-            "  Detection {}: bbox=({:.1}, {:.1}, {:.1}, {:.1}), confidence={:.3}",
-            i + 1,
-            detection.x1,
-            detection.y1,
-            detection.x2,
-            detection.y2,
-            detection.confidence
-        );
+        let detection_num = i + 1;
+        let x1 = detection.x1;
+        let y1 = detection.y1;
+        let x2 = detection.x2;
+        let y2 = detection.y2;
+        let confidence = detection.confidence;
+        println!("  Detection {detection_num}: bbox=({x1:.1}, {y1:.1}, {x2:.1}, {y2:.1}), confidence={confidence:.3}");
     }
 
     // TODO: Implement cropping, bounding box saving, and display functionality

@@ -21,7 +21,9 @@ repos:
   - repo: https://github.com/doublify/pre-commit-rust
     rev: v1.0
     hooks:
+      # Format Rust code automatically
       - id: fmt
         args: ['--manifest-path', 'beaker-rs/Cargo.toml', '--']
+      # Run clippy with exact same settings as CI
       - id: clippy
-        args: ['--manifest-path', 'beaker-rs/Cargo.toml', '--', '-D', 'warnings']
+        args: ['--manifest-path', 'beaker-rs/Cargo.toml', '--features', 'cpu', '--', '-D', 'warnings']
