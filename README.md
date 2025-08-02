@@ -35,6 +35,15 @@ beaker head --bounding-box example.jpg
 beaker head --crop --device cpu example.jpg
 beaker head --crop *.jpg
 beaker head --crop my_folder
+
+# Basic background removal
+beaker cutout image.jpg
+
+# Advanced alpha matting
+beaker cutout --alpha-matting --save-mask image.jpg
+
+# White background replacement
+beaker cutout --background-color "255,255,255,255" image.jpg
 ```
 
 For example, the example image

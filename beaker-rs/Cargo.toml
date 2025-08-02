@@ -22,6 +22,10 @@ serde   = { version = "1.0", features = ["derive"] }
 toml    = "0.8"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 glob    = "0.3"
+dirs    = "5.0"
+sha2    = "0.10"
+md5     = "0.7"
+reqwest = { version = "0.11", features = ["blocking"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Add Core ML only where the pre-built binary exists
