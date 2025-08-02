@@ -24,6 +24,11 @@ repos:
       # Format Rust code automatically
       - id: fmt
         args: ['--manifest-path', 'beaker-rs/Cargo.toml', '--']
-      # Run clippy with exact same settings as CI
+      # Run clippy with CPU features (like Linux/Windows CI)
       - id: clippy
+        name: clippy-cpu
         args: ['--manifest-path', 'beaker-rs/Cargo.toml', '--features', 'cpu', '--', '-D', 'warnings']
+      # Run clippy with CoreML features (like macOS CI)
+      - id: clippy
+        name: clippy-coreml
+        args: ['--manifest-path', 'beaker-rs/Cargo.toml', '--features', 'coreml', '--', '-D', 'warnings']
