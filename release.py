@@ -484,31 +484,41 @@ uv run python beaker/infer.py --model bird-head-detector.pt --source your_image.
     if assets:
         print(f"📦 Uploading {len(assets)} assets to release...")
 
-        # Prepare asset paths, renaming the model files
-        asset_args = []
-        for asset in assets:
-            if asset.suffix == ".pt":
-                # Rename model to standardized name
-                asset_args.append(f'"{asset}"#bird-head-detector.pt')
-                print(f"   📝 Renaming {asset.name} → bird-head-detector.pt")
-            elif asset.suffix == ".onnx":
-                # Rename ONNX model to standardized name
-                asset_args.append(f'"{asset}"#bird-head-detector.onnx')
-                print(f"   📝 Renaming {asset.name} → bird-head-detector.onnx")
-            else:
-                asset_args.append(f'"{asset}"')
+        # Create temporary directory for renamed files
+        with tempfile.TemporaryDirectory() as temp_upload_dir:
+            temp_path = Path(temp_upload_dir)
 
-        assets_str = " ".join(asset_args)
+            # Prepare asset paths, creating renamed copies for model files
+            upload_files = []
+            for asset in assets:
+                if asset.suffix == ".pt":
+                    # Create renamed copy of PT file
+                    renamed_pt = temp_path / "bird-head-detector.pt"
+                    renamed_pt.write_bytes(asset.read_bytes())
+                    upload_files.append(str(renamed_pt))
+                    print(f"   📝 Renaming {asset.name} → bird-head-detector.pt")
+                elif asset.suffix == ".onnx":
+                    # Create renamed copy of ONNX file
+                    renamed_onnx = temp_path / "bird-head-detector.onnx"
+                    renamed_onnx.write_bytes(asset.read_bytes())
+                    upload_files.append(str(renamed_onnx))
+                    print(f"   📝 Renaming {asset.name} → bird-head-detector.onnx")
+                else:
+                    upload_files.append(str(asset))
 
-        upload_cmd = f"gh release upload {version} {assets_str}"
-        print("🔧 Running upload command...")
-        stdout, stderr = run_command(upload_cmd, timeout=300)  # 5 minute timeout for uploads
+            # Upload all files
+            files_str = " ".join(f'"{f}"' for f in upload_files)
+            upload_cmd = f"gh release upload {version} {files_str}"
+            print("🔧 Running upload command...")
+            stdout, stderr = run_command(upload_cmd, timeout=300)  # 5 minute timeout for uploads
 
-        if stderr and "timed out" in stderr:
-            print("❌ Upload timed out. Try uploading fewer assets or check network connection.")
-            return False
-        elif stderr:
-            print(f"⚠️ Warning during asset upload: {stderr}")
+            if stderr and "timed out" in stderr:
+                print(
+                    "❌ Upload timed out. Try uploading fewer assets or check network connection."
+                )
+                return False
+            elif stderr:
+                print(f"⚠️ Warning during asset upload: {stderr}")
 
         print(f"✅ Uploaded {len(assets)} assets:")
         for asset in assets:
