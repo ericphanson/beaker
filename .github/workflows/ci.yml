@@ -39,7 +39,7 @@ jobs:
       run: uv python install ${{ matrix.python-version }}
 
     - name: Install minimal dependencies for cache path detection
-      run: uv pip install platformdirs
+      run: uv pip install --system platformdirs
 
     - name: Get cache directory path and latest tag
       id: cache-path
