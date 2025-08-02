@@ -16,7 +16,7 @@ Requirements:
 
 Usage:
     # Export from GitHub release tag
-    uv run python export_to_onnx.py --tag v1.0.0
+    uv run python export_to_onnx.py --tag bird-head-detector-v1.0.0
 
     # Export from local file
     uv run python export_to_onnx.py --model path/to/model.pt
