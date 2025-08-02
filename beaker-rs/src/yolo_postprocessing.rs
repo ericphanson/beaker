@@ -1,7 +1,8 @@
 use anyhow::Result;
 use ndarray::Array;
+use serde::Serialize;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Detection {
     pub x1: f32,
     pub y1: f32,

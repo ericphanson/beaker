@@ -10,8 +10,8 @@ use head_detection::{run_head_detection, HeadDetectionConfig, MODEL_VERSION};
 pub enum Commands {
     /// Detect bird heads in images
     Head {
-        /// Path to the input image
-        #[arg(value_name = "IMAGE")]
+        /// Path to the input image or directory
+        #[arg(value_name = "IMAGE_OR_DIR")]
         source: String,
 
         /// Confidence threshold for detections (0.0-1.0)
@@ -90,11 +90,11 @@ fn main() {
 
             // Run actual detection
             let config = HeadDetectionConfig {
-                source,
+                source: source.to_string(),
                 confidence: *confidence,
                 iou_threshold: *iou_threshold,
-                device,
-                output_dir: cli.output_dir.as_deref(),
+                device: device.to_string(),
+                output_dir: cli.output_dir,
                 crop: *crop,
                 bounding_box: *bounding_box,
                 skip_metadata: cli.no_metadata,

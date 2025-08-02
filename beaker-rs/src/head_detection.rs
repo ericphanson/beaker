@@ -4,9 +4,10 @@ use ndarray::Array;
 use ort::{
     execution_providers::{CPUExecutionProvider, CoreMLExecutionProvider, ExecutionProvider},
     session::Session,
-    value::TensorRef,
+    value::Value,
 };
 use serde::Serialize;
+use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
@@ -42,8 +43,31 @@ pub struct HeadSection {
 }
 
 #[derive(Serialize)]
+pub struct HeadDetectionOutput {
+    pub head: HeadResult,
+}
+
+#[derive(Serialize)]
+pub struct HeadResult {
+    pub model_version: String,
+    pub confidence_threshold: f32,
+    pub iou_threshold: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bounding_box_path: Option<String>,
+    pub detections: Vec<DetectionWithPath>,
+}
+
+#[derive(Serialize)]
+pub struct DetectionWithPath {
+    #[serde(flatten)]
+    pub detection: Detection,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub crop_path: Option<String>,
+}
+
+#[derive(Serialize)]
 pub struct BeakerOutput {
-    pub head: HeadSection,
+    pub head: HeadResult,
 }
 
 impl Detection {
@@ -59,16 +83,77 @@ impl Detection {
     }
 }
 
-#[derive(Debug)]
-pub struct HeadDetectionConfig<'a> {
-    pub source: &'a str,
+#[derive(Debug, Clone)]
+pub struct HeadDetectionConfig {
+    pub source: String,
     pub confidence: f32,
     pub iou_threshold: f32,
-    pub device: &'a str,
-    pub output_dir: Option<&'a str>,
+    pub device: String,
+    pub output_dir: Option<String>,
     pub crop: bool,
     pub bounding_box: bool,
     pub skip_metadata: bool,
+}
+
+/// Check if a file is a supported image format
+fn is_image_file(path: &Path) -> bool {
+    if let Some(ext) = path.extension() {
+        let ext = ext.to_string_lossy().to_lowercase();
+        matches!(
+            ext.as_str(),
+            "jpg" | "jpeg" | "png" | "bmp" | "tiff" | "tif" | "webp"
+        )
+    } else {
+        false
+    }
+}
+
+/// Find all image files in a directory (non-recursive)
+fn find_image_files(dir_path: &Path) -> Result<Vec<std::path::PathBuf>> {
+    let mut image_files = Vec::new();
+
+    for entry in fs::read_dir(dir_path)? {
+        let entry = entry?;
+        let path = entry.path();
+
+        if path.is_file() && is_image_file(&path) {
+            image_files.push(path);
+        }
+    }
+
+    // Sort for consistent ordering
+    image_files.sort();
+    Ok(image_files)
+}
+
+/// Determine optimal device based on number of images and user preference
+fn determine_optimal_device(device: &str, num_images: usize) -> String {
+    const COREML_THRESHOLD: usize = 3; // Use CoreML for 3+ images
+
+    match device {
+        "auto" => {
+            if num_images >= COREML_THRESHOLD {
+                // Check if CoreML is available
+                let coreml = CoreMLExecutionProvider::default();
+                match coreml.is_available() {
+                    Ok(true) => {
+                        println!("📊 Processing {num_images} images - using CoreML for better batch performance");
+                        "coreml".to_string()
+                    }
+                    _ => {
+                        println!(
+                            "📊 Processing {num_images} images - CoreML not available, using CPU"
+                        );
+                        "cpu".to_string()
+                    }
+                }
+            } else {
+                println!("📊 Processing {num_images} images - using CPU for small batch");
+                "cpu".to_string()
+            }
+        }
+        other => other.to_string(), // User explicitly chose a device
+    }
 }
 
 pub fn make_path_relative_to_toml(file_path: &Path, toml_path: &Path) -> Result<String> {
@@ -222,15 +307,10 @@ pub fn save_bounding_box_image(
     Ok(())
 }
 
-pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
-    // Load the image
-    let img = image::open(config.source)?;
-    let (orig_width, orig_height) = img.dimensions();
-
-    println!("📷 Loaded image: {orig_width}x{orig_height}");
-
+/// Create an ONNX Runtime session with the specified device
+fn create_session(device: &str) -> Result<(Session, f64)> {
     // Determine execution provider based on device with availability checking
-    let execution_providers = match config.device {
+    let execution_providers = match device {
         "cpu" => {
             println!("🖥️  Using CPU execution provider");
             vec![CPUExecutionProvider::default().build()]
@@ -289,7 +369,7 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
 
     // Load the embedded model using ORT v2 API
     let session_start = Instant::now();
-    let mut session = Session::builder()?
+    let session = Session::builder()?
         .with_execution_providers(execution_providers)?
         .commit_from_memory(MODEL_BYTES)?;
     let session_load_time = session_start.elapsed();
@@ -305,35 +385,38 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
         "⚙️  Execution providers registered: {}",
         ep_names.join(" -> ")
     );
+
+    Ok((session, session_load_time.as_secs_f64() * 1000.0))
+}
+
+/// Process a single image with an existing session
+fn process_single_image(
+    session: &mut Session,
+    image_path: &Path,
+    config: &HeadDetectionConfig,
+) -> Result<usize> {
+    // Load the image
+    let img = image::open(image_path)?;
+    let (orig_width, orig_height) = img.dimensions();
+
     println!(
-        "📊 Model loading time: {:.3}ms",
-        session_load_time.as_secs_f64() * 1000.0
+        "📷 Processing {}: {}x{}",
+        image_path.display(),
+        orig_width,
+        orig_height
     );
 
     // Preprocess the image
     let model_size = 640; // Standard YOLO input size
     let input_tensor = preprocess_image(&img, model_size)?;
 
-    println!("🔄 Preprocessed image to {model_size}x{model_size}");
-
     // Run inference using ORT v2 API with timing
     let inference_start = Instant::now();
-    let outputs =
-        session.run(ort::inputs!["images" => TensorRef::from_array_view(input_tensor.view())?])?;
+    let input_value = Value::from_array(input_tensor)?;
+    let outputs = session.run(ort::inputs!["images" => &input_value])?;
     let inference_time = inference_start.elapsed();
 
-    println!(
-        "⚡ Inference completed in {:.3}ms (total session time: {:.3}ms)",
-        inference_time.as_secs_f64() * 1000.0,
-        (session_load_time + inference_time).as_secs_f64() * 1000.0
-    );
-    println!(
-        "📊 Breakdown - Loading: {:.3}ms, Inference: {:.3}ms",
-        session_load_time.as_secs_f64() * 1000.0,
-        inference_time.as_secs_f64() * 1000.0
-    );
-
-    // Extract output tensor using ORT v2 API and convert to owned array
+    // Extract the output tensor using ORT v2 API and convert to owned array
     let output_view = outputs["output0"].try_extract_array::<f32>()?;
     let output_array =
         Array::from_shape_vec(output_view.shape(), output_view.iter().cloned().collect())?;
@@ -348,176 +431,153 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
         model_size,
     )?;
 
-    let detection_count = detections.len();
-    let confidence_threshold = config.confidence;
-    let iou_threshold = config.iou_threshold;
     println!(
-        "🎯 Found {detection_count} detections after confidence filtering (>{confidence_threshold}) and NMS (IoU>{iou_threshold})"
+        "⚡ Inference completed in {:.3}ms",
+        inference_time.as_secs_f64() * 1000.0
+    );
+    println!(
+        "🎯 Found {} detections after confidence filtering (>{}) and NMS (IoU>{})",
+        detections.len(),
+        config.confidence,
+        config.iou_threshold
     );
 
-    // Print detection details
+    // Display detections
     for (i, detection) in detections.iter().enumerate() {
-        let detection_num = i + 1;
-        let x1 = detection.x1;
-        let y1 = detection.y1;
-        let x2 = detection.x2;
-        let y2 = detection.y2;
-        let confidence = detection.confidence;
-        println!("  Detection {detection_num}: bbox=({x1:.1}, {y1:.1}, {x2:.1}, {y2:.1}), confidence={confidence:.3}");
+        println!(
+            "  Detection {}: bbox=({:.1}, {:.1}, {:.1}, {:.1}), confidence={:.3}",
+            i + 1,
+            detection.x1,
+            detection.y1,
+            detection.x2,
+            detection.y2,
+            detection.confidence
+        );
     }
 
-    // Process detections for output generation
-    let mut crops_created = 0;
-    let mut bbox_images_created = 0;
-    let mut bounding_box_path: Option<String> = None;
+    // Handle outputs for this specific image
+    handle_image_outputs(&img, &detections, image_path, config)?;
 
-    // Sort detections by confidence (highest first) and convert to HeadDetection
-    let mut sorted_detections = detections.clone();
-    sorted_detections.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap());
-    let mut head_detections: Vec<HeadDetection> = sorted_detections
-        .iter()
-        .map(|d| d.to_head_detection())
-        .collect();
+    Ok(detections.len())
+}
 
-    if !detections.is_empty() {
-        let source_path = Path::new(config.source);
-        let input_stem = source_path.file_stem().unwrap().to_str().unwrap();
-        let input_ext = source_path
-            .extension()
-            .unwrap_or_default()
-            .to_str()
-            .unwrap();
+/// Handle outputs (crops, bounding boxes, metadata) for a single image
+fn handle_image_outputs(
+    img: &DynamicImage,
+    detections: &[Detection],
+    image_path: &Path,
+    config: &HeadDetectionConfig,
+) -> Result<()> {
+    let source_path = image_path;
+    let input_stem = source_path.file_stem().unwrap().to_str().unwrap();
 
-        // Determine the metadata file path early so we can make paths relative to it
-        let toml_filename = if !config.skip_metadata {
-            Some(if let Some(output_dir) = config.output_dir {
-                let output_dir = Path::new(output_dir);
-                output_dir.join(format!("{input_stem}-beaker.toml"))
-            } else {
-                source_path
-                    .parent()
-                    .unwrap()
-                    .join(format!("{input_stem}-beaker.toml"))
-            })
+    // Determine the metadata file path early so we can make paths relative to it
+    let toml_filename = if !config.skip_metadata {
+        Some(if let Some(output_dir) = &config.output_dir {
+            let output_dir = Path::new(output_dir);
+            output_dir.join(format!("{input_stem}-beaker.toml"))
         } else {
-            None
-        };
+            source_path
+                .parent()
+                .unwrap()
+                .join(format!("{input_stem}-beaker.toml"))
+        })
+    } else {
+        None
+    };
 
-        // Create crops if requested (one per detection)
-        if config.crop {
-            // Determine if we need zero-padding for filenames
-            let use_padding = sorted_detections.len() >= 10;
-            let use_suffix = sorted_detections.len() > 1;
+    let mut detections_with_paths = Vec::new();
 
-            for (i, detection) in sorted_detections.iter().enumerate() {
-                let crop_filename = if let Some(output_dir) = config.output_dir {
+    // Create crops if requested
+    if config.crop && !detections.is_empty() {
+        for (i, detection) in detections.iter().enumerate() {
+            let crop_filename = if detections.len() == 1 {
+                if let Some(output_dir) = &config.output_dir {
                     let output_dir = Path::new(output_dir);
-                    if use_suffix {
-                        if use_padding {
-                            output_dir.join(format!("{input_stem}-crop-{:02}.{input_ext}", i + 1))
-                        } else {
-                            output_dir.join(format!("{input_stem}-crop-{}.{input_ext}", i + 1))
-                        }
-                    } else {
-                        output_dir.join(format!("{input_stem}-crop.{input_ext}"))
-                    }
-                } else if use_suffix {
-                    if use_padding {
-                        source_path
-                            .parent()
-                            .unwrap()
-                            .join(format!("{input_stem}-crop-{:02}.{input_ext}", i + 1))
-                    } else {
-                        source_path
-                            .parent()
-                            .unwrap()
-                            .join(format!("{input_stem}-crop-{}.{input_ext}", i + 1))
-                    }
+                    std::fs::create_dir_all(output_dir)?;
+                    output_dir.join(format!("{input_stem}-crop.jpg"))
                 } else {
                     source_path
                         .parent()
                         .unwrap()
-                        .join(format!("{input_stem}-crop.{input_ext}"))
-                };
-
-                match create_square_crop(&img, detection, &crop_filename, 0.25) {
-                    Ok(()) => {
-                        crops_created += 1;
-                        if sorted_detections.len() == 1 {
-                            println!("✂️  Created crop: {}", crop_filename.display());
-                        } else {
-                            println!(
-                                "✂️  Created crop {}: {} (confidence: {:.3})",
-                                i + 1,
-                                crop_filename.display(),
-                                detection.confidence
-                            );
-                        }
-
-                        // Update the corresponding detection with crop path
-                        // Make path relative to metadata file if metadata will be created
-                        let crop_path = if let Some(ref toml_path) = toml_filename {
-                            make_path_relative_to_toml(&crop_filename, toml_path)?
-                        } else {
-                            crop_filename.to_string_lossy().to_string()
-                        };
-                        head_detections[i].crop_path = Some(crop_path);
-                    }
-                    Err(e) => {
-                        eprintln!("❌ Failed to create crop {}: {e}", i + 1);
-                    }
+                        .join(format!("{input_stem}-crop.jpg"))
                 }
-            }
-        }
-
-        // Save bounding box image if requested
-        if config.bounding_box {
-            let bbox_filename = if let Some(output_dir) = config.output_dir {
+            } else if let Some(output_dir) = &config.output_dir {
                 let output_dir = Path::new(output_dir);
-                output_dir.join(format!("{input_stem}-bounding-box.{input_ext}"))
+                std::fs::create_dir_all(output_dir)?;
+                if detections.len() >= 10 {
+                    output_dir.join(format!("{input_stem}-crop-{:02}.jpg", i + 1))
+                } else {
+                    output_dir.join(format!("{input_stem}-crop-{}.jpg", i + 1))
+                }
+            } else if detections.len() >= 10 {
+                source_path
+                    .parent()
+                    .unwrap()
+                    .join(format!("{input_stem}-crop-{:02}.jpg", i + 1))
             } else {
                 source_path
                     .parent()
                     .unwrap()
-                    .join(format!("{input_stem}-bounding-box.{input_ext}"))
+                    .join(format!("{input_stem}-crop-{}.jpg", i + 1))
             };
 
-            // Pass the original unsorted detections to maintain all detections in the image
-            match save_bounding_box_image(&img, &detections, &bbox_filename) {
-                Ok(()) => {
-                    bbox_images_created += 1;
-                    if detections.len() == 1 {
-                        println!("📦 Created bounding box image: {}", bbox_filename.display());
-                    } else {
-                        println!(
-                            "📦 Created bounding box image: {} ({} detections)",
-                            bbox_filename.display(),
-                            detections.len()
-                        );
-                    }
+            create_square_crop(img, detection, &crop_filename, 0.1)?;
 
-                    // Set the bounding box path at the top level (includes all detections)
-                    // Make path relative to metadata file if metadata will be created
-                    bounding_box_path = Some(if let Some(ref toml_path) = toml_filename {
-                        make_path_relative_to_toml(&bbox_filename, toml_path)?
-                    } else {
-                        bbox_filename.to_string_lossy().to_string()
-                    });
-                }
-                Err(e) => {
-                    eprintln!("❌ Failed to save bounding box image: {e}");
-                }
-            }
+            // Make path relative to metadata file if metadata will be created
+            let crop_path = if let Some(ref toml_path) = toml_filename {
+                make_path_relative_to_toml(&crop_filename, toml_path)?
+            } else {
+                crop_filename.to_string_lossy().to_string()
+            };
+
+            detections_with_paths.push(DetectionWithPath {
+                detection: detection.clone(),
+                crop_path: Some(crop_path),
+            });
         }
+    } else {
+        // No crops, but still need to store detections for metadata
+        for detection in detections {
+            detections_with_paths.push(DetectionWithPath {
+                detection: detection.clone(),
+                crop_path: None,
+            });
+        }
+    }
+
+    // Create bounding box image if requested
+    let mut bounding_box_path = None;
+    if config.bounding_box && !detections.is_empty() {
+        let bbox_filename = if let Some(output_dir) = &config.output_dir {
+            let output_dir = Path::new(output_dir);
+            std::fs::create_dir_all(output_dir)?;
+            output_dir.join(format!("{input_stem}-bounding-box.jpg"))
+        } else {
+            source_path
+                .parent()
+                .unwrap()
+                .join(format!("{input_stem}-bounding-box.jpg"))
+        };
+
+        save_bounding_box_image(img, detections, &bbox_filename)?;
+
+        // Make path relative to metadata file if metadata will be created
+        bounding_box_path = Some(if let Some(ref toml_path) = toml_filename {
+            make_path_relative_to_toml(&bbox_filename, toml_path)?
+        } else {
+            bbox_filename.to_string_lossy().to_string()
+        });
     }
 
     // Create metadata output unless skipped
     if !config.skip_metadata {
-        let source_path = Path::new(config.source);
+        let source_path = Path::new(&config.source);
         let input_stem = source_path.file_stem().unwrap().to_str().unwrap();
 
-        let toml_filename = if let Some(output_dir) = config.output_dir {
+        let toml_filename = if let Some(output_dir) = &config.output_dir {
             let output_dir = Path::new(output_dir);
+            std::fs::create_dir_all(output_dir)?;
             output_dir.join(format!("{input_stem}-beaker.toml"))
         } else {
             source_path
@@ -526,54 +586,125 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
                 .join(format!("{input_stem}-beaker.toml"))
         };
 
-        let beaker_output = BeakerOutput {
-            head: HeadSection {
+        let output = HeadDetectionOutput {
+            head: HeadResult {
                 model_version: MODEL_VERSION.trim().to_string(),
                 confidence_threshold: config.confidence,
                 iou_threshold: config.iou_threshold,
                 bounding_box_path,
-                detections: head_detections,
+                detections: detections_with_paths,
             },
         };
 
-        match toml::to_string_pretty(&beaker_output) {
-            Ok(toml_content) => {
-                // Create output directory if it doesn't exist
-                if let Some(parent) = toml_filename.parent() {
-                    std::fs::create_dir_all(parent)?;
-                }
+        let toml_content = toml::to_string_pretty(&output)?;
+        std::fs::write(&toml_filename, toml_content)?;
 
-                match std::fs::write(&toml_filename, toml_content) {
-                    Ok(()) => {
-                        println!("📝 Created TOML output: {}", toml_filename.display());
-                    }
-                    Err(e) => {
-                        eprintln!("❌ Failed to write TOML file: {e}");
-                    }
-                }
+        println!("📝 Created TOML output: {}", toml_filename.display());
+    }
+
+    Ok(())
+}
+
+pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
+    let source_path = Path::new(&config.source);
+
+    // Get list of images to process (either single file or directory)
+    let image_files = if source_path.is_file() {
+        if is_image_file(source_path) {
+            vec![source_path.to_path_buf()]
+        } else {
+            return Err(anyhow::anyhow!(
+                "File is not a supported image format: {}",
+                source_path.display()
+            ));
+        }
+    } else if source_path.is_dir() {
+        find_image_files(source_path)?
+    } else {
+        return Err(anyhow::anyhow!(
+            "Source path does not exist or is not a file/directory: {}",
+            source_path.display()
+        ));
+    };
+
+    if image_files.is_empty() {
+        println!("⚠️  No image files found in: {}", source_path.display());
+        return Ok(0);
+    }
+
+    // Log what we're processing
+    if image_files.len() == 1 {
+        println!("� Processing single image: {}", image_files[0].display());
+    } else {
+        println!(
+            "📁 Processing {} images from directory: {}",
+            image_files.len(),
+            source_path.display()
+        );
+    }
+
+    // Determine optimal device based on number of images
+    let optimal_device = determine_optimal_device(&config.device, image_files.len());
+    let (mut session, load_time) = create_session(&optimal_device)?;
+
+    // Process all images with the same session
+    let total_start = Instant::now();
+    let mut total_detections = 0;
+
+    for (i, image_path) in image_files.iter().enumerate() {
+        if image_files.len() > 1 {
+            println!(
+                "\n📷 Processing image {}/{}: {}",
+                i + 1,
+                image_files.len(),
+                image_path.display()
+            );
+        }
+
+        // Create individual config for each image
+        let mut image_config = config.clone();
+        image_config.source = image_path.to_string_lossy().to_string();
+
+        match process_single_image(&mut session, image_path, &image_config) {
+            Ok(detections) => {
+                total_detections += detections;
             }
             Err(e) => {
-                eprintln!("❌ Failed to serialize TOML: {e}");
+                println!("❌ Error processing {}: {}", image_path.display(), e);
+                continue;
             }
         }
     }
 
-    // Print summary
-    if config.crop && crops_created > 0 {
-        if let Some(output_dir) = config.output_dir {
-            println!("✂️  Created {crops_created} head crop in: {output_dir}");
-        } else {
-            println!("✂️  Created {crops_created} head crop next to original image");
-        }
+    let total_time = total_start.elapsed();
+
+    // Print appropriate summary
+    if image_files.len() == 1 {
+        println!("\n🎉 Processing complete!");
+        println!("🎯 Found {total_detections} bird head(s)");
+        println!(
+            "⚡ Total time: {:.1}ms (load: {:.1}ms, inference: {:.1}ms)",
+            total_time.as_secs_f64() * 1000.0,
+            load_time,
+            (total_time.as_secs_f64() * 1000.0) - load_time
+        );
+    } else {
+        let avg_time_per_image = total_time.as_secs_f64() / image_files.len() as f64;
+
+        println!("\n🎉 Batch processing complete!");
+        println!("📊 Summary:");
+        println!("  • Images processed: {}", image_files.len());
+        println!("  • Total detections: {total_detections}");
+        println!("  • Model load time: {load_time:.1}ms");
+        println!(
+            "  • Total processing time: {:.3}s",
+            total_time.as_secs_f64()
+        );
+        println!(
+            "  • Average time per image: {:.1}ms",
+            avg_time_per_image * 1000.0
+        );
     }
 
-    if config.bounding_box && bbox_images_created > 0 {
-        if let Some(output_dir) = config.output_dir {
-            println!("📦 Created {bbox_images_created} bounding box image in: {output_dir}");
-        } else {
-            println!("📦 Created {bbox_images_created} bounding box image next to original image");
-        }
-    }
-
-    Ok(detections.len())
+    Ok(total_detections)
 }
