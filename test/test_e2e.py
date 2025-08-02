@@ -70,7 +70,12 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
 
         # Build the package
         build_result = subprocess.run(
-            ["uv", "build"], cwd=cls.repo_root, capture_output=True, text=True
+            ["uv", "build"],
+            cwd=cls.repo_root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
         )
 
         if build_result.returncode != 0:
@@ -80,7 +85,11 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
 
         # Install the tool
         install_result = subprocess.run(
-            ["uv", "tool", "install", str(cls.repo_root), "--force"], capture_output=True, text=True
+            ["uv", "tool", "install", str(cls.repo_root), "--force"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
         )
 
         if install_result.returncode != 0:
