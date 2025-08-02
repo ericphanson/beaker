@@ -224,6 +224,7 @@ def detect_device():
     """Detect the best available device for inference."""
     try:
         import torch
+
         if torch.backends.mps.is_available():
             return "mps"  # Apple Silicon Mac
         elif torch.cuda.is_available():

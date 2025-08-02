@@ -228,33 +228,36 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
         try:
             # Check if this is related to model downloading by testing model access
             from platformdirs import user_cache_dir
+
             cache_dir = Path(user_cache_dir("bird-head-detector", "ericphanson"))
             models_dir = cache_dir / "models"
-            
+
             debug_lines.append(f"Cache directory: {cache_dir}")
             debug_lines.append(f"Models directory: {models_dir}")
-            
+
             if models_dir.exists():
                 debug_lines.append("Models directory contents:")
                 for model_file in models_dir.glob("*"):
-                    debug_lines.append(f"  📄 {model_file.name} ({model_file.stat().st_size} bytes)")
+                    debug_lines.append(
+                        f"  📄 {model_file.name} ({model_file.stat().st_size} bytes)"
+                    )
             else:
                 debug_lines.append("❌ Models directory does not exist")
-                
+
             # Check for local training models
             repo_root = Path(__file__).parent.parent
             local_model_paths = [
                 repo_root / "runs/detect/bird_head_yolov8n/weights/best.pt",
                 repo_root / "runs/detect/bird_head_yolov8n_debug/weights/best.pt",
             ]
-            
+
             debug_lines.append("Local model check:")
             for model_path in local_model_paths:
                 if model_path.exists():
                     debug_lines.append(f"  ✅ {model_path} ({model_path.stat().st_size} bytes)")
                 else:
                     debug_lines.append(f"  ❌ {model_path} (not found)")
-                    
+
         except Exception as e:
             debug_lines.append(f"Error checking model status: {e}")
 
@@ -266,10 +269,14 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
                 "-" * 40,
             ]
         )
-        
+
         try:
             import urllib.request
-            with urllib.request.urlopen("https://api.github.com/repos/ericphanson/bird-head-detector/releases/latest", timeout=10) as response:
+
+            with urllib.request.urlopen(
+                "https://api.github.com/repos/ericphanson/bird-head-detector/releases/latest",
+                timeout=10,
+            ) as response:
                 debug_lines.append(f"✅ GitHub API accessible (HTTP {response.status})")
         except Exception as e:
             debug_lines.append(f"❌ GitHub API not accessible: {e}")
@@ -315,7 +322,7 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
             "",
             "Parent directory contents:",
         ]
-        
+
         try:
             if missing_file_path.parent.exists():
                 for item in sorted(missing_file_path.parent.iterdir()):
@@ -327,16 +334,18 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
                 debug_lines.append("  (parent directory does not exist)")
         except Exception as e:
             debug_lines.append(f"  Error listing directory: {e}")
-            
-        debug_lines.extend([
-            "",
-            "Recent command outputs (last 3):",
-        ])
-        
+
+        debug_lines.extend(
+            [
+                "",
+                "Recent command outputs (last 3):",
+            ]
+        )
+
         # This would ideally show recent command outputs, but for now just show the structure
         debug_lines.append("  (Check the stdout/stderr above for recent command outputs)")
         debug_lines.append("=" * 60)
-        
+
         return "\n".join(debug_lines)
 
     def _assert_file_not_exists(self, file_path, description="file"):
@@ -400,10 +409,12 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
         """Test default behavior: should create crop by default."""
         # Run detector with minimal arguments
         result = self._run_detector([str(self.single_image)])
-        
+
         # Verify command succeeded
-        self.assertEqual(result.returncode, 0, f"Command failed with return code {result.returncode}")
-        
+        self.assertEqual(
+            result.returncode, 0, f"Command failed with return code {result.returncode}"
+        )
+
         # Verify the output indicates successful detection
         self.assertIn("bird head detections", result.stdout, "Expected detection summary in output")
 
@@ -448,9 +459,7 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
 
     def test_skip_crop_with_bounding_box(self):
         """Test --skip-crop with --save-bounding-box (only bounding box should be created)."""
-        result = self._run_detector(
-            [str(self.single_image), "--skip-crop", "--save-bounding-box"]
-        )
+        result = self._run_detector([str(self.single_image), "--skip-crop", "--save-bounding-box"])
 
         # Check that only bounding box was created
         expected_crop = self.single_image.parent / "test_bird-crop.jpg"
@@ -538,9 +547,7 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
         """Test directory processing with output directory."""
         output_dir = self.temp_dir / "batch_output"
 
-        result = self._run_detector(
-            [str(self.batch_dir), "--output-dir", str(output_dir)]
-        )
+        result = self._run_detector([str(self.batch_dir), "--output-dir", str(output_dir)])
 
         # Check that files were created in output directory with original names
         expected_files = [
