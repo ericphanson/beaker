@@ -43,6 +43,9 @@ uv run python infer.py --source example.jpg --crop
 
 # Save crops to specific directory
 uv run python infer.py --source example.jpg --crop --output-dir crops/
+
+# Adjust crop padding (default 25%, 0.5 = 50% padding)
+uv run python infer.py --source example.jpg --crop --padding 0.5
 ```
 
 **Limitations:**
@@ -61,7 +64,7 @@ can be processed with
 uv run python infer.py --source example.jpg --crop
 ```
 
-yielding the output crop saved as `example-crop.jpg`
+yielding the output crop saved as `example-crop.jpg` (with 25% padding around the detected head)
 
 ![](./example-crop.jpg)
 

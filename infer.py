@@ -129,7 +129,7 @@ def find_or_download_model(model_path_arg):
     return None
 
 
-def create_square_crop(image_path, bbox, output_dir=None):
+def create_square_crop(image_path, bbox, output_dir=None, padding=0.25):
     """Create a square crop around the detection bounding box."""
     # Load image
     img = cv2.imread(str(image_path))
@@ -139,11 +139,11 @@ def create_square_crop(image_path, bbox, output_dir=None):
     h, w = img.shape[:2]
     x1, y1, x2, y2 = bbox
 
-    # Expand bounding box by 15%
+    # Expand bounding box by specified padding
     width = x2 - x1
     height = y2 - y1
-    expand_w = width * 0.15
-    expand_h = height * 0.15
+    expand_w = width * padding
+    expand_h = height * padding
 
     x1 = max(0, x1 - expand_w)
     y1 = max(0, y1 - expand_h)
@@ -216,6 +216,7 @@ def main():
     parser.add_argument("--conf", type=float, default=0.25, help="Confidence threshold")
     parser.add_argument("--crop", action="store_true", help="Create square crops around detected heads")
     parser.add_argument("--output-dir", type=str, help="Directory to save cropped images (default: next to input)")
+    parser.add_argument("--padding", type=float, default=0.25, help="Padding around bounding box as fraction (default: 0.25 = 25%%)")
 
     args = parser.parse_args()
 
@@ -268,7 +269,7 @@ def main():
                 best_conf = confidences[best_idx]
 
                 # Create square crop
-                crop_path = create_square_crop(source_path, bbox, crop_output_dir)
+                crop_path = create_square_crop(source_path, bbox, crop_output_dir, args.padding)
                 if crop_path:
                     crops_created += 1
                     if detections == 1:
