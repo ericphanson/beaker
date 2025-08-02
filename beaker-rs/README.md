@@ -1,26 +1,32 @@
 # Beaker (Rust)
 
-A Rust implementation of the Beaker bird head detection CLI tool.
+A fast, self-contained Rust implementation of the Beaker bird head detection CLI tool.
+
+## Features
+
+- ✅ **Fully self-contained**: No external dependencies or library paths required
+- ✅ **Embedded model**: Downloads latest ONNX model from GitHub releases during build
+- ✅ **Cross-platform**: Supports Linux, macOS, and Windows
+- ✅ **Fast**: Optimized release builds with LTO and strip
+- ✅ **Real-time inference**: YOLOv8n bird head detection with ONNX Runtime
 
 ## Usage
 
-Command:
-```sh
-ORT_DYLIB_PATH=./onnxruntime-libs/onnxruntime-osx-arm64-1.16.3/lib/libonnxruntime.dylib ./beaker-rs/target/debug/beaker detect example.jpg --confidence 0.75
-```
-
 ```bash
-# Show help
-./beaker -h
+# Build from source (automatically downloads latest model)
+cargo build --release
 
-# Detect bird heads in an image (skeleton - not implemented yet)
-./beaker detect example.jpg
+# Run detection - no environment variables needed!
+./target/release/beaker detect example.jpg --confidence 0.75
+
+# Show help
+./target/release/beaker --help
 
 # Run with options
-./beaker detect example.jpg --confidence 0.5 --device cpu --output crops/
+./target/release/beaker detect example.jpg --confidence 0.5 --device cpu
 
 # Show version
-./beaker version
+./target/release/beaker version
 ```
 
 ## Building
@@ -29,13 +35,23 @@ ORT_DYLIB_PATH=./onnxruntime-libs/onnxruntime-osx-arm64-1.16.3/lib/libonnxruntim
 # Build debug version
 cargo build
 
-# Build release version
+# Build optimized release version
 cargo build --release
 
 # Build with Core ML support (macOS only)
 cargo build --release --features coreml
 ```
 
-## Status
+The build process automatically:
+1. Downloads the latest ONNX model from GitHub releases
+2. Embeds it into the binary as bytes
+3. Downloads and bundles ONNX Runtime libraries with proper rpath
+4. Creates a fully self-contained executable
 
-This is currently a skeleton implementation. The actual YOLO inference, image processing, and detection functionality is not yet implemented.
+## Architecture
+
+- **Model loading**: Embedded 12MB ONNX model loaded from memory
+- **ONNX Runtime**: Automatically downloaded and linked during build
+- **Image processing**: Letterbox resizing and tensor preprocessing
+- **Inference**: YOLOv8n object detection with configurable confidence
+- **Cross-platform**: Uses default execution providers (CPU, CoreML on macOS)

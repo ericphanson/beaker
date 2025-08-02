@@ -14,7 +14,7 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
-ort = { version = "1.16.3", default-features = false, features = ["load-dynamic"] }
+ort = { version = "1.16.3" }  # Use default features: download-binaries, copy-dylibs
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 ndarray = "0.15"
 anyhow = "1.0"
@@ -33,3 +33,7 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+rpath = true
+
+[profile.dev]
+rpath = true
