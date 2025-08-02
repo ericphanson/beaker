@@ -251,7 +251,7 @@ def save_bounding_box_image(image_path, bbox, output_dir=None):
 
 def main():
     parser = argparse.ArgumentParser(description="Bird head detection inference")
-    parser.add_argument("source", type=str, help="Source image/video/directory")
+    parser.add_argument("source", type=str, help="Source image or directory")
     parser.add_argument(
         "--model",
         type=str,
