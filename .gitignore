@@ -10,3 +10,5 @@ onnxruntime-libs
 # Rust build artifacts
 beaker-rs/target/
 beaker-rs/Cargo.lock
+example-raw.rw2
+beaker-rs/*-notes.md
