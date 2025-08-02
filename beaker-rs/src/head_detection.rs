@@ -2,7 +2,7 @@ use anyhow::Result;
 use image::{DynamicImage, GenericImageView, Rgb};
 use ndarray::Array;
 use ort::{
-    execution_providers::{CPUExecutionProvider, CoreMLExecutionProvider},
+    execution_providers::{CPUExecutionProvider, CoreMLExecutionProvider, ExecutionProvider},
     session::Session,
     value::TensorRef,
 };
@@ -229,25 +229,49 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
 
     println!("📷 Loaded image: {orig_width}x{orig_height}");
 
-    // Determine execution provider based on device
+    // Determine execution provider based on device with availability checking
     let execution_providers = match config.device {
         "cpu" => {
             println!("🖥️  Using CPU execution provider");
             vec![CPUExecutionProvider::default().build()]
         }
         "auto" => {
-            #[cfg(target_os = "macos")]
-            {
-                println!("🍎 Using CoreML + CPU execution providers (macOS auto mode)");
-                vec![
-                    CoreMLExecutionProvider::default().build(),
-                    CPUExecutionProvider::default().build(),
-                ]
+            // Check CoreML availability (works on all platforms but only available on macOS)
+            let coreml = CoreMLExecutionProvider::default();
+            match coreml.is_available() {
+                Ok(true) => {
+                    println!("🍎 CoreML execution provider is available");
+                    println!("🍎 Using CoreML + CPU execution providers (auto mode)");
+                    vec![coreml.build(), CPUExecutionProvider::default().build()]
+                }
+                Ok(false) => {
+                    println!("⚠️  CoreML execution provider not available on this platform");
+                    println!("🖥️  Using CPU execution provider (auto mode fallback)");
+                    vec![CPUExecutionProvider::default().build()]
+                }
+                Err(e) => {
+                    println!("⚠️  Error checking CoreML availability: {e}");
+                    println!("🖥️  Using CPU execution provider (auto mode fallback)");
+                    vec![CPUExecutionProvider::default().build()]
+                }
             }
-            #[cfg(not(target_os = "macos"))]
-            {
-                println!("🖥️  Using CPU execution provider (auto mode, non-macOS)");
-                vec![CPUExecutionProvider::default().build()]
+        }
+        "coreml" => {
+            // Explicit CoreML request - check availability and error if not available
+            let coreml = CoreMLExecutionProvider::default();
+            match coreml.is_available() {
+                Ok(true) => {
+                    println!("🍎 Using CoreML + CPU execution providers (explicit)");
+                    vec![coreml.build(), CPUExecutionProvider::default().build()]
+                }
+                Ok(false) => {
+                    return Err(anyhow::anyhow!(
+                        "CoreML execution provider requested but not available on this platform"
+                    ));
+                }
+                Err(e) => {
+                    return Err(anyhow::anyhow!("Error checking CoreML availability: {}", e));
+                }
             }
         }
         _ => {
@@ -255,6 +279,13 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
             vec![CPUExecutionProvider::default().build()]
         }
     };
+
+    // Store EP info for logging before moving the vector
+    let ep_names: Vec<String> = execution_providers
+        .iter()
+        .enumerate()
+        .map(|(i, _)| format!("EP{}", i + 1))
+        .collect();
 
     // Load the embedded model using ORT v2 API
     let session_start = Instant::now();
@@ -266,6 +297,16 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
     println!(
         "🤖 Loaded embedded ONNX model ({} bytes) in {:.3}ms",
         MODEL_BYTES.len(),
+        session_load_time.as_secs_f64() * 1000.0
+    );
+
+    // Log execution provider information
+    println!(
+        "⚙️  Execution providers registered: {}",
+        ep_names.join(" -> ")
+    );
+    println!(
+        "📊 Model loading time: {:.3}ms",
         session_load_time.as_secs_f64() * 1000.0
     );
 
@@ -282,7 +323,13 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
     let inference_time = inference_start.elapsed();
 
     println!(
-        "⚡ Inference completed in {:.3}ms",
+        "⚡ Inference completed in {:.3}ms (total session time: {:.3}ms)",
+        inference_time.as_secs_f64() * 1000.0,
+        (session_load_time + inference_time).as_secs_f64() * 1000.0
+    );
+    println!(
+        "📊 Breakdown - Loading: {:.3}ms, Inference: {:.3}ms",
+        session_load_time.as_secs_f64() * 1000.0,
         inference_time.as_secs_f64() * 1000.0
     );
 

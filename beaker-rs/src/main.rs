@@ -53,6 +53,9 @@ struct Cli {
 }
 
 fn main() {
+    // Initialize tracing subscriber for ORT logging
+    tracing_subscriber::fmt::init();
+
     let cli = Cli::parse();
 
     match &cli.command {
