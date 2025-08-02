@@ -36,6 +36,10 @@ enum Commands {
         #[arg(short, long, default_value = "0.25")]
         confidence: f32,
 
+        /// IoU threshold for NMS
+        #[arg(long, default_value = "0.45")]
+        iou_threshold: f32,
+
         /// Device to use for inference
         #[arg(short, long, default_value = "auto")]
         device: String,
@@ -66,6 +70,7 @@ fn main() {
             source,
             output,
             confidence,
+            iou_threshold,
             device,
             skip_crop,
             save_bounding_box,
@@ -74,6 +79,7 @@ fn main() {
             println!("🔍 Would detect bird heads in: {source}");
             println!("   Model: embedded ONNX model");
             println!("   Confidence threshold: {confidence}");
+            println!("   IoU threshold: {iou_threshold}");
             println!("   Device: {device}");
             if *skip_crop {
                 println!("   Skipping crop generation");
@@ -92,6 +98,7 @@ fn main() {
             let config = DetectionConfig {
                 source,
                 confidence: *confidence,
+                iou_threshold: *iou_threshold,
                 device,
                 output_dir: output.as_deref(),
                 skip_crop: *skip_crop,
@@ -195,7 +202,7 @@ fn preprocess_image(img: &DynamicImage, target_size: u32) -> Result<Array<f32, n
     Ok(input)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Detection {
     x1: f32,
     y1: f32,
@@ -204,9 +211,69 @@ struct Detection {
     confidence: f32,
 }
 
+impl Detection {
+    fn area(&self) -> f32 {
+        (self.x2 - self.x1) * (self.y2 - self.y1)
+    }
+
+    fn intersection_area(&self, other: &Detection) -> f32 {
+        let x1 = self.x1.max(other.x1);
+        let y1 = self.y1.max(other.y1);
+        let x2 = self.x2.min(other.x2);
+        let y2 = self.y2.min(other.y2);
+
+        if x2 > x1 && y2 > y1 {
+            (x2 - x1) * (y2 - y1)
+        } else {
+            0.0
+        }
+    }
+
+    fn iou(&self, other: &Detection) -> f32 {
+        let intersection = self.intersection_area(other);
+        let union = self.area() + other.area() - intersection;
+
+        if union > 0.0 {
+            intersection / union
+        } else {
+            0.0
+        }
+    }
+}
+
+fn nms(mut detections: Vec<Detection>, iou_threshold: f32) -> Vec<Detection> {
+    if detections.is_empty() {
+        return detections;
+    }
+
+    // Sort by confidence score in descending order
+    detections.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap());
+
+    let mut keep = Vec::new();
+    let mut suppressed = vec![false; detections.len()];
+
+    for i in 0..detections.len() {
+        if suppressed[i] {
+            continue;
+        }
+
+        keep.push(detections[i].clone());
+
+        // Suppress overlapping detections
+        for j in (i + 1)..detections.len() {
+            if !suppressed[j] && detections[i].iou(&detections[j]) > iou_threshold {
+                suppressed[j] = true;
+            }
+        }
+    }
+
+    keep
+}
+
 fn postprocess_output(
     output: &Array<f32, ndarray::IxDyn>,
     confidence_threshold: f32,
+    iou_threshold: f32,
     img_width: u32,
     img_height: u32,
     model_size: u32,
@@ -251,13 +318,17 @@ fn postprocess_output(
         }
     }
 
-    Ok(detections)
+    // Apply Non-Maximum Suppression
+    let nms_detections = nms(detections, iou_threshold);
+
+    Ok(nms_detections)
 }
 
 #[derive(Debug)]
 struct DetectionConfig<'a> {
     source: &'a str,
     confidence: f32,
+    iou_threshold: f32,
     device: &'a str,
     output_dir: Option<&'a str>,
     skip_crop: bool,
@@ -332,6 +403,7 @@ fn run_detection(config: DetectionConfig) -> Result<usize> {
     let detections = postprocess_output(
         &output_array,
         config.confidence,
+        config.iou_threshold,
         orig_width,
         orig_height,
         model_size,
@@ -339,8 +411,9 @@ fn run_detection(config: DetectionConfig) -> Result<usize> {
 
     let detection_count = detections.len();
     let confidence_threshold = config.confidence;
+    let iou_threshold = config.iou_threshold;
     println!(
-        "🎯 Found {detection_count} detections above confidence threshold {confidence_threshold}"
+        "🎯 Found {detection_count} detections after confidence filtering (>{confidence_threshold}) and NMS (IoU>{iou_threshold})"
     );
 
     // Print detection details
