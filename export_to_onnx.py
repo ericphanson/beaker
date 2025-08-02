@@ -8,6 +8,12 @@ This script can:
 3. Convert the model to ONNX format using Ultralytics
 4. Save the ONNX model in the models/ directory
 
+Model Size Optimization:
+- FP16 precision (half=True) reduces size by ~50% but only works on GPU exports
+- Smaller input sizes (--imgsz) slightly reduce model size
+- ONNX simplification is enabled by default
+- Use --no-optimize to disable optimizations for maximum compatibility
+
 Requirements:
 - ultralytics package installed
 - ONNX dependencies (install with: uv sync --extra onnx)
@@ -15,7 +21,7 @@ Requirements:
 - Internet connection (for GitHub downloads)
 
 Usage:
-    # Export from GitHub release tag
+    # Export from GitHub release tag (optimized, smaller file)
     uv run python export_to_onnx.py --tag bird-head-detector-v1.0.0
 
     # Export from local file
@@ -24,8 +30,11 @@ Usage:
     # Export with custom output name
     uv run python export_to_onnx.py --model model.pt --name custom_model
 
-    # Export with specific image size
-    uv run python export_to_onnx.py --tag bird-head-detector-v1.0.0 --imgsz 640
+    # Export without optimization (larger file, FP32 precision)
+    uv run python export_to_onnx.py --tag bird-head-detector-v1.0.0 --no-optimize
+
+    # Export with specific image size and opset version
+    uv run python export_to_onnx.py --tag bird-head-detector-v1.0.0 --imgsz 640 --opset 12
 """
 
 import argparse
@@ -186,7 +195,7 @@ def download_model_from_release(tag, target_dir):
     return target_path
 
 
-def export_to_onnx(model_path, output_name, imgsz=640):
+def export_to_onnx(model_path, output_name, imgsz=640, optimize=True, opset=11):
     """Export model to ONNX format using Ultralytics."""
     print(f"🔄 Loading model from {model_path}...")
 
@@ -202,14 +211,21 @@ def export_to_onnx(model_path, output_name, imgsz=640):
         # Export to ONNX
         output_path = models_dir / f"{output_name}.onnx"
         print(f"🚀 Exporting to ONNX format (image size: {imgsz})...")
+        if optimize:
+            print("   🔧 Optimization enabled (smaller file size)")
         print(f"   Output: {output_path}")
 
-        # Export with specified image size
+        # Export with specified image size and optimization settings
+        # Note: FP16 (half precision) is only supported on GPU exports
+        use_half = optimize and model.device.type == "cuda"
+
         export_path = model.export(
             format="onnx",
             imgsz=imgsz,
             dynamic=False,  # Static input shape for better compatibility
             simplify=True,  # Simplify the ONNX model
+            opset=opset,  # ONNX opset version
+            half=use_half,  # Use FP16 precision only on GPU
         )
 
         # Move the exported file to our desired location with the correct name
@@ -227,6 +243,8 @@ def export_to_onnx(model_path, output_name, imgsz=640):
         print("\n📊 Model Information:")
         print(f"   Input shape: [1, 3, {imgsz}, {imgsz}]")
         print("   Format: ONNX")
+        print(f"   Precision: {'FP16 (optimized)' if use_half else 'FP32 (full precision)'}")
+        print(f"   ONNX Opset: {opset}")
         print(f"   Classes: {len(model.names)} ({', '.join(model.names.values())})")
 
         return output_path
@@ -244,6 +262,17 @@ def main():
     parser.add_argument("--name", type=str, help="Output name for ONNX model (without extension)")
     parser.add_argument(
         "--imgsz", type=int, default=640, help="Input image size for ONNX model (default: 640)"
+    )
+    parser.add_argument(
+        "--no-optimize",
+        action="store_true",
+        help="Disable optimizations (larger file, FP32 precision)",
+    )
+    parser.add_argument(
+        "--opset",
+        type=int,
+        default=11,
+        help="ONNX opset version (default: 11, use 12+ for newer features)",
     )
 
     args = parser.parse_args()
@@ -280,7 +309,9 @@ def main():
                 sys.exit(1)
 
             # Export to ONNX
-            result = export_to_onnx(model_path, output_name, args.imgsz)
+            result = export_to_onnx(
+                model_path, output_name, args.imgsz, not args.no_optimize, args.opset
+            )
             if not result:
                 sys.exit(1)
 
@@ -302,7 +333,9 @@ def main():
         print(f"✅ Using local model: {model_path}")
 
         # Export to ONNX
-        result = export_to_onnx(model_path, output_name, args.imgsz)
+        result = export_to_onnx(
+            model_path, output_name, args.imgsz, not args.no_optimize, args.opset
+        )
         if not result:
             sys.exit(1)
 
