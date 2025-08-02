@@ -89,7 +89,7 @@ jobs:
         ./beaker-* --help
         ```
 
-        Each binary is approximately 13MB and includes the embedded ONNX model.
+        Each binary includes the embedded ONNX model.
         EOF
 
         gh release create "$TAG_NAME" \
