@@ -108,19 +108,15 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            features: "cpu,coreml"
             binary_name: beaker
           - target: x86_64-apple-darwin
             os: macos-latest
-            features: "cpu,coreml"
             binary_name: beaker
           - target: aarch64-apple-darwin
             os: macos-latest
-            features: "cpu,coreml"
             binary_name: beaker
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-            features: "cpu,coreml"
             binary_name: beaker.exe
     runs-on: ${{ matrix.os }}
 
@@ -152,7 +148,7 @@ jobs:
       run: echo "ONNX_MODEL_CACHE_DIR=$HOME/.cache/onnx-models" >> $GITHUB_ENV
 
     - name: Build release binary
-      run: cargo build --release --target ${{ matrix.target }} --features ${{ matrix.features }}
+      run: cargo build --release --target ${{ matrix.target }}
       working-directory: beaker-rs
 
     - name: Prepare binary for upload
@@ -223,7 +219,7 @@ jobs:
       run: echo "ONNX_MODEL_CACHE_DIR=$HOME/.cache/onnx-models" >> $GITHUB_ENV
 
     - name: Build static binary
-      run: cargo build --release --target x86_64-unknown-linux-musl --features cpu
+      run: cargo build --release --target x86_64-unknown-linux-musl
       working-directory: beaker-rs
       env:
         RUSTFLAGS: '-C target-feature=+crt-static'
