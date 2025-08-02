@@ -1,4 +1,4 @@
-name: Comprehensive Test Suite
+name: Test Suite
 
 on:
   push:
@@ -41,19 +41,6 @@ jobs:
     - name: Build package
       run: uv build
       
-    - name: Verify package contents
-      shell: bash
-      run: |
-        echo "📦 Built package contents:"
-        ls -la dist/
-        echo ""
-        echo "🔍 Package metadata:"
-        uv run python -c "
-        import bird_head_detector
-        print(f'Version: {bird_head_detector.__version__}')
-        print(f'Module path: {bird_head_detector.__file__}')
-        "
-      
     - name: Run end-to-end tests
       run: uv run python test/run_tests.py
       
@@ -95,17 +82,8 @@ jobs:
         name: test-debug-artifacts-${{ matrix.os }}-python${{ matrix.python-version }}
         path: |
           test/
-          dist/
           ./**/*.log
         retention-days: 7
-        
-    - name: Upload build artifacts
-      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
-      uses: actions/upload-artifact@v4
-      with:
-        name: dist-packages
-        path: dist/
-        retention-days: 30
 
   lint:
     runs-on: ubuntu-latest
@@ -148,9 +126,6 @@ jobs:
       
     - name: Install dependencies
       run: uv sync --all-extras
-      
-    - name: Install security tools
-      run: uv pip install pip-audit
       
     - name: Run security audit
       run: uv run pip-audit --desc || echo "Security audit completed with warnings"
