@@ -9,9 +9,9 @@ A fast, self-contained Rust implementation of the Beaker bird head detection CLI
 - ✅ **Cross-platform**: Supports Linux, macOS, and Windows
 - ✅ **Fast**: Optimized release builds with LTO and strip
 - ✅ **Real-time inference**: YOLOv8n bird head detection with ONNX Runtime v2
-- ✅ **Multiple outputs**: Individual crops per detection, bounding box visualization, TOML metadata
+- ✅ **Multiple outputs**: Individual crops per detection, bounding box visualization, metadata files
 - ✅ **Smart file naming**: Automatic numbering for multiple detections with zero-padding
-- ✅ **Relative paths**: TOML output uses paths relative to output location
+- ✅ **Relative paths**: Metadata output uses paths relative to output location
 - ✅ **Modular architecture**: Separated preprocessing, postprocessing, and detection modules
 
 ## Usage
@@ -32,8 +32,8 @@ cargo build --release
 # Run with custom confidence and IoU thresholds
 ./target/release/beaker head example.jpg --confidence 0.5 --iou-threshold 0.4
 
-# Use global output directory and skip TOML output
-./target/release/beaker --output-dir ./results --skip-toml head example.jpg --crop
+# Use global output directory and skip metadata output
+./target/release/beaker --output-dir ./results --no-metadata head example.jpg --crop
 
 # Run on CPU explicitly
 ./target/release/beaker head example.jpg --device cpu
@@ -64,7 +64,7 @@ The build process automatically:
 - **Image processing**: Letterbox resizing and tensor preprocessing
 - **Inference**: YOLOv8n object detection with configurable confidence and IoU thresholds
 - **Post-processing**: Non-Maximum Suppression (NMS) for clean detection results
-- **Output generation**: Individual crops per detection, combined bounding box visualization, structured TOML metadata
+- **Output generation**: Individual crops per detection, combined bounding box visualization, structured metadata files
 - **Cross-platform**: Uses optimal execution providers (CoreML on macOS, CPU elsewhere)
 
 ## Output Files
@@ -75,9 +75,9 @@ When running detection, beaker can generate several output files:
   - Single detection: `image-crop.jpg` (no suffix)
   - Multiple detections: Numbered with zero-padding for 10+ detections
 - **Bounding boxes**: Single image showing all detections with green boxes (`image-bounding-box.jpg`)
-- **TOML metadata**: Structured output with detection coordinates, confidence scores, and relative file paths (`image-beaker.toml`)
+- **Metadata**: Structured TOML output with detection coordinates, confidence scores, and relative file paths (`image-beaker.toml`)
 
-Example TOML output:
+Example metadata output:
 ```toml
 [head]
 model_version = "bird-head-detector-v1.0.0"

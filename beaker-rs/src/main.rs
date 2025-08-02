@@ -44,9 +44,9 @@ struct Cli {
     #[arg(long, global = true)]
     output_dir: Option<String>,
 
-    /// Skip creating TOML output files
+    /// Skip creating metadata output files
     #[arg(long, global = true)]
-    skip_toml: bool,
+    no_metadata: bool,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -81,8 +81,8 @@ fn main() {
             if *bounding_box {
                 println!("   Will save bounding box images");
             }
-            if !cli.skip_toml {
-                println!("   Will create TOML output");
+            if !cli.no_metadata {
+                println!("   Will create metadata output");
             }
             if let Some(output_dir) = &cli.output_dir {
                 println!("   Output directory: {output_dir}");
@@ -97,7 +97,7 @@ fn main() {
                 output_dir: cli.output_dir.as_deref(),
                 crop: *crop,
                 bounding_box: *bounding_box,
-                skip_toml: cli.skip_toml,
+                skip_metadata: cli.no_metadata,
             };
             match run_head_detection(config) {
                 Ok(detections) => {

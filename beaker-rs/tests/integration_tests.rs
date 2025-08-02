@@ -251,7 +251,7 @@ fn test_head_detection_with_all_outputs() {
 }
 
 #[test]
-fn test_skip_toml_option() {
+fn test_no_metadata_option() {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
     let image_path = test_image_path("example.jpg");
 
@@ -260,7 +260,7 @@ fn test_skip_toml_option() {
         &image_path,
         "--confidence",
         "0.5",
-        "--skip-toml",
+        "--no-metadata",
         "--output-dir",
         temp_dir.path().to_str().unwrap(),
     ]);
@@ -270,16 +270,16 @@ fn test_skip_toml_option() {
         "Command should exit successfully. Stderr: {stderr}"
     );
     assert!(
-        !stdout.contains("Will create TOML output"),
-        "Should not mention TOML creation"
+        !stdout.contains("Will create metadata output"),
+        "Should not mention metadata creation"
     );
     assert!(stdout.contains("Found"), "Should report found detections");
 
-    // Check that TOML output was NOT created
+    // Check that metadata output was NOT created
     let toml_path = temp_dir.path().join("example-beaker.toml");
     assert!(
         !toml_path.exists(),
-        "TOML file should not exist when --skip-toml is used"
+        "Metadata file should not exist when --no-metadata is used"
     );
 }
 

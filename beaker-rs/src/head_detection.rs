@@ -68,7 +68,7 @@ pub struct HeadDetectionConfig<'a> {
     pub output_dir: Option<&'a str>,
     pub crop: bool,
     pub bounding_box: bool,
-    pub skip_toml: bool,
+    pub skip_metadata: bool,
 }
 
 pub fn make_path_relative_to_toml(file_path: &Path, toml_path: &Path) -> Result<String> {
@@ -388,8 +388,8 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
             .to_str()
             .unwrap();
 
-        // Determine the TOML file path early so we can make paths relative to it
-        let toml_filename = if !config.skip_toml {
+        // Determine the metadata file path early so we can make paths relative to it
+        let toml_filename = if !config.skip_metadata {
             Some(if let Some(output_dir) = config.output_dir {
                 let output_dir = Path::new(output_dir);
                 output_dir.join(format!("{input_stem}-beaker.toml"))
@@ -455,7 +455,7 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
                         }
 
                         // Update the corresponding detection with crop path
-                        // Make path relative to TOML file if TOML will be created
+                        // Make path relative to metadata file if metadata will be created
                         let crop_path = if let Some(ref toml_path) = toml_filename {
                             make_path_relative_to_toml(&crop_filename, toml_path)?
                         } else {
@@ -497,7 +497,7 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
                     }
 
                     // Set the bounding box path at the top level (includes all detections)
-                    // Make path relative to TOML file if TOML will be created
+                    // Make path relative to metadata file if metadata will be created
                     bounding_box_path = Some(if let Some(ref toml_path) = toml_filename {
                         make_path_relative_to_toml(&bbox_filename, toml_path)?
                     } else {
@@ -511,8 +511,8 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
         }
     }
 
-    // Create TOML output unless skipped
-    if !config.skip_toml {
+    // Create metadata output unless skipped
+    if !config.skip_metadata {
         let source_path = Path::new(config.source);
         let input_stem = source_path.file_stem().unwrap().to_str().unwrap();
 
