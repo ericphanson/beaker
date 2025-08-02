@@ -4,6 +4,11 @@ A Rust implementation of the Beaker bird head detection CLI tool.
 
 ## Usage
 
+Command:
+```sh
+ORT_DYLIB_PATH=./onnxruntime-libs/onnxruntime-osx-arm64-1.16.3/lib/libonnxruntime.dylib ./beaker-rs/target/debug/beaker detect example.jpg --confidence 0.75
+```
+
 ```bash
 # Show help
 ./beaker -h

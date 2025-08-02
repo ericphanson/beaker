@@ -5,6 +5,9 @@ use ndarray::Array;
 use ort::{Environment, ExecutionProvider, SessionBuilder, Value};
 use std::sync::Arc;
 
+// Embed the ONNX model at compile time
+const MODEL_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/bird-head-detector.onnx"));
+
 #[derive(Parser)]
 #[command(name = "beaker")]
 #[command(about = "Detect bird heads in images using YOLOv8")]
@@ -48,10 +51,6 @@ enum Commands {
         /// Show detection results
         #[arg(long)]
         show: bool,
-
-        /// Path to ONNX model file
-        #[arg(short, long, default_value = "models/bird-head-detector-v1.0.0.onnx")]
-        model: String,
     },
     /// Run benchmark tests
     Benchmark,
@@ -71,10 +70,9 @@ fn main() {
             skip_crop,
             save_bounding_box,
             show,
-            model,
         }) => {
             println!("🔍 Would detect bird heads in: {source}");
-            println!("   Model: {model}");
+            println!("   Model: embedded ONNX model");
             println!("   Confidence threshold: {confidence}");
             println!("   Device: {device}");
             if *skip_crop {
@@ -93,7 +91,6 @@ fn main() {
             // Run actual detection
             let config = DetectionConfig {
                 source,
-                model_path: model,
                 confidence: *confidence,
                 device,
                 output_dir: output.as_deref(),
@@ -260,7 +257,6 @@ fn postprocess_output(
 #[derive(Debug)]
 struct DetectionConfig<'a> {
     source: &'a str,
-    model_path: &'a str,
     confidence: f32,
     device: &'a str,
     output_dir: Option<&'a str>,
@@ -298,12 +294,15 @@ fn run_detection(config: DetectionConfig) -> Result<usize> {
         _ => vec![ExecutionProvider::CPU(Default::default())],
     };
 
-    // Load the model
+    // Load the embedded model
     let session = SessionBuilder::new(&environment)?
         .with_execution_providers(execution_providers)?
-        .with_model_from_file(config.model_path)?;
+        .with_model_from_memory(MODEL_BYTES)?;
 
-    println!("🤖 Loaded model: {}", config.model_path);
+    println!(
+        "🤖 Loaded embedded ONNX model ({} bytes)",
+        MODEL_BYTES.len()
+    );
 
     // Preprocess the image
     let model_size = 640; // Standard YOLO input size
