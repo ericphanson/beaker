@@ -21,14 +21,14 @@ repos:
   - repo: https://github.com/doublify/pre-commit-rust
     rev: v1.0
     hooks:
-      # Format Rust code automatically
-      - id: fmt
-        args: ['--manifest-path', 'beaker-rs/Cargo.toml', '--']
-      # Run clippy with CPU features (like Linux/Windows CI)
+      # Run clippy with CPU features (like Linux/Windows CI) with auto-fix FIRST
       - id: clippy
         name: clippy-cpu
-        args: ['--manifest-path', 'beaker-rs/Cargo.toml', '--features', 'cpu', '--', '-D', 'warnings', '-D', 'clippy::uninlined_format_args']
-      # Run clippy with CoreML features (like macOS CI)
+        args: ['--manifest-path', 'beaker-rs/Cargo.toml', '--features', 'cpu', '--fix', '--allow-dirty', '--', '-D', 'warnings', '-D', 'clippy::uninlined_format_args']
+      # Run clippy with CoreML features (like macOS CI) with auto-fix
       - id: clippy
         name: clippy-coreml
-        args: ['--manifest-path', 'beaker-rs/Cargo.toml', '--features', 'coreml', '--', '-D', 'warnings', '-D', 'clippy::uninlined_format_args']
+        args: ['--manifest-path', 'beaker-rs/Cargo.toml', '--features', 'coreml', '--fix', '--allow-dirty', '--', '-D', 'warnings', '-D', 'clippy::uninlined_format_args']
+      # Format Rust code automatically LAST (after clippy fixes)
+      - id: fmt
+        args: ['--manifest-path', 'beaker-rs/Cargo.toml', '--']
