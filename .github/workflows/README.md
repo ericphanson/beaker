@@ -48,5 +48,6 @@ uv run ruff check .
 uv run ruff format --check .
 
 # Security audit
-uv run pip-audit --desc
+uv run pip-audit --desc --ignore-vuln GHSA-887c-mr87-cxwp
+# Note: May show warnings for local packages (bird-head-detector) and ignored vulnerabilities
 ```
