@@ -1,0 +1,197 @@
+name: Rust CI
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'beaker-rs/**'
+      - '.github/workflows/rust-ci.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'beaker-rs/**'
+      - '.github/workflows/rust-ci.yml'
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  test:
+    name: Test Rust Implementation
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            features: "cpu"
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            features: "coreml"
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            features: "coreml"
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            features: "cpu"
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ matrix.target }}
+
+    - name: Cache Rust dependencies
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: "beaker-rs -> target"
+
+    - name: Check code formatting
+      run: cargo fmt --check
+      working-directory: beaker-rs
+
+    - name: Run clippy
+      run: cargo clippy --target ${{ matrix.target }} --features ${{ matrix.features }} -- -D warnings
+      working-directory: beaker-rs
+
+    - name: Build (debug)
+      run: cargo build --target ${{ matrix.target }} --features ${{ matrix.features }}
+      working-directory: beaker-rs
+
+    - name: Build (release)
+      run: cargo build --release --target ${{ matrix.target }} --features ${{ matrix.features }}
+      working-directory: beaker-rs
+
+    - name: Test CLI help (Unix)
+      if: runner.os != 'Windows'
+      run: |
+        echo "🧪 Testing CLI help command..."
+        ./target/${{ matrix.target }}/release/beaker --help
+        echo "✅ CLI help works"
+      working-directory: beaker-rs
+
+    - name: Test CLI help (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        echo "Testing CLI help command..."
+        ./target/${{ matrix.target }}/release/beaker.exe --help
+        echo "CLI help works"
+      working-directory: beaker-rs
+
+    - name: Test CLI commands (Unix)
+      if: runner.os != 'Windows'
+      run: |
+        echo "🧪 Testing CLI commands..."
+        ./target/${{ matrix.target }}/release/beaker version
+        ./target/${{ matrix.target }}/release/beaker detect example.jpg --confidence 0.5
+        ./target/${{ matrix.target }}/release/beaker benchmark
+        echo "✅ CLI commands work"
+      working-directory: beaker-rs
+
+    - name: Test CLI commands (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        echo "Testing CLI commands..."
+        ./target/${{ matrix.target }}/release/beaker.exe version
+        ./target/${{ matrix.target }}/release/beaker.exe detect example.jpg --confidence 0.5
+        ./target/${{ matrix.target }}/release/beaker.exe benchmark
+        echo "CLI commands work"
+      working-directory: beaker-rs
+
+    - name: Upload binary artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: beaker-${{ matrix.target }}
+        path: |
+          beaker-rs/target/${{ matrix.target }}/release/beaker*
+        retention-days: 7
+
+  build-musl:
+    name: Build Linux musl (static)
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: x86_64-unknown-linux-musl
+
+    - name: Install musl tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y musl-tools
+
+    - name: Cache Rust dependencies
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: "beaker-rs -> target"
+
+    - name: Build static binary
+      run: cargo build --release --target x86_64-unknown-linux-musl --features cpu
+      working-directory: beaker-rs
+      env:
+        RUSTFLAGS: '-C target-feature=+crt-static'
+
+    - name: Test static binary
+      run: |
+        echo "🧪 Testing static binary..."
+        ./target/x86_64-unknown-linux-musl/release/beaker --help
+        ./target/x86_64-unknown-linux-musl/release/beaker version
+        echo "✅ Static binary works"
+      working-directory: beaker-rs
+
+    - name: Upload static binary
+      uses: actions/upload-artifact@v4
+      with:
+        name: beaker-x86_64-unknown-linux-musl-static
+        path: beaker-rs/target/x86_64-unknown-linux-musl/release/beaker
+        retention-days: 7
+
+  cross-compile:
+    name: Cross-compile additional targets
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - aarch64-unknown-linux-gnu
+          - aarch64-unknown-linux-musl
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ matrix.target }}
+
+    - name: Install cross
+      run: cargo install cross --git https://github.com/cross-rs/cross
+
+    - name: Cache Rust dependencies
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: "beaker-rs -> target"
+
+    - name: Cross-compile
+      run: cross build --release --target ${{ matrix.target }} --features cpu
+      working-directory: beaker-rs
+
+    - name: Upload cross-compiled binary
+      uses: actions/upload-artifact@v4
+      with:
+        name: beaker-${{ matrix.target }}
+        path: beaker-rs/target/${{ matrix.target }}/release/beaker
+        retention-days: 7
+
+  # Summary job that depends on all others
+  rust-ci-success:
+    name: Rust CI Success
+    runs-on: ubuntu-latest
+    needs: [test, build-musl, cross-compile]
+    steps:
+    - name: Mark as successful
+      run: echo "🎉 All Rust CI jobs completed successfully!"

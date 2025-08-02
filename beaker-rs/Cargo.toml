@@ -1,0 +1,27 @@
+[package]
+name = "beaker"
+version = "0.1.0"
+edition = "2021"
+description = "Detect bird heads in images using YOLOv8 (Rust implementation)"
+readme = "README.md"
+license = "AGPL-3.0"
+repository = "https://github.com/ericphanson/beaker"
+authors = ["Eric Hanson <ericphanson@gmail.com>"]
+
+[[bin]]
+name = "beaker"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+
+[features]
+default = ["cpu"]
+cpu = []
+coreml = ["cpu"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
