@@ -1,7 +1,7 @@
 [project]
 name = "bird-head-detector"
 version = "0.1.0"
-description = "Add your description here"
+description = "Detect bird's heads!"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

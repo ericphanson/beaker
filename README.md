@@ -2,6 +2,8 @@
 
 A simple YOLOv8n-based bird head detection model trained on the CUB-200-2011 dataset. The model attempts to identify bird head regions in images, though performance varies significantly with image quality, bird pose, and species.
 
+The code was largely written by Claude Sonnet 4 via GitHub copilot.
+
 ## 1. License & Usage
 
 | Origin | Original terms | What that means for these weights |
@@ -17,9 +19,16 @@ Commercial use would require **separate rights to the images** *and* a **non-AGP
 
 ## 2. Quick Start Inference
 
-Run detection on images using a pre-trained model:
+You'll need `git` and [`uv`](https://docs.astral.sh/uv/getting-started/installation/).
+
+To run detection on images using a pre-trained model:
 
 ```bash
+# Clone the repository
+git clone https://github.com/ericphanson/bird-head-detector
+
+cd bird-head-detector
+
 # Install dependencies
 uv sync
 
