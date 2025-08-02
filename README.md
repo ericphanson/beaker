@@ -37,6 +37,12 @@ bird-head-detector example.jpg --save-bounding-box
 
 # Save to specific directory with custom padding
 bird-head-detector example.jpg --output-dir crops/ --padding 0.5
+
+# Force CPU usage (useful if GPU memory issues occur)
+bird-head-detector example.jpg --device cpu
+
+# Use specific device (auto, cpu, cuda, mps). The default is "auto".
+bird-head-detector example.jpg --device mps
 ```
 
 For example, the example image

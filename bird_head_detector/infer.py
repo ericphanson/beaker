@@ -229,11 +229,42 @@ def create_square_crop(image_path, bbox, output_dir=None, padding=0.25):
     return output_path
 
 
-def detect_device():
-    """Detect the best available device for inference."""
+def detect_device(requested_device="auto"):
+    """Detect the best available device for inference or use user's choice."""
+    # If user specified a specific device, try to use it
+    if requested_device != "auto":
+        if requested_device == "cpu":
+            return "cpu"
+        elif requested_device == "mps":
+            try:
+                import torch
+                if torch.backends.mps.is_available():
+                    # Test if MPS actually works
+                    test_tensor = torch.zeros(1, device="mps")
+                    del test_tensor
+                    return "mps"
+                else:
+                    print(f"⚠️  MPS not available on this system, falling back to CPU")
+                    return "cpu"
+            except (ImportError, RuntimeError) as e:
+                print(f"⚠️  Cannot use MPS ({e}), falling back to CPU")
+                return "cpu"
+        elif requested_device == "cuda":
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    return "cuda"
+                else:
+                    print(f"⚠️  CUDA not available on this system, falling back to CPU")
+                    return "cpu"
+            except ImportError as e:
+                print(f"⚠️  Cannot use CUDA ({e}), falling back to CPU")
+                return "cpu"
+
+    # Auto-detection logic
     try:
         import torch
-        
+
         if torch.backends.mps.is_available():
             # Test if MPS actually works by trying a small operation
             try:
@@ -313,6 +344,13 @@ def main():
         default=0.25,
         help="Padding around bounding box as fraction (default: 0.25 = 25%%)",
     )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="auto",
+        choices=["auto", "cpu", "cuda", "mps"],
+        help="Device to use for inference (default: auto-detect)",
+    )
 
     args = parser.parse_args()
 
@@ -333,10 +371,13 @@ def main():
 
     # Run inference
     print(f"🔍 Running inference on: {args.source}")
-    device = detect_device()
+    device = detect_device(args.device)
     if device:
-        print(f"🚀 Using device: {device}")
-    
+        if args.device == "auto":
+            print(f"🚀 Auto-detected device: {device}")
+        else:
+            print(f"🚀 Using device: {device}")
+
     # Try inference with the detected device, fallback to CPU if MPS fails
     try:
         results = model(
@@ -344,7 +385,7 @@ def main():
             save=False,  # We handle saving manually
             show=args.show,
             conf=args.conf,
-            device=device,  # Auto-detect best device
+            device=device,  # Use detected/requested device
         )
     except RuntimeError as e:
         if device == "mps" and "MPS backend out of memory" in str(e):
