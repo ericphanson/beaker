@@ -109,10 +109,7 @@ fn download_latest_model(output_path: &Path) -> Result<String, Box<dyn std::erro
     // GitHub API to get the latest release
     let api_url = "https://api.github.com/repos/ericphanson/beaker/releases/latest";
 
-    println!(
-        "cargo:warning=Fetching latest release info from: {}",
-        api_url
-    );
+    println!("cargo:warning=Fetching latest release info from: {api_url}");
 
     let client = ureq::Agent::new();
     let response = client
@@ -151,10 +148,7 @@ fn download_latest_model(output_path: &Path) -> Result<String, Box<dyn std::erro
         .as_str()
         .unwrap_or("bird-head-detector.onnx");
 
-    println!(
-        "cargo:warning=Downloading {} (version: {}) from: {}",
-        model_name, tag_name, download_url
-    );
+    println!("cargo:warning=Downloading {model_name} (version: {tag_name}) from: {download_url}");
 
     // Download the model
     let response = client

@@ -27,8 +27,8 @@ repos:
       # Run clippy with CPU features (like Linux/Windows CI)
       - id: clippy
         name: clippy-cpu
-        args: ['--manifest-path', 'beaker-rs/Cargo.toml', '--features', 'cpu', '--', '-D', 'warnings']
+        args: ['--manifest-path', 'beaker-rs/Cargo.toml', '--features', 'cpu', '--', '-D', 'warnings', '-D', 'clippy::uninlined_format_args']
       # Run clippy with CoreML features (like macOS CI)
       - id: clippy
         name: clippy-coreml
-        args: ['--manifest-path', 'beaker-rs/Cargo.toml', '--features', 'coreml', '--', '-D', 'warnings']
+        args: ['--manifest-path', 'beaker-rs/Cargo.toml', '--features', 'coreml', '--', '-D', 'warnings', '-D', 'clippy::uninlined_format_args']
