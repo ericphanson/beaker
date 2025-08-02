@@ -17,22 +17,12 @@ Commercial use would require **separate rights to the images** *and* a **non-AGP
 
 ## 2. Quick Start
 
-To install, you'll need [`cargo`](https://doc.rust-lang.org/cargo/getting-started/installation.html). Then:
-
-### Option 1: Install directly from Git (recommended)
-
+To install, you'll need [`cargo`](https://doc.rust-lang.org/cargo/getting-started/installation.html). Then run
 ```bash
 cargo install --git https://github.com/ericphanson/beaker
 ```
 
-### Option 2: Build from source
-
-```bash
-git clone https://github.com/ericphanson/beaker
-cd beaker/beaker-rs
-cargo build --release
-cargo install --path .
-```
+to compile and install the binary. I don't have an apple developer account so I can't codesign binaries, so this seems like the most reliable way to get a working binary.
 
 ### Usage examples
 
@@ -46,7 +36,6 @@ beaker head --crop --device cpu example.jpg
 beaker head --crop *.jpg
 beaker head --crop my_folder
 ```
-
 
 For example, the example image
 
@@ -161,6 +150,17 @@ uv run beaker-upload
 
 The script uploads the selected model as `bird-head-detector.pt` along with training artifacts (plots, configs, results) and an ONNX export ``bird-head-detector.onnx`.
 
-## 5. Note
+## 5. How to build `beaker` from source
+
+`beaker` is the CLI tool developed in [./beaker-rs](./beaker-rs/) which is used for inference. It automatically pulls the latest ONNX model from `bird-head-detector-vX.Y.Z` Github releases at build time.
+
+```bash
+git clone https://github.com/ericphanson/beaker
+cd beaker/beaker-rs
+cargo build --release
+cargo install --path .
+```
+
+## 6. Note
 
 The code in this repository was largely written by Claude Sonnet 4 via GitHub copilot.
