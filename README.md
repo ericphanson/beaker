@@ -17,7 +17,22 @@ Commercial use would require **separate rights to the images** *and* a **non-AGP
 
 ## 2. Quick Start
 
-TODO- install
+To install, you'll need [`cargo`](https://doc.rust-lang.org/cargo/getting-started/installation.html). Then:
+
+### Option 1: Install directly from Git (recommended)
+
+```bash
+cargo install --git https://github.com/ericphanson/beaker --root beaker-rs
+```
+
+### Option 2: Build from source
+
+```bash
+git clone https://github.com/ericphanson/beaker
+cd beaker/beaker-rs
+cargo build --release
+cargo install --path .
+```
 
 ```bash
 beaker head example.jpg --confidence 0.75
