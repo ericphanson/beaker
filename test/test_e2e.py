@@ -295,7 +295,7 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
     def test_default_behavior_single_image(self):
         """Test default behavior: should create crop by default."""
         # Run detector with minimal arguments
-        result = self._run_detector(["--source", str(self.single_image)])
+        result = self._run_detector([str(self.single_image)])
 
         # Check that crop was created
         expected_crop = self.single_image.parent / "test_bird-crop.jpg"
@@ -311,7 +311,7 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
 
     def test_skip_crop_option(self):
         """Test --skip-crop option."""
-        result = self._run_detector(["--source", str(self.single_image), "--skip-crop"])
+        result = self._run_detector([str(self.single_image), "--skip-crop"])
 
         # Check that NO crop was created
         expected_crop = self.single_image.parent / "test_bird-crop.jpg"
@@ -323,7 +323,7 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
 
     def test_save_bounding_box_option(self):
         """Test --save-bounding-box option."""
-        result = self._run_detector(["--source", str(self.single_image), "--save-bounding-box"])
+        result = self._run_detector([str(self.single_image), "--save-bounding-box"])
 
         # Check that both crop AND bounding box were created
         expected_crop = self.single_image.parent / "test_bird-crop.jpg"
@@ -339,7 +339,7 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
     def test_skip_crop_with_bounding_box(self):
         """Test --skip-crop with --save-bounding-box (only bounding box should be created)."""
         result = self._run_detector(
-            ["--source", str(self.single_image), "--skip-crop", "--save-bounding-box"]
+            [str(self.single_image), "--skip-crop", "--save-bounding-box"]
         )
 
         # Check that only bounding box was created
@@ -357,7 +357,7 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
 
     def test_png_format_preservation(self):
         """Test that PNG format is preserved in outputs."""
-        result = self._run_detector(["--source", str(self.png_image), "--save-bounding-box"])
+        result = self._run_detector([str(self.png_image), "--save-bounding-box"])
 
         # Check that outputs maintain PNG format
         expected_crop = self.png_image.parent / "test_bird-crop.png"
@@ -376,7 +376,6 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
 
         result = self._run_detector(
             [
-                "--source",
                 str(self.single_image),
                 "--save-bounding-box",
                 "--output-dir",
@@ -408,7 +407,7 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
 
     def test_directory_processing(self):
         """Test processing entire directory of images."""
-        result = self._run_detector(["--source", str(self.batch_dir)])
+        result = self._run_detector([str(self.batch_dir)])
 
         # Check that crops were created for all images
         expected_files = [
@@ -430,7 +429,7 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
         output_dir = self.temp_dir / "batch_output"
 
         result = self._run_detector(
-            ["--source", str(self.batch_dir), "--output-dir", str(output_dir)]
+            [str(self.batch_dir), "--output-dir", str(output_dir)]
         )
 
         # Check that files were created in output directory with original names
@@ -451,7 +450,7 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
 
     def test_padding_option(self):
         """Test --padding option (basic functionality test)."""
-        result = self._run_detector(["--source", str(self.single_image), "--padding", "0.5"])
+        result = self._run_detector([str(self.single_image), "--padding", "0.5"])
 
         # Check that crop was created (padding affects crop size, not filename)
         expected_crop = self.single_image.parent / "test_bird-crop.jpg"
@@ -459,7 +458,7 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
 
     def test_confidence_threshold(self):
         """Test --conf option (basic functionality test)."""
-        result = self._run_detector(["--source", str(self.single_image), "--conf", "0.1"])
+        result = self._run_detector([str(self.single_image), "--conf", "0.1"])
 
         # Check that crop was created (confidence affects detection, not filename)
         expected_crop = self.single_image.parent / "test_bird-crop.jpg"

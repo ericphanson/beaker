@@ -24,19 +24,19 @@ Install directly from GitHub using [`uv`](https://docs.astral.sh/uv/getting-star
 uv tool install git+https://github.com/ericphanson/bird-head-detector.git
 
 # Run the tool:
-bird-head-detector --source example.jpg
+bird-head-detector example.jpg
 
 # Process all images in a directory
-bird-head-detector --source path/to/images/
+bird-head-detector path/to/images/
 
 # Skip cropping, only show detection
-bird-head-detector --source example.jpg --skip-crop --show
+bird-head-detector example.jpg --skip-crop --show
 
 # Save bounding box images with detected heads highlighted
-bird-head-detector --source example.jpg --save-bounding-box
+bird-head-detector example.jpg --save-bounding-box
 
 # Save to specific directory with custom padding
-bird-head-detector --source example.jpg --output-dir crops/ --padding 0.5
+bird-head-detector example.jpg --output-dir crops/ --padding 0.5
 ```
 
 For example, the example image
@@ -46,7 +46,7 @@ For example, the example image
 can be processed with
 
 ```sh
-uv run python bird_head_detector/infer.py --source example.jpg
+uv run python bird_head_detector/infer.py example.jpg
 ```
 
 yielding the output crop saved as `example-crop.jpg` (with 25% padding around the detected head)
