@@ -8,6 +8,7 @@ use ort::{
 };
 use serde::Serialize;
 use std::path::Path;
+use std::time::Instant;
 
 use crate::yolo_postprocessing::{postprocess_output, Detection};
 use crate::yolo_preprocessing::preprocess_image;
@@ -230,10 +231,14 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
 
     // Determine execution provider based on device
     let execution_providers = match config.device {
-        "cpu" => vec![CPUExecutionProvider::default().build()],
+        "cpu" => {
+            println!("🖥️  Using CPU execution provider");
+            vec![CPUExecutionProvider::default().build()]
+        }
         "auto" => {
             #[cfg(target_os = "macos")]
             {
+                println!("🍎 Using CoreML + CPU execution providers (macOS auto mode)");
                 vec![
                     CoreMLExecutionProvider::default().build(),
                     CPUExecutionProvider::default().build(),
@@ -241,20 +246,27 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
             }
             #[cfg(not(target_os = "macos"))]
             {
+                println!("🖥️  Using CPU execution provider (auto mode, non-macOS)");
                 vec![CPUExecutionProvider::default().build()]
             }
         }
-        _ => vec![CPUExecutionProvider::default().build()],
+        _ => {
+            println!("🖥️  Using CPU execution provider (fallback)");
+            vec![CPUExecutionProvider::default().build()]
+        }
     };
 
     // Load the embedded model using ORT v2 API
+    let session_start = Instant::now();
     let mut session = Session::builder()?
         .with_execution_providers(execution_providers)?
         .commit_from_memory(MODEL_BYTES)?;
+    let session_load_time = session_start.elapsed();
 
     println!(
-        "🤖 Loaded embedded ONNX model ({} bytes)",
-        MODEL_BYTES.len()
+        "🤖 Loaded embedded ONNX model ({} bytes) in {:.3}ms",
+        MODEL_BYTES.len(),
+        session_load_time.as_secs_f64() * 1000.0
     );
 
     // Preprocess the image
@@ -263,11 +275,16 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
 
     println!("🔄 Preprocessed image to {model_size}x{model_size}");
 
-    // Run inference using ORT v2 API
+    // Run inference using ORT v2 API with timing
+    let inference_start = Instant::now();
     let outputs =
         session.run(ort::inputs!["images" => TensorRef::from_array_view(input_tensor.view())?])?;
+    let inference_time = inference_start.elapsed();
 
-    println!("⚡ Inference completed");
+    println!(
+        "⚡ Inference completed in {:.3}ms",
+        inference_time.as_secs_f64() * 1000.0
+    );
 
     // Extract output tensor using ORT v2 API and convert to owned array
     let output_view = outputs["output0"].try_extract_array::<f32>()?;
