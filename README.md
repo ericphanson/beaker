@@ -21,7 +21,7 @@ Commercial use would require **separate rights to the images** *and* a **non-AGP
 
 ### Option A: Install as a Tool (Recommended)
 
-Install directly from GitHub using `uv` (requires `uv` to be installed):
+Install directly from GitHub using [`uv`](https://docs.astral.sh/uv/getting-started/installation/):
 
 ```bash
 # Install the bird-head-detector tool
