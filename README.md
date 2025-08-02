@@ -33,13 +33,16 @@ cd bird-head-detector
 uv sync
 
 # Basic inference (downloads model automatically)
-uv run python infer.py --source image.jpg --show
+uv run python infer.py --source example.jpg --show
 
 # Save results
-uv run python infer.py --source image.jpg --save
+uv run python infer.py --source example.jpg --save
 
-# Create square crops around detected heads
-uv run python infer.py --source image.jpg --crop
+# Create square crops around detected heads (saves next to input as -crop suffix)
+uv run python infer.py --source example.jpg --crop
+
+# Save crops to specific directory
+uv run python infer.py --source example.jpg --crop --output-dir crops/
 ```
 
 **Limitations:**
@@ -47,6 +50,21 @@ uv run python infer.py --source image.jpg --crop
 - Performance degrades with poor lighting, motion blur, or multiple birds
 - May struggle with unusual poses or partially occluded heads
 - False positives possible on non-bird objects
+
+For example, the example image
+
+![](./example.jpg)
+
+can be processed with
+
+```sh
+uv run python infer.py --source example.jpg --crop
+```
+
+yielding the output crop saved as `example-crop.jpg`
+
+![](./example-crop.jpg)
+
 
 ## 3. Model Card
 

@@ -129,7 +129,7 @@ def find_or_download_model(model_path_arg):
     return None
 
 
-def create_square_crop(image_path, bbox, output_dir):
+def create_square_crop(image_path, bbox, output_dir=None):
     """Create a square crop around the detection bounding box."""
     # Load image
     img = cv2.imread(str(image_path))
@@ -139,18 +139,26 @@ def create_square_crop(image_path, bbox, output_dir):
     h, w = img.shape[:2]
     x1, y1, x2, y2 = bbox
 
-    # Calculate center and current dimensions
-    center_x = (x1 + x2) / 2
-    center_y = (y1 + y2) / 2
+    # Expand bounding box by 15%
     width = x2 - x1
     height = y2 - y1
+    expand_w = width * 0.15
+    expand_h = height * 0.15
+
+    x1 = max(0, x1 - expand_w)
+    y1 = max(0, y1 - expand_h)
+    x2 = min(w, x2 + expand_w)
+    y2 = min(h, y2 + expand_h)
+
+    # Calculate center and current dimensions after expansion
+    center_x = (x1 + x2) / 2
+    center_y = (y1 + y2) / 2
+    new_width = x2 - x1
+    new_height = y2 - y1
 
     # Make square by using the larger dimension
-    size = max(width, height)
-
-    # Add some padding (20% larger)
-    size = int(size * 1.2)
-    half_size = size // 2
+    size = max(new_width, new_height)
+    half_size = size / 2
 
     # Calculate square bounds
     crop_x1 = max(0, int(center_x - half_size))
@@ -176,10 +184,19 @@ def create_square_crop(image_path, bbox, output_dir):
     # Crop the image
     cropped = img[crop_y1:crop_y2, crop_x1:crop_x2]
 
-    # Save cropped image
-    output_dir.mkdir(parents=True, exist_ok=True)
-    input_name = Path(image_path).stem
-    output_path = output_dir / f"{input_name}_head_crop.jpg"
+    # Determine output path based on whether output_dir is specified
+    input_path = Path(image_path)
+    input_name = input_path.stem
+    input_ext = input_path.suffix
+
+    if output_dir:
+        # If output_dir specified, use identical name to input in that directory
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / input_path.name
+    else:
+        # Default: place next to input with -crop suffix
+        output_path = input_path.parent / f"{input_name}-crop{input_ext}"
 
     cv2.imwrite(str(output_path), cropped)
     return output_path
@@ -198,7 +215,7 @@ def main():
     parser.add_argument("--show", action="store_true", help="Show detection results")
     parser.add_argument("--conf", type=float, default=0.25, help="Confidence threshold")
     parser.add_argument("--crop", action="store_true", help="Create square crops around detected heads")
-    parser.add_argument("--crop-dir", type=str, default="crops", help="Directory to save cropped images")
+    parser.add_argument("--output-dir", type=str, help="Directory to save cropped images (default: next to input)")
 
     args = parser.parse_args()
 
@@ -230,7 +247,7 @@ def main():
     # Process results and create crops if requested
     total_detections = 0
     crops_created = 0
-    crop_output_dir = Path(args.crop_dir) if args.crop else None
+    crop_output_dir = Path(args.output_dir) if args.crop and args.output_dir else None
 
     for i, result in enumerate(results):
         if result.boxes is not None:
@@ -268,7 +285,10 @@ def main():
         print(f"💾 Results saved to: runs/detect/predict/")
 
     if args.crop:
-        print(f"✂️  Created {crops_created} square head crops in: {crop_output_dir}")
+        if crop_output_dir:
+            print(f"✂️  Created {crops_created} square head crops in: {crop_output_dir}")
+        else:
+            print(f"✂️  Created {crops_created} square head crops next to original images")
 
 
 if __name__ == "__main__":
