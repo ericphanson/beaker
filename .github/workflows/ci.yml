@@ -89,7 +89,9 @@ jobs:
 
         print(f'Cache directory: {models_dir}')
         print(f'Latest tag: {latest_tag}')
-        "    - name: Cache bird-head-detector models
+        "
+
+    - name: Cache bird-head-detector models
       uses: actions/cache@v4
       with:
         path: ${{ steps.cache-path.outputs.cache-dir }}
