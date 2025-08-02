@@ -21,22 +21,24 @@ A fast, self-contained Rust implementation of the Beaker bird head detection CLI
 cargo build --release
 
 # Run head detection - no environment variables needed!
-./target/release/beaker head example.jpg --confidence 0.75
+./target/release/beaker head ../example.jpg --confidence 0.75
+
+./target/release/beaker -v head ../example.jpg --confidence 0.75
 
 # Show help
 ./target/release/beaker --help
 
 # Run with crop and bounding box outputs
-./target/release/beaker head example.jpg --crop --bounding-box
+./target/release/beaker head ../example.jpg --crop --bounding-box
 
 # Run with custom confidence and IoU thresholds
-./target/release/beaker head example.jpg --confidence 0.5 --iou-threshold 0.4
+./target/release/beaker head ../example.jpg --confidence 0.5 --iou-threshold 0.4
 
 # Use global output directory and skip metadata output
-./target/release/beaker --output-dir ./results --no-metadata head example.jpg --crop
+./target/release/beaker --output-dir ./results --no-metadata head ../example.jpg --crop
 
 # Run on CPU explicitly
-./target/release/beaker head example.jpg --device cpu
+./target/release/beaker head ../example.jpg --device cpu
 ```
 
 ## Building
