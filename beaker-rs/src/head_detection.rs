@@ -3,6 +3,7 @@ use image::{DynamicImage, GenericImageView, Rgb};
 use ndarray::Array;
 use ort::{
     execution_providers::{CPUExecutionProvider, CoreMLExecutionProvider, ExecutionProvider},
+    logging::LogLevel,
     session::Session,
     value::Value,
 };
@@ -449,10 +450,20 @@ fn create_session(config: &HeadDetectionConfig, device: &str) -> Result<(Session
         .map(|(i, _)| format!("EP{}", i + 1))
         .collect();
 
+    // Set log level to suppress CoreML warnings unless verbose mode is enabled
+    // These warnings are normal for complex models like YOLO and don't indicate problems
+    let log_level = if config.verbose {
+        LogLevel::Warning // Show warnings in verbose mode
+    } else {
+        LogLevel::Error // Suppress warnings in normal mode
+    };
+
     // Load the embedded model using ORT v2 API
     let session_start = Instant::now();
     let session = Session::builder()
         .map_err(|e| anyhow::anyhow!("Failed to create session builder: {}", e))?
+        .with_log_level(log_level)
+        .map_err(|e| anyhow::anyhow!("Failed to set log level: {}", e))?
         .with_execution_providers(execution_providers)
         .map_err(|e| anyhow::anyhow!("Failed to set execution providers: {}", e))?
         .commit_from_memory(MODEL_BYTES)
