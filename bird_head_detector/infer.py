@@ -215,6 +215,35 @@ def create_square_crop(image_path, bbox, output_dir=None, padding=0.25):
     return output_path
 
 
+def save_bounding_box_image(image_path, bbox, output_dir=None):
+    """Save image with bounding box drawn on it."""
+    # Load image
+    img = cv2.imread(str(image_path))
+    if img is None:
+        return None
+
+    # Draw bounding box
+    x1, y1, x2, y2 = bbox
+    cv2.rectangle(img, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
+
+    # Determine output path based on whether output_dir is specified
+    input_path = Path(image_path)
+    input_name = input_path.stem
+    input_ext = input_path.suffix
+
+    if output_dir:
+        # If output_dir specified, use identical name to input in that directory
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / input_path.name
+    else:
+        # Default: place next to input with -bounding-box suffix
+        output_path = input_path.parent / f"{input_name}-bounding-box{input_ext}"
+
+    cv2.imwrite(str(output_path), img)
+    return output_path
+
+
 def main():
     parser = argparse.ArgumentParser(description="Bird head detection inference")
     parser.add_argument(
@@ -224,11 +253,11 @@ def main():
         help="Path to model weights (will auto-download from releases if not found)"
     )
     parser.add_argument("--source", type=str, required=True, help="Source image/video/directory")
-    parser.add_argument("--save", action="store_true", help="Save detection results")
+    parser.add_argument("--save-bounding-box", action="store_true", help="Save detection results with bounding boxes")
     parser.add_argument("--show", action="store_true", help="Show detection results")
     parser.add_argument("--conf", type=float, default=0.25, help="Confidence threshold")
-    parser.add_argument("--crop", action="store_true", help="Create square crops around detected heads")
-    parser.add_argument("--output-dir", type=str, help="Directory to save cropped images (default: next to input)")
+    parser.add_argument("--skip-crop", action="store_true", help="Skip creating square crops around detected heads")
+    parser.add_argument("--output-dir", type=str, help="Directory to save outputs (default: next to input)")
     parser.add_argument("--padding", type=float, default=0.25, help="Padding around bounding box as fraction (default: 0.25 = 25%%)")
 
     args = parser.parse_args()
@@ -252,24 +281,25 @@ def main():
     print(f"🔍 Running inference on: {args.source}")
     results = model(
         args.source,
-        save=args.save,
+        save=False,  # We handle saving manually
         show=args.show,
         conf=args.conf,
         device="mps"  # Use MPS on Mac
     )
 
-    # Process results and create crops if requested
+    # Process results and create outputs
     total_detections = 0
     crops_created = 0
-    crop_output_dir = Path(args.output_dir) if args.crop and args.output_dir else None
+    bbox_images_created = 0
+    output_dir = Path(args.output_dir) if args.output_dir else None
 
     for i, result in enumerate(results):
         if result.boxes is not None:
             detections = len(result.boxes)
             total_detections += detections
 
-            # Create crop if requested and at least one detection
-            if args.crop and detections >= 1:
+            # Process if at least one detection
+            if detections >= 1:
                 # Get the source image path
                 source_path = Path(result.path) if hasattr(result, 'path') else Path(args.source)
 
@@ -281,28 +311,44 @@ def main():
                 bbox = result.boxes.xyxy[best_idx].cpu().numpy()
                 best_conf = confidences[best_idx]
 
-                # Create square crop
-                crop_path = create_square_crop(source_path, bbox, crop_output_dir, args.padding)
-                if crop_path:
-                    crops_created += 1
-                    if detections == 1:
-                        print(f"✂️  Created crop: {crop_path}")
-                    else:
-                        print(f"✂️  Created crop: {crop_path} (used highest confidence: {best_conf:.3f}, {detections} total detections)")
-            elif args.crop and detections == 0:
-                print(f"ℹ️  No detections in {result.path}, no crop created")
+                # Create crop by default (unless skipped)
+                if not args.skip_crop:
+                    crop_path = create_square_crop(source_path, bbox, output_dir, args.padding)
+                    if crop_path:
+                        crops_created += 1
+                        if detections == 1:
+                            print(f"✂️  Created crop: {crop_path}")
+                        else:
+                            print(f"✂️  Created crop: {crop_path} (used highest confidence: {best_conf:.3f}, {detections} total detections)")
+
+                # Save bounding box image if requested
+                if args.save_bounding_box:
+                    bbox_path = save_bounding_box_image(source_path, bbox, output_dir)
+                    if bbox_path:
+                        bbox_images_created += 1
+                        if detections == 1:
+                            print(f"📦 Created bounding box image: {bbox_path}")
+                        else:
+                            print(f"📦 Created bounding box image: {bbox_path} (used highest confidence: {best_conf:.3f}, {detections} total detections)")
+
+            elif not args.skip_crop or args.save_bounding_box:
+                # Only print no detections message if we would have created outputs
+                print(f"ℹ️  No detections in {result.path}, no outputs created")
 
     # Print summary
     print(f"✅ Completed! Found {total_detections} bird head detections")
 
-    if args.save:
-        print(f"💾 Results saved to: runs/detect/predict/")
-
-    if args.crop:
-        if crop_output_dir:
-            print(f"✂️  Created {crops_created} square head crops in: {crop_output_dir}")
+    if not args.skip_crop:
+        if output_dir:
+            print(f"✂️  Created {crops_created} square head crops in: {output_dir}")
         else:
             print(f"✂️  Created {crops_created} square head crops next to original images")
+
+    if args.save_bounding_box:
+        if output_dir:
+            print(f"📦 Created {bbox_images_created} bounding box images in: {output_dir}")
+        else:
+            print(f"📦 Created {bbox_images_created} bounding box images next to original images")
 
 
 if __name__ == "__main__":

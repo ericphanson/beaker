@@ -3,3 +3,4 @@ data
 yolov8n.pt
 runs
 crops
+__pycache__
