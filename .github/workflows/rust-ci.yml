@@ -25,16 +25,20 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            features: "cpu"
+            features: "cpu,coreml"  # Use unified features for cross-platform builds
+            device: "auto"  # Will fallback to CPU on Linux
           - target: x86_64-apple-darwin
             os: macos-latest
-            features: "coreml"
+            features: "cpu,coreml"
+            device: "auto"  # Will use CoreML on macOS
           - target: aarch64-apple-darwin
             os: macos-latest
-            features: "coreml"
+            features: "cpu,coreml"
+            device: "auto"  # Will use CoreML on macOS
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-            features: "cpu"
+            features: "cpu,coreml"  # Use unified features for cross-platform builds
+            device: "auto"  # Will fallback to CPU on Windows
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -81,6 +85,23 @@ jobs:
       run: cargo build --release --target ${{ matrix.target }} --features ${{ matrix.features }}
       working-directory: beaker-rs
 
+    - name: Show binary information (Unix)
+      if: runner.os != 'Windows'
+      run: |
+        echo "📊 Binary information:"
+        ls -lh target/${{ matrix.target }}/release/beaker
+        echo ""
+        echo "🔍 Binary size: $(du -h target/${{ matrix.target }}/release/beaker | cut -f1)"
+        echo "📏 Stripped size: $(strip target/${{ matrix.target }}/release/beaker -o /tmp/beaker-stripped && du -h /tmp/beaker-stripped | cut -f1)"
+      working-directory: beaker-rs
+
+    - name: Show binary information (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        echo "Binary information:"
+        Get-ChildItem target/${{ matrix.target }}/release/beaker.exe | Format-Table Name, Length
+      working-directory: beaker-rs
+
     - name: Copy example image to beaker-rs directory
       run: cp example.jpg beaker-rs/
 
@@ -100,36 +121,67 @@ jobs:
         echo "CLI help works"
       working-directory: beaker-rs
 
-    - name: Test CLI version (Unix)
+    - name: Test CLI head detection with ORT logging (Unix)
       if: runner.os != 'Windows'
+      env:
+        RUST_LOG: "ort=info"
       run: |
-        echo "🧪 Testing CLI version command..."
-        ./target/${{ matrix.target }}/release/beaker version
-        echo "✅ CLI version works"
+        echo "🧪 Testing CLI head detection with ORT logging..."
+        echo "Device: ${{ matrix.device }}, Target: ${{ matrix.target }}"
+        ./target/${{ matrix.target }}/release/beaker head example.jpg --confidence 0.5 --device ${{ matrix.device }}
+        echo "✅ CLI head detection works"
       working-directory: beaker-rs
 
-    - name: Test CLI version (Windows)
+    - name: Test CLI head detection with ORT logging (Windows)
       if: runner.os == 'Windows'
+      env:
+        RUST_LOG: "ort=info"
       run: |
-        echo "Testing CLI version command..."
-        ./target/${{ matrix.target }}/release/beaker.exe version
-        echo "CLI version works"
+        echo "Testing CLI head detection with ORT logging..."
+        echo "Device: ${{ matrix.device }}, Target: ${{ matrix.target }}"
+        ./target/${{ matrix.target }}/release/beaker.exe head example.jpg --confidence 0.5 --device ${{ matrix.device }}
+        echo "CLI head detection works"
       working-directory: beaker-rs
 
-    - name: Test CLI detection (Unix)
+    - name: Test execution provider details with debug logging (Unix)
       if: runner.os != 'Windows'
+      env:
+        RUST_LOG: "ort=debug"
       run: |
-        echo "🧪 Testing CLI detection command..."
-        ./target/${{ matrix.target }}/release/beaker detect example.jpg --confidence 0.5
-        echo "✅ CLI detection works"
+        echo "🔍 Testing execution provider details with debug logging..."
+        echo "Platform: ${{ matrix.os }}, Target: ${{ matrix.target }}"
+        echo "Expected behavior:"
+        if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+          echo "  - CoreML should be available and used"
+          echo "  - Should see CoreML model compilation logs"
+        else
+          echo "  - CoreML should not be available, fallback to CPU"
+          echo "  - Should see CPU-only execution"
+        fi
+        echo ""
+        echo "=== Running with --device auto ==="
+        ./target/${{ matrix.target }}/release/beaker head example.jpg --confidence 0.5 --device auto
+        echo ""
+        echo "=== Running with --device cpu ==="
+        ./target/${{ matrix.target }}/release/beaker head example.jpg --confidence 0.5 --device cpu
+        echo "✅ Execution provider testing complete"
       working-directory: beaker-rs
 
-    - name: Test CLI detection (Windows)
+    - name: Test execution provider details with debug logging (Windows)
       if: runner.os == 'Windows'
+      env:
+        RUST_LOG: "ort=debug"
       run: |
-        echo "Testing CLI detection command..."
-        ./target/${{ matrix.target }}/release/beaker.exe detect example.jpg --confidence 0.5
-        echo "CLI detection works"
+        echo "Testing execution provider details with debug logging..."
+        echo "Platform: ${{ matrix.os }}, Target: ${{ matrix.target }}"
+        echo "Expected: CoreML should not be available, fallback to CPU"
+        echo ""
+        echo "=== Running with --device auto ==="
+        ./target/${{ matrix.target }}/release/beaker.exe head example.jpg --confidence 0.5 --device auto
+        echo ""
+        echo "=== Running with --device cpu ==="
+        ./target/${{ matrix.target }}/release/beaker.exe head example.jpg --confidence 0.5 --device cpu
+        echo "Execution provider testing complete"
       working-directory: beaker-rs
 
     - name: Upload binary artifact
