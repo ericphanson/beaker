@@ -1,6 +1,6 @@
 [package]
 name         = "beaker"
-version      = "0.1.0"
+version      = "0.1.1"
 edition      = "2021"
 description  = "Detect bird heads in images using YOLOv8 (Rust implementation)"
 readme       = "README.md"
