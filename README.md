@@ -73,6 +73,7 @@ Download and prepare the CUB-200-2011 dataset:
 
 2. **Convert to YOLO format:**
    ```bash
+   cd training
    uv run beaker-convert
    ```
 
@@ -82,25 +83,28 @@ Download and prepare the CUB-200-2011 dataset:
 
 ```bash
 # Install all dependencies (training + preprocessing + release tools)
+cd training
 uv sync --extra dev
 ```
 
 Requires Python 3.12+. On M1/M2 Macs, verify MPS is available:
 ```bash
+cd training
 uv run python -c "import torch; print(f'MPS available: {torch.backends.mps.is_available()}')"
 ```
 
 ### 4.3. Training
 
-If using [comet](https://www.comet.com/), update [`.envrc`](./envrc) to set the `COMET_WORKSPACE` variable and add your API key to your environment (`export COMET_API_KEY="your-api-key"`).
+If using [comet](https://www.comet.com/), update [`.envrc`](./.envrc) to set the `COMET_WORKSPACE` variable and add your API key to your environment (`export COMET_API_KEY="your-api-key"`).
 
 **Basic training:**
 ```bash
+cd training
 uv run beaker-train
 ```
 
 **Debug mode** (faster, less data):
-Edit `train.py` and set `'debug_run': True` in `TRAINING_CONFIG`.
+Edit `training/train.py` and set `'debug_run': True` in `TRAINING_CONFIG`.
 
 **Training notes:**
 - Expects ~2-4 hours on M1 MacBook Pro for full training
@@ -117,6 +121,7 @@ Create GitHub releases with trained models:
 git add . && git commit -m "Update before release"
 
 # Create release
+cd training
 uv run beaker-upload
 
 # Follow prompts for version number and model selection
