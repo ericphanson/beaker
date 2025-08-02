@@ -9,8 +9,8 @@ A tool to crop bird images to around their heads using a finetuned YOLOv8n model
 | **Dataset:** Caltech-UCSD Birds-200-2011 | "Images are for **non-commercial research and educational purposes only**." | ➜ **No commercial use** of the weights or any derivative work. |
 | **Training code:** Ultralytics YOLOv8 | Source and official models released under **GNU AGPL-3.0** | ➜ If you **redistribute or serve** the weights, you must also release the full source & weights **under AGPL-3.0**. |
 
-### Summary  
-Because the weights were trained on CUB images *and* with AGPL-licensed code, they are provided **solely for non-commercial research/education** under **AGPL-3.0**.  
+### Summary
+Because the weights were trained on CUB images *and* with AGPL-licensed code, they are provided **solely for non-commercial research/education** under **AGPL-3.0**.
 Commercial use would require **separate rights to the images** *and* a **non-AGPL licence from Ultralytics**.
 
 *No warranty. Provided "as is."*
@@ -67,11 +67,11 @@ yielding the output crop saved as `example-crop.jpg` (with 25% padding around th
 
 ## 3. Model Card
 
-**Architecture:** YOLOv8n (nano) - optimized for speed over accuracy  
-**Dataset:** CUB-200-2011 bird parts (head regions only)  
-**Training images:** ~6,000 train, ~6,000 validation  
-**Classes:** 1 (bird_head)  
-**Input size:** 640×640 pixels  
+**Architecture:** YOLOv8n (nano) - optimized for speed over accuracy
+**Dataset:** CUB-200-2011 bird parts (head regions only)
+**Training images:** ~6,000 train, ~6,000 validation
+**Classes:** 1 (bird_head)
+**Input size:** 640×640 pixels
 
 **Expected performance:**
 - Generally reliable on clear photos of common bird species
@@ -96,7 +96,7 @@ Download and prepare the CUB-200-2011 dataset:
    ```bash
    uv run python convert_to_yolo.py
    ```
-   
+
    This creates `data/yolo/` with train/val splits and YOLO-format labels. The conversion extracts head-related parts (beak, crown, forehead, eyes, nape, throat) and creates bounding boxes around them.
 
 ### 4.2. Install Dependencies

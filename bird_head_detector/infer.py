@@ -17,11 +17,11 @@ from platformdirs import user_cache_dir
 from ultralytics import YOLO
 
 # Configure UTF-8 encoding to handle Unicode emoji characters on all platforms
-os.environ['PYTHONIOENCODING'] = 'utf-8'
+os.environ["PYTHONIOENCODING"] = "utf-8"
 # Reconfigure stdout/stderr to use UTF-8
-if hasattr(sys.stdout, 'reconfigure'):
-    sys.stdout.reconfigure(encoding='utf-8')
-    sys.stderr.reconfigure(encoding='utf-8')
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
 
 
 def get_cache_dir():
@@ -238,13 +238,14 @@ def detect_device(requested_device="auto"):
         elif requested_device == "mps":
             try:
                 import torch
+
                 if torch.backends.mps.is_available():
                     # Test if MPS actually works
                     test_tensor = torch.zeros(1, device="mps")
                     del test_tensor
                     return "mps"
                 else:
-                    print(f"⚠️  MPS not available on this system, falling back to CPU")
+                    print("⚠️  MPS not available on this system, falling back to CPU")
                     return "cpu"
             except (ImportError, RuntimeError) as e:
                 print(f"⚠️  Cannot use MPS ({e}), falling back to CPU")
@@ -252,10 +253,11 @@ def detect_device(requested_device="auto"):
         elif requested_device == "cuda":
             try:
                 import torch
+
                 if torch.cuda.is_available():
                     return "cuda"
                 else:
-                    print(f"⚠️  CUDA not available on this system, falling back to CPU")
+                    print("⚠️  CUDA not available on this system, falling back to CPU")
                     return "cpu"
             except ImportError as e:
                 print(f"⚠️  Cannot use CUDA ({e}), falling back to CPU")
