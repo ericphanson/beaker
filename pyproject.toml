@@ -1,5 +1,5 @@
 [project]
-name = "bird-head-detector"
+name = "beaker"
 version = "0.1.0"
 description = "Detect bird heads in images using YOLOv8"
 readme = "README.md"
@@ -28,18 +28,18 @@ preprocessing = [
 
 # All development dependencies (includes training + preprocessing)
 dev = [
-    "bird-head-detector[training,preprocessing]",
+    "beaker[training,preprocessing]",
     "ruff>=0.7.0",
     "pip-audit>=2.7.0",
     "pre-commit>=3.8.0",
 ]
 
 [project.scripts]
-bird-head-detector = "bird_head_detector.infer:main"
+beaker = "beaker.infer:main"
 
 [project.urls]
-"Homepage" = "https://github.com/ericphanson/bird-head-detector"
-"Repository" = "https://github.com/ericphanson/bird-head-detector"
+"Homepage" = "https://github.com/ericphanson/beaker"
+"Repository" = "https://github.com/ericphanson/beaker"
 
 [build-system]
 requires = ["hatchling"]

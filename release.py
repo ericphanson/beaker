@@ -356,7 +356,7 @@ def create_release(version, model_path):
 ## Usage
 Download the model file and use with the inference script:
 ```bash
-uv run python infer.py --model bird-head-detector.pt --source your_image.jpg --show
+uv run python beaker/infer.py --model bird-head-detector.pt --source your_image.jpg --show
 ```
 
 {files_section}

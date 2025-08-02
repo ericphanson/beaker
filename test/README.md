@@ -1,12 +1,12 @@
-# Bird Head Detector Tests
+# Beaker Tests
 
-This directory contains comprehensive end-to-end tests for the bird-head-detector tool.
+This directory contains comprehensive end-to-end tests for the beaker tool.
 
 ## What the tests cover
 
 The test suite validates the complete workflow:
 
-1. **Tool Installation**: Builds and installs the `bird-head-detector` tool using `uv`
+1. **Tool Installation**: Builds and installs the `beaker` tool using `uv`
 2. **Default Behavior**: Tests that cropping is enabled by default
 3. **Command Options**: Tests all command-line options and their combinations:
    - `--skip-crop`: Disables default cropping behavior

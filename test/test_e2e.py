@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-End-to-end test suite for bird-head-detector tool.
+End-to-end test suite for beaker tool.
 
 Tests the complete workflow:
 1. Build and install the tool
@@ -27,7 +27,7 @@ if hasattr(sys.stdout, "reconfigure"):
 
 
 class BirdHeadDetectorE2ETest(unittest.TestCase):
-    """End-to-end tests for bird-head-detector tool."""
+    """End-to-end tests for beaker tool."""
 
     @classmethod
     def setUpClass(cls):
@@ -65,8 +65,8 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
 
     @classmethod
     def _build_and_install_tool(cls):
-        """Build and install the bird-head-detector tool."""
-        print("Building bird-head-detector package...")
+        """Build and install the beaker tool."""
+        print("Building beaker package...")
 
         # Build the package
         build_result = subprocess.run(
@@ -76,7 +76,7 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
         if build_result.returncode != 0:
             raise RuntimeError(f"Failed to build package: {build_result.stderr}")
 
-        print("Installing bird-head-detector tool...")
+        print("Installing beaker tool...")
 
         # Install the tool
         install_result = subprocess.run(
@@ -92,7 +92,7 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
     def tearDownClass(cls):
         """Clean up test environment."""
         # Uninstall the tool
-        subprocess.run(["uv", "tool", "uninstall", "bird-head-detector"], capture_output=True)
+        subprocess.run(["uv", "tool", "uninstall", "beaker"], capture_output=True)
 
         # Clean up temp directory
         shutil.rmtree(cls.temp_dir)
@@ -107,9 +107,9 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
             file_path.unlink()
 
     def _run_detector(self, args, expect_success=True):
-        """Run bird-head-detector with given arguments."""
+        """Run beaker with given arguments."""
         # First try using the installed tool
-        cmd = ["bird-head-detector"] + args
+        cmd = ["beaker"] + args
         result = subprocess.run(cmd, capture_output=True, text=True, cwd=self.temp_dir)
 
         # Always print the full output for debugging CI issues
@@ -182,10 +182,10 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
             tool_check = subprocess.run(
                 ["uv", "tool", "list"], capture_output=True, text=True, timeout=10
             )
-            if "bird-head-detector" in tool_check.stdout:
-                debug_lines.append("✅ bird-head-detector is installed via uv tool")
+            if "beaker" in tool_check.stdout:
+                debug_lines.append("✅ beaker is installed via uv tool")
             else:
-                debug_lines.append("❌ bird-head-detector NOT found in uv tool list")
+                debug_lines.append("❌ beaker NOT found in uv tool list")
             debug_lines.extend(
                 [
                     "uv tool list output:",
@@ -206,11 +206,11 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
 
         try:
             help_result = subprocess.run(
-                ["bird-head-detector", "--help"], capture_output=True, text=True, timeout=10
+                ["beaker", "--help"], capture_output=True, text=True, timeout=10
             )
             debug_lines.extend(
                 [
-                    f"bird-head-detector --help return code: {help_result.returncode}",
+                    f"beaker --help return code: {help_result.returncode}",
                     f"Help output length: {len(help_result.stdout)} chars",
                 ]
             )
@@ -282,7 +282,7 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
             import urllib.request
 
             with urllib.request.urlopen(
-                "https://api.github.com/repos/ericphanson/bird-head-detector/releases/latest",
+                "https://api.github.com/repos/ericphanson/beaker/releases/latest",
                 timeout=10,
             ) as response:
                 debug_lines.append(f"✅ GitHub API accessible (HTTP {response.status})")
@@ -591,7 +591,7 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
 
     def test_help_option(self):
         """Test --help option."""
-        result = subprocess.run(["bird-head-detector", "--help"], capture_output=True, text=True)
+        result = subprocess.run(["beaker", "--help"], capture_output=True, text=True)
 
         self.assertEqual(result.returncode, 0)
         self.assertIn("Bird head detection inference", result.stdout)

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Simple test runner for the bird-head-detector end-to-end tests.
+Simple test runner for the beaker end-to-end tests.
 """
 
 import os
@@ -21,7 +21,7 @@ sys.path.insert(0, str(test_dir))
 from test_e2e import run_tests
 
 if __name__ == "__main__":
-    print("🧪 Running bird-head-detector end-to-end tests...")
+    print("🧪 Running beaker end-to-end tests...")
     print("=" * 60)
 
     success = run_tests()

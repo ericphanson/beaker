@@ -113,11 +113,11 @@ jobs:
         echo "✅ Tool installed successfully"
 
         echo "🧪 Testing tool execution..."
-        bird-head-detector --help
+        beaker --help
         echo "✅ Tool help command works"
 
         echo "🧪 Testing tool uninstall..."
-        uv tool uninstall bird-head-detector
+        uv tool uninstall beaker
         echo "✅ Tool uninstalled successfully"
 
     - name: Test tool installation (Windows)
@@ -129,11 +129,11 @@ jobs:
         echo Tool installed successfully
 
         echo Testing tool execution...
-        bird-head-detector --help
+        beaker --help
         echo Tool help command works
 
         echo Testing tool uninstall...
-        uv tool uninstall bird-head-detector
+        uv tool uninstall beaker
         echo Tool uninstalled successfully
 
     - name: Upload test artifacts on failure

@@ -1,4 +1,4 @@
-# Bird Head Detector
+# Beaker
 
 A tool to crop bird images to around their heads using a finetuned YOLOv8n model trained on the CUB-200-2011 dataset.
 
@@ -20,29 +20,29 @@ Commercial use would require **separate rights to the images** *and* a **non-AGP
 Install directly from GitHub using [`uv`](https://docs.astral.sh/uv/getting-started/installation/):
 
 ```bash
-# Install the bird-head-detector tool
-uv tool install git+https://github.com/ericphanson/bird-head-detector.git
+# Install the beaker tool
+uv tool install git+https://github.com/ericphanson/beaker.git
 
 # Run the tool:
-bird-head-detector example.jpg
+beaker example.jpg
 
 # Process all images in a directory
-bird-head-detector path/to/images/
+beaker path/to/images/
 
 # Skip cropping, only show detection
-bird-head-detector example.jpg --skip-crop --show
+beaker example.jpg --skip-crop --show
 
 # Save bounding box images with detected heads highlighted
-bird-head-detector example.jpg --save-bounding-box
+beaker example.jpg --save-bounding-box
 
 # Save to specific directory with custom padding
-bird-head-detector example.jpg --output-dir crops/ --padding 0.5
+beaker example.jpg --output-dir crops/ --padding 0.5
 
 # Force CPU usage (useful if GPU memory issues occur)
-bird-head-detector example.jpg --device cpu
+beaker example.jpg --device cpu
 
 # Use specific device (auto, cpu, cuda, mps). The default is "auto".
-bird-head-detector example.jpg --device mps
+beaker example.jpg --device mps
 ```
 
 For example, the example image
@@ -52,7 +52,7 @@ For example, the example image
 can be processed with
 
 ```sh
-uv run python bird_head_detector/infer.py example.jpg
+uv run python beaker/infer.py example.jpg
 ```
 
 yielding the output crop saved as `example-crop.jpg` (with 25% padding around the detected head)

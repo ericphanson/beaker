@@ -57,7 +57,7 @@ def get_repo_info():
     except:
         pass
 
-    return "ericphanson/bird-head-detector"  # Fallback default
+    return "ericphanson/beaker"  # Fallback default
 
 
 def download_latest_model(models_dir):

@@ -18,7 +18,7 @@ wheels = [
 ]
 
 [[package]]
-name = "bird-head-detector"
+name = "beaker"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
@@ -51,7 +51,7 @@ training = [
 
 [package.metadata]
 requires-dist = [
-    { name = "bird-head-detector", extras = ["training", "preprocessing"], marker = "extra == 'dev'" },
+    { name = "beaker", extras = ["training", "preprocessing"], marker = "extra == 'dev'" },
     { name = "comet-ml", marker = "extra == 'training'", specifier = ">=3.41.0" },
     { name = "numpy", specifier = ">=2.3.2" },
     { name = "opencv-python", specifier = ">=4.8.0" },

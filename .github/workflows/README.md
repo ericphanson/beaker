@@ -1,6 +1,6 @@
 # CI/CD Workflows
 
-This directory contains the GitHub Actions workflow for the bird-head-detector project.
+This directory contains the GitHub Actions workflow for the beaker project.
 
 ## Workflow
 
@@ -49,5 +49,5 @@ uv run ruff format --check .
 
 # Security audit
 uv run pip-audit --desc --ignore-vuln GHSA-887c-mr87-cxwp
-# Note: May show warnings for local packages (bird-head-detector) and ignored vulnerabilities
+# Note: May show warnings for local packages (beaker) and ignored vulnerabilities
 ```
