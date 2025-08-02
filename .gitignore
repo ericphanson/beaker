@@ -5,6 +5,7 @@ runs
 crops
 models
 __pycache__
+onnxruntime-libs
 
 # Rust build artifacts
 beaker-rs/target/
