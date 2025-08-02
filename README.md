@@ -17,33 +17,12 @@ Commercial use would require **separate rights to the images** *and* a **non-AGP
 
 ## 2. Quick Start
 
-Install directly from GitHub using [`uv`](https://docs.astral.sh/uv/getting-started/installation/):
+TODO- install
 
 ```bash
-# Install the beaker tool
-uv tool install git+https://github.com/ericphanson/beaker.git
-
-# Run the tool:
-beaker example.jpg
-
-# Process all images in a directory
-beaker path/to/images/
-
-# Skip cropping, only show detection
-beaker example.jpg --skip-crop --show
-
-# Save bounding box images with detected heads highlighted
-beaker example.jpg --save-bounding-box
-
-# Save to specific directory with custom padding
-beaker example.jpg --output-dir crops/ --padding 0.5
-
-# Force CPU usage (useful if GPU memory issues occur)
-beaker example.jpg --device cpu
-
-# Use specific device (auto, cpu, cuda, mps). The default is "auto".
-beaker example.jpg --device mps
+beaker head example.jpg --confidence 0.75
 ```
+
 
 For example, the example image
 
@@ -52,7 +31,7 @@ For example, the example image
 can be processed with
 
 ```sh
-uv run python beaker/infer.py example.jpg
+beaker head --crop example.jpg
 ```
 
 yielding the output crop saved as `example-crop.jpg` (with 25% padding around the detected head)
@@ -94,7 +73,7 @@ Download and prepare the CUB-200-2011 dataset:
 
 2. **Convert to YOLO format:**
    ```bash
-   uv run python convert_to_yolo.py
+   uv run beaker-convert
    ```
 
    This creates `data/yolo/` with train/val splits and YOLO-format labels. The conversion extracts head-related parts (beak, crown, forehead, eyes, nape, throat) and creates bounding boxes around them.
@@ -102,7 +81,7 @@ Download and prepare the CUB-200-2011 dataset:
 ### 4.2. Install Dependencies
 
 ```bash
-# Install all dependencies (training + preprocessing + inference)
+# Install all dependencies (training + preprocessing + release tools)
 uv sync --extra dev
 ```
 
@@ -117,7 +96,7 @@ If using [comet](https://www.comet.com/), update [`.envrc`](./envrc) to set the 
 
 **Basic training:**
 ```bash
-uv run python train.py
+uv run beaker-train
 ```
 
 **Debug mode** (faster, less data):
@@ -138,7 +117,7 @@ Create GitHub releases with trained models:
 git add . && git commit -m "Update before release"
 
 # Create release
-uv run python upload_train.py
+uv run beaker-upload
 
 # Follow prompts for version number and model selection
 ```

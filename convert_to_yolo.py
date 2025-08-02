@@ -209,5 +209,10 @@ names: ['bird_head']  # class names
     print("Created dataset.yaml configuration file")
 
 
+def main():
+    """Entry point for the beaker-convert script."""
+    convert_to_yolo()
+
+
 if __name__ == "__main__":
     convert_to_yolo()

@@ -1,29 +1,25 @@
 [project]
-name = "beaker"
+name = "beaker-training"
 version = "0.1.0"
-description = "Detect bird heads in images using YOLOv8"
+description = "Training scripts and tools for the Beaker bird head detection model"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    # Core inference dependencies only
+    # Core training and preprocessing dependencies
     "numpy>=2.3.2",
     "opencv-python>=4.8.0",
     "ultralytics>=8.3.172",
     "platformdirs>=4.0.0",
-]
-
-[project.optional-dependencies]
-# Training and experiment tracking dependencies
-training = [
-    "comet-ml>=3.41.0",
-    "pyyaml>=6.0",
-]
-
-# Data preprocessing dependencies
-preprocessing = [
     "pillow>=11.3.0",
     "polars>=1.32.0",
     "tqdm>=4.66.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+# Experiment tracking dependencies
+tracking = [
+    "comet-ml>=3.41.0",
 ]
 
 # ONNX export dependencies
@@ -33,20 +29,24 @@ onnx = [
     "onnxruntime>=1.22.0",
 ]
 
-# All development dependencies (includes training + preprocessing + onnx)
+# All development dependencies (includes tracking + onnx)
 dev = [
-    "beaker[training,preprocessing,onnx]",
+    "beaker-training[tracking,onnx]",
     "ruff>=0.7.0",
     "pip-audit>=2.7.0",
     "pre-commit>=3.8.0",
 ]
 
 [project.scripts]
-beaker = "beaker.infer:main"
+# Training and data processing scripts
+beaker-train = "train:main"
+beaker-convert = "convert_to_yolo:main"
+beaker-upload = "upload_train:main"
 
 [project.urls]
 "Homepage" = "https://github.com/ericphanson/beaker"
 "Repository" = "https://github.com/ericphanson/beaker"
+"Documentation" = "https://github.com/ericphanson/beaker#beaker-training-tools"
 
 [build-system]
 requires = ["hatchling"]

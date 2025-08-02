@@ -437,11 +437,13 @@ def create_release(version, model_path):
 - **Classes**: 1 (bird_head)
 
 ## Usage
-Download the model files and use with the inference script:
+Download the model files and use with the Rust inference tool:
 
-**PyTorch model:**
+**Using the Rust tool (recommended):**
 ```bash
-uv run python beaker/infer.py --model bird-head-detector.pt --source your_image.jpg --show
+cd beaker-rs
+cargo build --release
+./target/release/beaker head your_image.jpg --confidence 0.25
 ```
 
 **ONNX model (for production deployment):**
