@@ -59,11 +59,10 @@ yielding the output crop saved as `example-crop.jpg` (with 25% padding around th
 
 ## 3. Model Card
 
-**Architecture:** YOLOv8n (nano) - optimized for speed over accuracy
-**Dataset:** CUB-200-2011 bird parts (head regions only)
-**Training images:** ~6,000 train, ~6,000 validation
-**Classes:** 1 (bird_head)
-**Input size:** 640×640 pixels
+- **Architecture:** YOLOv8n (nano) - optimized for speed over accuracy
+- **Finetuning dataset:** CUB-200-2011 bird parts (head regions only). ~6k train images, ~6k validation images
+- **Classes:** 1 (bird_head)
+- **Input size:** 640×640 pixels
 
 Here are the validation metrics from the [v1](https://github.com/ericphanson/beaker/releases/tag/bird-head-detector-v1.0.0) model currently used by `beaker`:
 
