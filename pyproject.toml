@@ -29,6 +29,8 @@ preprocessing = [
 # All development dependencies (includes training + preprocessing)
 dev = [
     "bird-head-detector[training,preprocessing]",
+    "ruff>=0.7.0",
+    "pip-audit>=2.7.0",
 ]
 
 [project.scripts]
@@ -41,3 +43,29 @@ bird-head-detector = "bird_head_detector.infer:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # Pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "E722",  # bare except (sometimes needed for broad exception handling)
+    "F841",  # assigned but never used (common in tests)
+    "B007",  # loop variable not used in body (common in enumerate)
+    "E402",  # module level import not at top (needed for dynamic imports)
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

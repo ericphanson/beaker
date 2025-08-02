@@ -5,14 +5,14 @@ Automatically downloads model weights from GitHub releases if not found locally.
 """
 
 import argparse
+import json
 import subprocess
 import urllib.request
-import json
 from pathlib import Path
+
 import cv2
-import numpy as np
-from ultralytics import YOLO
 from platformdirs import user_cache_dir
+from ultralytics import YOLO
 
 
 def get_cache_dir():
@@ -27,7 +27,10 @@ def get_repo_info():
     try:
         result = subprocess.run(
             ["git", "remote", "get-url", "origin"],
-            capture_output=True, text=True, check=True, cwd="."
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=".",
         )
         stdout = result.stdout.strip()
 
@@ -62,11 +65,11 @@ def download_latest_model(models_dir):
 
         # Find .pt model file in assets
         model_asset = None
-        for asset in release_data.get('assets', []):
-            if asset['name'] == 'bird-head-detector.pt':
+        for asset in release_data.get("assets", []):
+            if asset["name"] == "bird-head-detector.pt":
                 model_asset = asset
                 break
-            elif asset['name'].endswith('.pt'):
+            elif asset["name"].endswith(".pt"):
                 # Fallback to any .pt file if bird-head-detector.pt not found
                 model_asset = asset
 
@@ -76,18 +79,20 @@ def download_latest_model(models_dir):
 
         # Create models directory
         models_dir.mkdir(parents=True, exist_ok=True)
-        model_path = models_dir / model_asset['name']
+        model_path = models_dir / model_asset["name"]
 
         # Download if not already exists
         if model_path.exists():
             print(f"✅ Model already exists: {model_path}")
             return model_path
 
-        print(f"📥 Downloading {model_asset['name']} ({model_asset['size'] / (1024*1024):.1f} MB)...")
+        print(
+            f"📥 Downloading {model_asset['name']} ({model_asset['size'] / (1024 * 1024):.1f} MB)..."
+        )
         print(f"   From: {release_data['tag_name']} - {release_data['name']}")
 
         # Download the model
-        urllib.request.urlretrieve(model_asset['browser_download_url'], model_path)
+        urllib.request.urlretrieve(model_asset["browser_download_url"], model_path)
 
         print(f"✅ Downloaded model: {model_path}")
         return model_path
@@ -102,7 +107,7 @@ def find_or_download_model(model_path_arg):
     model_path = Path(model_path_arg)
 
     # If explicit path provided and exists, use it
-    if model_path_arg != 'runs/detect/bird_head_yolov8n/weights/best.pt' and model_path.exists():
+    if model_path_arg != "runs/detect/bird_head_yolov8n/weights/best.pt" and model_path.exists():
         return model_path
 
     # Check local training outputs (for development)
@@ -250,15 +255,28 @@ def main():
         "--model",
         type=str,
         default="runs/detect/bird_head_yolov8n/weights/best.pt",
-        help="Path to model weights (will auto-download from releases if not found)"
+        help="Path to model weights (will auto-download from releases if not found)",
     )
     parser.add_argument("--source", type=str, required=True, help="Source image/video/directory")
-    parser.add_argument("--save-bounding-box", action="store_true", help="Save detection results with bounding boxes")
+    parser.add_argument(
+        "--save-bounding-box",
+        action="store_true",
+        help="Save detection results with bounding boxes",
+    )
     parser.add_argument("--show", action="store_true", help="Show detection results")
     parser.add_argument("--conf", type=float, default=0.25, help="Confidence threshold")
-    parser.add_argument("--skip-crop", action="store_true", help="Skip creating square crops around detected heads")
-    parser.add_argument("--output-dir", type=str, help="Directory to save outputs (default: next to input)")
-    parser.add_argument("--padding", type=float, default=0.25, help="Padding around bounding box as fraction (default: 0.25 = 25%%)")
+    parser.add_argument(
+        "--skip-crop", action="store_true", help="Skip creating square crops around detected heads"
+    )
+    parser.add_argument(
+        "--output-dir", type=str, help="Directory to save outputs (default: next to input)"
+    )
+    parser.add_argument(
+        "--padding",
+        type=float,
+        default=0.25,
+        help="Padding around bounding box as fraction (default: 0.25 = 25%%)",
+    )
 
     args = parser.parse_args()
 
@@ -284,7 +302,7 @@ def main():
         save=False,  # We handle saving manually
         show=args.show,
         conf=args.conf,
-        device="mps"  # Use MPS on Mac
+        device="mps",  # Use MPS on Mac
     )
 
     # Process results and create outputs
@@ -301,7 +319,7 @@ def main():
             # Process if at least one detection
             if detections >= 1:
                 # Get the source image path
-                source_path = Path(result.path) if hasattr(result, 'path') else Path(args.source)
+                source_path = Path(result.path) if hasattr(result, "path") else Path(args.source)
 
                 # Get the highest confidence detection
                 confidences = result.boxes.conf.cpu().numpy()
@@ -319,7 +337,9 @@ def main():
                         if detections == 1:
                             print(f"✂️  Created crop: {crop_path}")
                         else:
-                            print(f"✂️  Created crop: {crop_path} (used highest confidence: {best_conf:.3f}, {detections} total detections)")
+                            print(
+                                f"✂️  Created crop: {crop_path} (used highest confidence: {best_conf:.3f}, {detections} total detections)"
+                            )
 
                 # Save bounding box image if requested
                 if args.save_bounding_box:
@@ -329,7 +349,9 @@ def main():
                         if detections == 1:
                             print(f"📦 Created bounding box image: {bbox_path}")
                         else:
-                            print(f"📦 Created bounding box image: {bbox_path} (used highest confidence: {best_conf:.3f}, {detections} total detections)")
+                            print(
+                                f"📦 Created bounding box image: {bbox_path} (used highest confidence: {best_conf:.3f}, {detections} total detections)"
+                            )
 
             elif not args.skip_crop or args.save_bounding_box:
                 # Only print no detections message if we would have created outputs

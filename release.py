@@ -27,13 +27,14 @@ Usage:
     uv run python release.py --model my_custom_model.pt
 """
 
+import argparse
+import os
+import re
 import subprocess
 import sys
-from pathlib import Path
-import re
-import os
-import argparse
 import tempfile
+from pathlib import Path
+
 import yaml
 
 
@@ -41,7 +42,9 @@ def run_command(cmd, capture=True, check=True, timeout=60):
     """Run a shell command and return the result."""
     try:
         if capture:
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=check, timeout=timeout)
+            result = subprocess.run(
+                cmd, shell=True, capture_output=True, text=True, check=check, timeout=timeout
+            )
             return result.stdout.strip(), result.stderr.strip()
         else:
             result = subprocess.run(cmd, shell=True, check=check, timeout=timeout)
@@ -105,13 +108,13 @@ def get_existing_tags():
     """Get list of existing git tags."""
     stdout, stderr = run_command("git tag --sort=-version:refname")
     if stdout:
-        return stdout.split('\n')
+        return stdout.split("\n")
     return []
 
 
 def validate_version(version):
     """Validate version format (semantic versioning)."""
-    pattern = r'^v?\d+\.\d+\.\d+(-[a-zA-Z0-9.-]+)?$'
+    pattern = r"^v?\d+\.\d+\.\d+(-[a-zA-Z0-9.-]+)?$"
     return re.match(pattern, version) is not None
 
 
@@ -141,7 +144,7 @@ def get_model_path():
                 available_models.append(path)
 
     # Remove duplicates and sort
-    available_models = sorted(list(set(available_models)))
+    available_models = sorted(set(available_models))
 
     if not available_models:
         return None
@@ -155,6 +158,7 @@ def get_model_path():
         size_mb = model_path.stat().st_size / (1024 * 1024)
         mod_time = model_path.stat().st_mtime
         from datetime import datetime
+
         mod_date = datetime.fromtimestamp(mod_time).strftime("%Y-%m-%d %H:%M")
         print(f"   {i}. {model_path} ({size_mb:.1f} MB, modified: {mod_date})")
 
@@ -191,10 +195,10 @@ def collect_run_assets(model_path):
 
     # Define file patterns to include in the release (excluding other .pt files)
     include_patterns = [
-        "*.png",     # All plots and visualizations
-        "*.jpg",     # Training/validation batch images
-        "*.yaml",    # Training arguments
-        "*.csv",     # Results data
+        "*.png",  # All plots and visualizations
+        "*.jpg",  # Training/validation batch images
+        "*.yaml",  # Training arguments
+        "*.csv",  # Results data
     ]
 
     assets = []
@@ -222,16 +226,16 @@ def get_training_info(model_path):
         return {"is_debug": False, "train_images": "~5,990", "val_images": "~5,794"}
 
     try:
-        with open(args_file, 'r') as f:
+        with open(args_file) as f:
             args = yaml.safe_load(f)
 
         # Check if this is a debug run by looking at the data path
-        data_path = args.get('data', '')
-        is_debug = 'debug' in data_path.lower()
+        data_path = args.get("data", "")
+        is_debug = "debug" in data_path.lower()
 
         # Try to read the actual dataset configuration
         if data_path and Path(data_path).exists():
-            with open(data_path, 'r') as f:
+            with open(data_path) as f:
                 dataset_config = yaml.safe_load(f)
 
             # Count actual images if possible
@@ -239,15 +243,15 @@ def get_training_info(model_path):
             val_images = "unknown"
 
             # Look for train and val paths in dataset config
-            train_path = dataset_config.get('train', '')
-            val_path = dataset_config.get('val', '')
+            train_path = dataset_config.get("train", "")
+            val_path = dataset_config.get("val", "")
 
             if train_path and Path(train_path).exists():
-                train_labels = list(Path(train_path).glob('*.txt'))
+                train_labels = list(Path(train_path).glob("*.txt"))
                 train_images = str(len(train_labels))
 
             if val_path and Path(val_path).exists():
-                val_labels = list(Path(val_path).glob('*.txt'))
+                val_labels = list(Path(val_path).glob("*.txt"))
                 val_images = str(len(val_labels))
 
             # If we couldn't count, use estimates based on debug status
@@ -265,8 +269,8 @@ def get_training_info(model_path):
             "is_debug": is_debug,
             "train_images": train_images,
             "val_images": val_images,
-            "epochs": args.get('epochs', 'unknown'),
-            "data_path": data_path
+            "epochs": args.get("epochs", "unknown"),
+            "data_path": data_path,
         }
 
     except Exception as e:
@@ -279,8 +283,8 @@ def create_release(version, model_path):
     print(f"🚀 Creating release {version}...")
 
     # Ensure version starts with 'v'
-    if not version.startswith('v'):
-        version = f'v{version}'
+    if not version.startswith("v"):
+        version = f"v{version}"
 
     # Create git tag
     print(f"📝 Creating git tag: {version}")
@@ -290,7 +294,7 @@ def create_release(version, model_path):
         return False
 
     # Push tag to remote
-    print(f"📤 Pushing tag to remote...")
+    print("📤 Pushing tag to remote...")
     stdout, stderr = run_command(f"git push origin {version}")
 
     # Collect all training run assets
@@ -306,43 +310,47 @@ def create_release(version, model_path):
     data_files = []
 
     for asset in assets:
-        if asset.suffix == '.pt':
+        if asset.suffix == ".pt":
             model_files.append(asset.name)
-        elif asset.suffix in ['.png', '.jpg']:
+        elif asset.suffix in [".png", ".jpg"]:
             plot_files.append(asset.name)
-        elif asset.suffix in ['.csv', '.yaml']:
+        elif asset.suffix in [".csv", ".yaml"]:
             data_files.append(asset.name)
 
     # Build file list for release notes
-    files_section = f"## Files\n"
+    files_section = "## Files\n"
     if model_files:
-        files_section += f"### Model Weights\n"
-        files_section += f"- `bird-head-detector.pt`: Trained model weights\n"
+        files_section += "### Model Weights\n"
+        files_section += "- `bird-head-detector.pt`: Trained model weights\n"
 
     if plot_files:
-        files_section += f"\n### Training Visualizations\n"
+        files_section += "\n### Training Visualizations\n"
         for f in plot_files:
             files_section += f"- `{f}`: Training plots and visualizations\n"
 
     if data_files:
-        files_section += f"\n### Training Data\n"
+        files_section += "\n### Training Data\n"
         for f in data_files:
             files_section += f"- `{f}`: Training configuration and results\n"
 
     # Build model details section with dynamic training info
     debug_note = " (Debug Training)" if training_info["is_debug"] else ""
-    epochs_info = f"- **Epochs**: {training_info['epochs']}\n" if training_info.get('epochs') != 'unknown' else ""
+    epochs_info = (
+        f"- **Epochs**: {training_info['epochs']}\n"
+        if training_info.get("epochs") != "unknown"
+        else ""
+    )
 
     # Create release with all assets
-    print(f"🎁 Creating GitHub release...")
+    print("🎁 Creating GitHub release...")
     release_title = f"Bird Head Detector {version}{debug_note}"
     release_notes = f"""This release includes a trained YOLOv8n model for bird head detection with complete training artifacts.
 
 ## Model Details
 - **Architecture**: YOLOv8n
 - **Dataset**: CUB-200-2011 (bird head parts)
-{epochs_info}- **Training Images**: {training_info['train_images']}
-- **Validation Images**: {training_info['val_images']}
+{epochs_info}- **Training Images**: {training_info["train_images"]}
+- **Validation Images**: {training_info["val_images"]}
 - **Classes**: 1 (bird_head)
 
 ## Usage
@@ -355,7 +363,7 @@ uv run python infer.py --model bird-head-detector.pt --source your_image.jpg --s
 """
 
     # Write release notes to temporary file to avoid shell escaping issues
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
         f.write(release_notes)
         notes_file = f.name
 
@@ -372,7 +380,7 @@ uv run python infer.py --model bird-head-detector.pt --source your_image.jpg --s
             run_command(f"git push origin --delete {version}", check=False)
             return False
 
-        print(f"✅ Release created successfully!")
+        print("✅ Release created successfully!")
     finally:
         # Clean up temporary file
         try:
@@ -387,7 +395,7 @@ uv run python infer.py --model bird-head-detector.pt --source your_image.jpg --s
         # Prepare asset paths, renaming the model file
         asset_args = []
         for asset in assets:
-            if asset.suffix == '.pt':
+            if asset.suffix == ".pt":
                 # Rename model to standardized name
                 asset_args.append(f'"{asset}"#bird-head-detector.pt')
                 print(f"   📝 Renaming {asset.name} → bird-head-detector.pt")
@@ -396,12 +404,12 @@ uv run python infer.py --model bird-head-detector.pt --source your_image.jpg --s
 
         assets_str = " ".join(asset_args)
 
-        upload_cmd = f'gh release upload {version} {assets_str}'
-        print(f"🔧 Running upload command...")
+        upload_cmd = f"gh release upload {version} {assets_str}"
+        print("🔧 Running upload command...")
         stdout, stderr = run_command(upload_cmd, timeout=300)  # 5 minute timeout for uploads
 
         if stderr and "timed out" in stderr:
-            print(f"❌ Upload timed out. Try uploading fewer assets or check network connection.")
+            print("❌ Upload timed out. Try uploading fewer assets or check network connection.")
             return False
         elif stderr:
             print(f"⚠️ Warning during asset upload: {stderr}")
@@ -409,12 +417,12 @@ uv run python infer.py --model bird-head-detector.pt --source your_image.jpg --s
         print(f"✅ Uploaded {len(assets)} assets:")
         for asset in assets:
             size_mb = asset.stat().st_size / (1024 * 1024)
-            if asset.suffix == '.pt':
+            if asset.suffix == ".pt":
                 print(f"   - bird-head-detector.pt ({size_mb:.1f} MB)")
             else:
                 print(f"   - {asset.name} ({size_mb:.1f} MB)")
     else:
-        print(f"ℹ️ No additional assets to upload")
+        print("ℹ️ No additional assets to upload")
 
     print(f"✅ Release {version} created successfully!")
     print(f"🔗 View at: https://github.com/{get_repo_info()}/releases/tag/{version}")
@@ -464,7 +472,7 @@ def main():
         if not model_path.exists():
             print(f"❌ Specified model not found: {model_path}")
             sys.exit(1)
-        if not model_path.suffix == '.pt':
+        if not model_path.suffix == ".pt":
             print(f"❌ Model file must have .pt extension: {model_path}")
             sys.exit(1)
         print(f"✅ Using specified model: {model_path}")
@@ -495,12 +503,12 @@ def main():
             print(f"   - {asset.name} ({size_mb:.1f} MB)")
         print(f"   Total size: {total_size:.1f} MB")
     else:
-        print(f"\n📦 Only model file will be uploaded (no training run detected)")
+        print("\n📦 Only model file will be uploaded (no training run detected)")
 
     # Show existing tags
     existing_tags = get_existing_tags()
     if existing_tags:
-        print(f"\n📋 Existing versions:")
+        print("\n📋 Existing versions:")
         for tag in existing_tags[:10]:  # Show last 10 tags
             print(f"   {tag}")
         if len(existing_tags) > 10:
@@ -517,13 +525,13 @@ def main():
             sys.exit(1)
 
         # Normalize version (add 'v' prefix if missing)
-        normalized_version = version if version.startswith('v') else f'v{version}'
+        normalized_version = version if version.startswith("v") else f"v{version}"
 
         if normalized_version in existing_tags:
             print(f"❌ Version {normalized_version} already exists!")
             sys.exit(1)
     else:
-        print(f"\n🏷️  Enter new version number:")
+        print("\n🏷️  Enter new version number:")
         while True:
             version = input("   Version (e.g., 1.0.0 or v1.0.0): ").strip()
 
@@ -536,7 +544,7 @@ def main():
                 continue
 
             # Normalize version (add 'v' prefix if missing)
-            normalized_version = version if version.startswith('v') else f'v{version}'
+            normalized_version = version if version.startswith("v") else f"v{version}"
 
             if normalized_version in existing_tags:
                 print(f"   Version {normalized_version} already exists!")
@@ -545,14 +553,14 @@ def main():
             break
 
     # Confirm release
-    print(f"\n📋 Release Summary:")
+    print("\n📋 Release Summary:")
     print(f"   Version: {normalized_version}")
     print(f"   Model: {model_path}")
     print(f"   Size: {model_size:.1f} MB")
     print(f"   Repository: {get_repo_info()}")
 
     confirm = input(f"\n❓ Create release {normalized_version}? (y/N): ").strip().lower()
-    if confirm not in ['y', 'yes']:
+    if confirm not in ["y", "yes"]:
         print("❌ Release cancelled")
         sys.exit(0)
 
@@ -560,7 +568,7 @@ def main():
     if create_release(version, model_path):
         print(f"\n🎉 Release {normalized_version} completed successfully!")
     else:
-        print(f"\n❌ Release failed!")
+        print("\n❌ Release failed!")
         sys.exit(1)
 
 

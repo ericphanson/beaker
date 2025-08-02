@@ -15,12 +15,12 @@ from test_e2e import run_tests
 if __name__ == "__main__":
     print("🧪 Running bird-head-detector end-to-end tests...")
     print("=" * 60)
-    
+
     success = run_tests()
-    
+
     if success:
         print("\n✅ All tests passed!")
     else:
         print("\n❌ Some tests failed!")
-    
+
     sys.exit(0 if success else 1)

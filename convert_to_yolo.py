@@ -1,13 +1,14 @@
 # This is a python script to convert the CUB 200 parts labels to yolo format.
 # Converts to normalized YOLO cx, cy, w, h format and map img_id to file paths using images.txt, train_test_split.txt.
 
-import numpy as np
-import polars as pl
 import os
 import shutil
 from pathlib import Path
+
+import polars as pl
 from PIL import Image
 from tqdm import tqdm
+
 
 def load_data():
     """Load all necessary data files"""
@@ -18,7 +19,7 @@ def load_data():
         data_dir / "parts/part_locs.txt",
         separator=" ",
         has_header=False,
-        new_columns=["img_id", "part_id", "x", "y", "visible"]
+        new_columns=["img_id", "part_id", "x", "y", "visible"],
     )
 
     # Load part names
@@ -26,7 +27,7 @@ def load_data():
         data_dir / "parts/parts.txt",
         separator=" ",
         has_header=False,
-        new_columns=["part_id", "part_name"]
+        new_columns=["part_id", "part_name"],
     )
 
     # Load bounding boxes
@@ -34,15 +35,12 @@ def load_data():
         data_dir / "bounding_boxes.txt",
         separator=" ",
         has_header=False,
-        new_columns=["img_id", "x", "y", "width", "height"]
+        new_columns=["img_id", "x", "y", "width", "height"],
     )
 
     # Load image paths
     images = pl.read_csv(
-        data_dir / "images.txt",
-        separator=" ",
-        has_header=False,
-        new_columns=["img_id", "filepath"]
+        data_dir / "images.txt", separator=" ", has_header=False, new_columns=["img_id", "filepath"]
     )
 
     # Load train/test split
@@ -50,15 +48,17 @@ def load_data():
         data_dir / "train_test_split.txt",
         separator=" ",
         has_header=False,
-        new_columns=["img_id", "is_training"]
+        new_columns=["img_id", "is_training"],
     )
 
     return part_locs, parts, bboxes, images, train_test
+
 
 def get_head_parts():
     """Define which parts constitute the bird head"""
     # Head-related parts: beak, crown, forehead, left eye, nape, right eye, throat
     return [2, 5, 6, 7, 10, 11, 15]
+
 
 def calculate_head_bbox(img_parts, img_width, img_height):
     """Calculate bounding box for bird head based on visible head parts"""
@@ -96,6 +96,7 @@ def calculate_head_bbox(img_parts, img_width, img_height):
 
     return cx, cy, w, h
 
+
 def get_image_dimensions(image_path):
     """Get image dimensions"""
     try:
@@ -103,6 +104,7 @@ def get_image_dimensions(image_path):
             return img.width, img.height
     except:
         return None, None
+
 
 def convert_to_yolo():
     """Main conversion function"""
@@ -114,9 +116,7 @@ def convert_to_yolo():
     head_parts = part_locs.filter(pl.col("part_id").is_in(head_part_ids))
 
     # Join with images and train/test data
-    data = (head_parts
-            .join(images, on="img_id")
-            .join(train_test, on="img_id"))
+    data = head_parts.join(images, on="img_id").join(train_test, on="img_id")
 
     # Create output directories
     os.makedirs("data/yolo/train/images", exist_ok=True)
@@ -134,7 +134,9 @@ def convert_to_yolo():
     skipped = 0
 
     # Use tqdm for progress bar
-    for row in tqdm(unique_images.iter_rows(named=True), total=total_images, desc="Converting images"):
+    for row in tqdm(
+        unique_images.iter_rows(named=True), total=total_images, desc="Converting images"
+    ):
         img_id = row["img_id"]
         filepath = row["filepath"]
         is_training = row["is_training"]
@@ -186,7 +188,7 @@ def convert_to_yolo():
 
         processed += 1
 
-    print(f"Conversion complete!")
+    print("Conversion complete!")
     print(f"Processed: {processed} images")
     print(f"Skipped: {skipped} images")
 
@@ -205,6 +207,7 @@ names: ['bird_head']  # class names
         f.write(yaml_content)
 
     print("Created dataset.yaml configuration file")
+
 
 if __name__ == "__main__":
     convert_to_yolo()
