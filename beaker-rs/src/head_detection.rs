@@ -14,6 +14,15 @@ use std::time::Instant;
 use crate::yolo_postprocessing::{postprocess_output, Detection};
 use crate::yolo_preprocessing::preprocess_image;
 
+/// Macro to print only when verbose mode is enabled
+macro_rules! verbose_println {
+    ($config:expr, $($arg:tt)*) => {
+        if $config.verbose {
+            println!($($arg)*);
+        }
+    };
+}
+
 // Embed the ONNX model at compile time
 const MODEL_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/bird-head-detector.onnx"));
 
@@ -80,6 +89,7 @@ pub struct HeadDetectionConfig {
     pub crop: bool,
     pub bounding_box: bool,
     pub skip_metadata: bool,
+    pub verbose: bool,
 }
 
 /// Check if a file is a supported image format
@@ -180,28 +190,32 @@ fn collect_image_files_from_sources(sources: &[String]) -> Result<Vec<std::path:
 }
 
 /// Determine optimal device based on number of images and user preference
-fn determine_optimal_device(device: &str, num_images: usize) -> String {
+fn determine_optimal_device(config: &HeadDetectionConfig, num_images: usize) -> String {
     const COREML_THRESHOLD: usize = 3; // Use CoreML for 3+ images
 
-    match device {
+    match config.device.as_str() {
         "auto" => {
             if num_images >= COREML_THRESHOLD {
                 // Check if CoreML is available
                 let coreml = CoreMLExecutionProvider::default();
                 match coreml.is_available() {
                     Ok(true) => {
-                        println!("📊 Processing {num_images} images - using CoreML for better batch performance");
+                        verbose_println!(config, "📊 Processing {num_images} images - using CoreML for better batch performance");
                         "coreml".to_string()
                     }
                     _ => {
-                        println!(
+                        verbose_println!(
+                            config,
                             "📊 Processing {num_images} images - CoreML not available, using CPU"
                         );
                         "cpu".to_string()
                     }
                 }
             } else {
-                println!("📊 Processing {num_images} images - using CPU for small batch");
+                verbose_println!(
+                    config,
+                    "📊 Processing {num_images} images - using CPU for small batch"
+                );
                 "cpu".to_string()
             }
         }
@@ -361,11 +375,11 @@ pub fn save_bounding_box_image(
 }
 
 /// Create an ONNX Runtime session with the specified device
-fn create_session(device: &str) -> Result<(Session, f64)> {
+fn create_session(config: &HeadDetectionConfig, device: &str) -> Result<(Session, f64)> {
     // Determine execution provider based on device with availability checking
     let execution_providers = match device {
         "cpu" => {
-            println!("🖥️  Using CPU execution provider");
+            verbose_println!(config, "🖥️  Using CPU execution provider");
             vec![CPUExecutionProvider::default().build()]
         }
         "auto" => {
@@ -373,18 +387,30 @@ fn create_session(device: &str) -> Result<(Session, f64)> {
             let coreml = CoreMLExecutionProvider::default();
             match coreml.is_available() {
                 Ok(true) => {
-                    println!("🍎 CoreML execution provider is available");
-                    println!("🍎 Using CoreML + CPU execution providers (auto mode)");
+                    verbose_println!(config, "🍎 CoreML execution provider is available");
+                    verbose_println!(
+                        config,
+                        "🍎 Using CoreML + CPU execution providers (auto mode)"
+                    );
                     vec![coreml.build(), CPUExecutionProvider::default().build()]
                 }
                 Ok(false) => {
-                    println!("⚠️  CoreML execution provider not available on this platform");
-                    println!("🖥️  Using CPU execution provider (auto mode fallback)");
+                    verbose_println!(
+                        config,
+                        "⚠️  CoreML execution provider not available on this platform"
+                    );
+                    verbose_println!(
+                        config,
+                        "🖥️  Using CPU execution provider (auto mode fallback)"
+                    );
                     vec![CPUExecutionProvider::default().build()]
                 }
                 Err(e) => {
-                    println!("⚠️  Error checking CoreML availability: {e}");
-                    println!("🖥️  Using CPU execution provider (auto mode fallback)");
+                    verbose_println!(config, "⚠️  Error checking CoreML availability: {e}");
+                    verbose_println!(
+                        config,
+                        "🖥️  Using CPU execution provider (auto mode fallback)"
+                    );
                     vec![CPUExecutionProvider::default().build()]
                 }
             }
@@ -394,7 +420,10 @@ fn create_session(device: &str) -> Result<(Session, f64)> {
             let coreml = CoreMLExecutionProvider::default();
             match coreml.is_available() {
                 Ok(true) => {
-                    println!("🍎 Using CoreML + CPU execution providers (explicit)");
+                    verbose_println!(
+                        config,
+                        "🍎 Using CoreML + CPU execution providers (explicit)"
+                    );
                     vec![coreml.build(), CPUExecutionProvider::default().build()]
                 }
                 Ok(false) => {
@@ -408,7 +437,7 @@ fn create_session(device: &str) -> Result<(Session, f64)> {
             }
         }
         _ => {
-            println!("🖥️  Using CPU execution provider (fallback)");
+            verbose_println!(config, "🖥️  Using CPU execution provider (fallback)");
             vec![CPUExecutionProvider::default().build()]
         }
     };
@@ -427,14 +456,16 @@ fn create_session(device: &str) -> Result<(Session, f64)> {
         .commit_from_memory(MODEL_BYTES)?;
     let session_load_time = session_start.elapsed();
 
-    println!(
+    verbose_println!(
+        config,
         "🤖 Loaded embedded ONNX model ({} bytes) in {:.3}ms",
         MODEL_BYTES.len(),
         session_load_time.as_secs_f64() * 1000.0
     );
 
     // Log execution provider information
-    println!(
+    verbose_println!(
+        config,
         "⚙️  Execution providers registered: {}",
         ep_names.join(" -> ")
     );
@@ -452,7 +483,8 @@ fn process_single_image(
     let img = image::open(image_path)?;
     let (orig_width, orig_height) = img.dimensions();
 
-    println!(
+    verbose_println!(
+        config,
         "📷 Processing {}: {}x{}",
         image_path.display(),
         orig_width,
@@ -484,11 +516,13 @@ fn process_single_image(
         model_size,
     )?;
 
-    println!(
+    verbose_println!(
+        config,
         "⚡ Inference completed in {:.3}ms",
         inference_time.as_secs_f64() * 1000.0
     );
-    println!(
+    verbose_println!(
+        config,
         "🎯 Found {} detections after confidence filtering (>{}) and NMS (IoU>{})",
         detections.len(),
         config.confidence,
@@ -497,7 +531,8 @@ fn process_single_image(
 
     // Display detections
     for (i, detection) in detections.iter().enumerate() {
-        println!(
+        verbose_println!(
+            config,
             "  Detection {}: bbox=({:.1}, {:.1}, {:.1}, {:.1}), confidence={:.3}",
             i + 1,
             detection.x1,
@@ -652,7 +687,11 @@ fn handle_image_outputs(
         let toml_content = toml::to_string_pretty(&output)?;
         std::fs::write(&toml_filename, toml_content)?;
 
-        println!("📝 Created TOML output: {}", toml_filename.display());
+        verbose_println!(
+            config,
+            "📝 Created TOML output: {}",
+            toml_filename.display()
+        );
     }
 
     Ok(())
@@ -663,32 +702,36 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
     let image_files = collect_image_files_from_sources(&config.sources)?;
 
     if image_files.is_empty() {
-        println!("⚠️  No image files found in the provided sources");
+        if config.verbose {
+            println!("⚠️  No image files found in the provided sources");
+        }
         return Ok(0);
     }
 
     // Log what we're processing
-    if image_files.len() == 1 {
-        println!("🔍 Processing single image: {}", image_files[0].display());
-    } else {
-        println!(
-            "📁 Processing {} images from {} source{}",
-            image_files.len(),
-            config.sources.len(),
-            if config.sources.len() == 1 { "" } else { "s" }
-        );
+    if config.verbose {
+        if image_files.len() == 1 {
+            println!("🔍 Processing single image: {}", image_files[0].display());
+        } else {
+            println!(
+                "📁 Processing {} images from {} source{}",
+                image_files.len(),
+                config.sources.len(),
+                if config.sources.len() == 1 { "" } else { "s" }
+            );
+        }
     }
 
     // Determine optimal device based on number of images
-    let optimal_device = determine_optimal_device(&config.device, image_files.len());
-    let (mut session, load_time) = create_session(&optimal_device)?;
+    let optimal_device = determine_optimal_device(&config, image_files.len());
+    let (mut session, load_time) = create_session(&config, &optimal_device)?;
 
     // Process all images with the same session
     let total_start = Instant::now();
     let mut total_detections = 0;
 
     for (i, image_path) in image_files.iter().enumerate() {
-        if image_files.len() > 1 {
+        if config.verbose && image_files.len() > 1 {
             println!(
                 "\n📷 Processing image {}/{}: {}",
                 i + 1,
@@ -706,7 +749,7 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
                 total_detections += detections;
             }
             Err(e) => {
-                println!("❌ Error processing {}: {}", image_path.display(), e);
+                eprintln!("❌ Error processing {}: {}", image_path.display(), e);
                 continue;
             }
         }
@@ -714,32 +757,34 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
 
     let total_time = total_start.elapsed();
 
-    // Print appropriate summary
-    if image_files.len() == 1 {
-        println!("\n🎉 Processing complete!");
-        println!("🎯 Found {total_detections} bird head(s)");
-        println!(
-            "⚡ Total time: {:.1}ms (load: {:.1}ms, inference: {:.1}ms)",
-            total_time.as_secs_f64() * 1000.0,
-            load_time,
-            (total_time.as_secs_f64() * 1000.0) - load_time
-        );
-    } else {
-        let avg_time_per_image = total_time.as_secs_f64() / image_files.len() as f64;
+    // Print appropriate summary (only if verbose)
+    if config.verbose {
+        if image_files.len() == 1 {
+            println!("\n🎉 Processing complete!");
+            println!("🎯 Found {total_detections} bird head(s)");
+            println!(
+                "⚡ Total time: {:.1}ms (load: {:.1}ms, inference: {:.1}ms)",
+                total_time.as_secs_f64() * 1000.0,
+                load_time,
+                (total_time.as_secs_f64() * 1000.0) - load_time
+            );
+        } else {
+            let avg_time_per_image = total_time.as_secs_f64() / image_files.len() as f64;
 
-        println!("\n🎉 Batch processing complete!");
-        println!("📊 Summary:");
-        println!("  • Images processed: {}", image_files.len());
-        println!("  • Total detections: {total_detections}");
-        println!("  • Model load time: {load_time:.1}ms");
-        println!(
-            "  • Total processing time: {:.3}s",
-            total_time.as_secs_f64()
-        );
-        println!(
-            "  • Average time per image: {:.1}ms",
-            avg_time_per_image * 1000.0
-        );
+            println!("\n🎉 Batch processing complete!");
+            println!("📊 Summary:");
+            println!("  • Images processed: {}", image_files.len());
+            println!("  • Total detections: {total_detections}");
+            println!("  • Model load time: {load_time:.1}ms");
+            println!(
+                "  • Total processing time: {:.3}s",
+                total_time.as_secs_f64()
+            );
+            println!(
+                "  • Average time per image: {:.1}ms",
+                avg_time_per_image * 1000.0
+            );
+        }
     }
 
     Ok(total_detections)

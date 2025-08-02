@@ -48,6 +48,10 @@ struct Cli {
     #[arg(long, global = true)]
     no_metadata: bool,
 
+    /// Enable verbose output
+    #[arg(short, long, global = true)]
+    verbose: bool,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -67,34 +71,36 @@ fn main() {
             crop,
             bounding_box,
         }) => {
-            // Display what we're processing
-            if sources.len() == 1 {
-                println!("🔍 Running head detection on: {}", sources[0]);
-            } else {
-                println!("🔍 Running head detection on {} inputs:", sources.len());
-                for source in sources {
-                    println!("   • {source}");
+            // Display what we're processing (only if verbose)
+            if cli.verbose {
+                if sources.len() == 1 {
+                    println!("🔍 Running head detection on: {}", sources[0]);
+                } else {
+                    println!("🔍 Running head detection on {} inputs:", sources.len());
+                    for source in sources {
+                        println!("   • {source}");
+                    }
                 }
-            }
 
-            println!(
-                "   Model: embedded ONNX model (version: {})",
-                MODEL_VERSION.trim()
-            );
-            println!("   Confidence threshold: {confidence}");
-            println!("   IoU threshold: {iou_threshold}");
-            println!("   Device: {device}");
-            if *crop {
-                println!("   Will create head crops");
-            }
-            if *bounding_box {
-                println!("   Will save bounding box images");
-            }
-            if !cli.no_metadata {
-                println!("   Will create metadata output");
-            }
-            if let Some(output_dir) = &cli.output_dir {
-                println!("   Output directory: {output_dir}");
+                println!(
+                    "   Model: embedded ONNX model (version: {})",
+                    MODEL_VERSION.trim()
+                );
+                println!("   Confidence threshold: {confidence}");
+                println!("   IoU threshold: {iou_threshold}");
+                println!("   Device: {device}");
+                if *crop {
+                    println!("   Will create head crops");
+                }
+                if *bounding_box {
+                    println!("   Will save bounding box images");
+                }
+                if !cli.no_metadata {
+                    println!("   Will create metadata output");
+                }
+                if let Some(output_dir) = &cli.output_dir {
+                    println!("   Output directory: {output_dir}");
+                }
             }
 
             // Run actual detection
@@ -107,10 +113,13 @@ fn main() {
                 crop: *crop,
                 bounding_box: *bounding_box,
                 skip_metadata: cli.no_metadata,
+                verbose: cli.verbose,
             };
             match run_head_detection(config) {
                 Ok(detections) => {
-                    println!("✅ Found {detections} detections");
+                    if cli.verbose {
+                        println!("✅ Found {detections} detections");
+                    }
                 }
                 Err(e) => {
                     eprintln!("❌ Detection failed: {e}");

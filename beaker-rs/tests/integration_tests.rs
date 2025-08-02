@@ -5,9 +5,16 @@ use tempfile::TempDir;
 
 /// Run a command and return (exit_code, stdout, stderr)
 fn run_beaker_command(args: &[&str]) -> (i32, String, String) {
+    let mut full_args = vec!["run", "--"];
+    full_args.extend_from_slice(args);
+
+    // Add --verbose to see output in tests
+    if !args.contains(&"--verbose") && args.len() > 1 {
+        full_args.insert(2, "--verbose");
+    }
+
     let output = Command::new("cargo")
-        .args(["run", "--"])
-        .args(args)
+        .args(&full_args)
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .output()
         .expect("Failed to execute beaker command");
