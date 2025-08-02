@@ -804,3 +804,22 @@ fn test_nonexistent_glob_pattern() {
         "Should indicate no matching files"
     );
 }
+
+#[test]
+fn test_version_command() {
+    let (exit_code, stdout, _stderr) = run_beaker_command(&["version"]);
+
+    assert_eq!(exit_code, 0, "Version command should exit successfully");
+    assert!(
+        stdout.contains("beaker "),
+        "Version output should contain beaker version"
+    );
+    assert!(
+        stdout.contains("Head model version:"),
+        "Version output should contain model version"
+    );
+    assert!(
+        stdout.contains("Repository:"),
+        "Version output should contain repository info"
+    );
+}

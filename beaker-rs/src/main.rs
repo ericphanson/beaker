@@ -34,6 +34,9 @@ pub enum Commands {
         #[arg(long, default_value = "auto")]
         device: String,
     },
+
+    /// Show version information
+    Version,
 }
 
 #[derive(Parser)]
@@ -126,6 +129,12 @@ fn main() {
                     std::process::exit(1);
                 }
             }
+        }
+        Some(Commands::Version) => {
+            // Print version information
+            println!("beaker {}", env!("CARGO_PKG_VERSION"));
+            println!("Head model version: {}", MODEL_VERSION.trim());
+            println!("Repository: {}", env!("CARGO_PKG_REPOSITORY"));
         }
         None => {
             // Show help if no command specified

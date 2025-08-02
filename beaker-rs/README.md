@@ -28,6 +28,9 @@ cargo build --release
 # Show help
 ./target/release/beaker --help
 
+# Show version information
+./target/release/beaker version
+
 # Run with crop and bounding box outputs
 ./target/release/beaker head ../example.jpg --crop --bounding-box
 
