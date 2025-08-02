@@ -35,6 +35,9 @@ uv sync
 # Basic inference (downloads model automatically)
 uv run python infer.py --source example.jpg --show
 
+# Process all images in a directory
+uv run python infer.py --source path/to/images/ --crop
+
 # Save results
 uv run python infer.py --source example.jpg --save
 
