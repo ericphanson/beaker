@@ -5,15 +5,30 @@ description = "Detect bird heads in images using YOLOv8"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    # Core inference dependencies only
     "numpy>=2.3.2",
+    "opencv-python>=4.8.0",
+    "ultralytics>=8.3.172",
+    "platformdirs>=4.0.0",
+]
+
+[project.optional-dependencies]
+# Training and experiment tracking dependencies
+training = [
+    "comet-ml>=3.41.0",
+    "pyyaml>=6.0",
+]
+
+# Data preprocessing dependencies
+preprocessing = [
     "pillow>=11.3.0",
     "polars>=1.32.0",
     "tqdm>=4.66.0",
-    "ultralytics>=8.3.172",
-    "comet-ml>=3.41.0",
-    "opencv-python>=4.8.0",
-    "pyyaml>=6.0",
-    "platformdirs>=4.0.0",
+]
+
+# All development dependencies (includes training + preprocessing)
+dev = [
+    "bird-head-detector[training,preprocessing]",
 ]
 
 [project.scripts]

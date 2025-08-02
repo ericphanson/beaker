@@ -126,7 +126,8 @@ Download and prepare the CUB-200-2011 dataset:
 ### 4.2. Install Dependencies
 
 ```bash
-uv sync
+# Install all dependencies (training + preprocessing + inference)
+uv sync --extra dev
 ```
 
 Requires Python 3.12+. On M1/M2 Macs, verify MPS is available:
