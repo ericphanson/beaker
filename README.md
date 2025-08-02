@@ -22,7 +22,7 @@ To install, you'll need [`cargo`](https://doc.rust-lang.org/cargo/getting-starte
 ### Option 1: Install directly from Git (recommended)
 
 ```bash
-cargo install --git https://github.com/ericphanson/beaker --root beaker-rs
+cargo install --git https://github.com/ericphanson/beaker
 ```
 
 ### Option 2: Build from source
@@ -33,6 +33,8 @@ cd beaker/beaker-rs
 cargo build --release
 cargo install --path .
 ```
+
+### Usage
 
 ```bash
 beaker head example.jpg --confidence 0.75
