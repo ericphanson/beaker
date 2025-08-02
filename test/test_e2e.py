@@ -104,6 +104,16 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
         cmd = ["bird-head-detector"] + args
         result = subprocess.run(cmd, capture_output=True, text=True, cwd=self.temp_dir)
 
+        # Always print the full output for debugging CI issues
+        print(f"🔍 Running command: {' '.join(cmd)}")
+        print(f"Return code: {result.returncode}")
+        if result.stdout:
+            print("STDOUT:")
+            print(result.stdout)
+        if result.stderr:
+            print("STDERR:")
+            print(result.stderr)
+
         if expect_success and result.returncode != 0:
             # Collect detailed debug information for failure
             debug_info = self._collect_debug_info(cmd, result, args)
@@ -206,6 +216,64 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
         except Exception as e:
             debug_lines.append(f"Error testing help command: {e}")
 
+        debug_lines.extend(
+            [
+                "",
+                "MODEL AND INFERENCE DEBUG:",
+                "-" * 40,
+            ]
+        )
+
+        # Try to get more information about model download/inference issues
+        try:
+            # Check if this is related to model downloading by testing model access
+            from platformdirs import user_cache_dir
+            cache_dir = Path(user_cache_dir("bird-head-detector", "ericphanson"))
+            models_dir = cache_dir / "models"
+            
+            debug_lines.append(f"Cache directory: {cache_dir}")
+            debug_lines.append(f"Models directory: {models_dir}")
+            
+            if models_dir.exists():
+                debug_lines.append("Models directory contents:")
+                for model_file in models_dir.glob("*"):
+                    debug_lines.append(f"  📄 {model_file.name} ({model_file.stat().st_size} bytes)")
+            else:
+                debug_lines.append("❌ Models directory does not exist")
+                
+            # Check for local training models
+            repo_root = Path(__file__).parent.parent
+            local_model_paths = [
+                repo_root / "runs/detect/bird_head_yolov8n/weights/best.pt",
+                repo_root / "runs/detect/bird_head_yolov8n_debug/weights/best.pt",
+            ]
+            
+            debug_lines.append("Local model check:")
+            for model_path in local_model_paths:
+                if model_path.exists():
+                    debug_lines.append(f"  ✅ {model_path} ({model_path.stat().st_size} bytes)")
+                else:
+                    debug_lines.append(f"  ❌ {model_path} (not found)")
+                    
+        except Exception as e:
+            debug_lines.append(f"Error checking model status: {e}")
+
+        # Test network connectivity for model download
+        debug_lines.extend(
+            [
+                "",
+                "NETWORK CONNECTIVITY TEST:",
+                "-" * 40,
+            ]
+        )
+        
+        try:
+            import urllib.request
+            with urllib.request.urlopen("https://api.github.com/repos/ericphanson/bird-head-detector/releases/latest", timeout=10) as response:
+                debug_lines.append(f"✅ GitHub API accessible (HTTP {response.status})")
+        except Exception as e:
+            debug_lines.append(f"❌ GitHub API not accessible: {e}")
+
         # Add system information
         debug_lines.extend(
             [
@@ -234,6 +302,42 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
         if not file_path.exists():
             debug_info = self._collect_file_debug_info(file_path, description)
             self.fail(f"Expected {description} not found: {file_path}\n{debug_info}")
+
+    def _collect_file_debug_info(self, missing_file_path, description):
+        """Collect debug info when expected file is missing."""
+        debug_lines = [
+            "=" * 60,
+            f"MISSING FILE DEBUG: {description}",
+            "=" * 60,
+            f"Expected file: {missing_file_path}",
+            f"Parent directory: {missing_file_path.parent}",
+            f"Parent exists: {missing_file_path.parent.exists()}",
+            "",
+            "Parent directory contents:",
+        ]
+        
+        try:
+            if missing_file_path.parent.exists():
+                for item in sorted(missing_file_path.parent.iterdir()):
+                    if item.is_file():
+                        debug_lines.append(f"  📄 {item.name} ({item.stat().st_size} bytes)")
+                    else:
+                        debug_lines.append(f"  📁 {item.name}/")
+            else:
+                debug_lines.append("  (parent directory does not exist)")
+        except Exception as e:
+            debug_lines.append(f"  Error listing directory: {e}")
+            
+        debug_lines.extend([
+            "",
+            "Recent command outputs (last 3):",
+        ])
+        
+        # This would ideally show recent command outputs, but for now just show the structure
+        debug_lines.append("  (Check the stdout/stderr above for recent command outputs)")
+        debug_lines.append("=" * 60)
+        
+        return "\n".join(debug_lines)
 
     def _assert_file_not_exists(self, file_path, description="file"):
         """Assert that a file does NOT exist with verbose debug information on failure."""
@@ -296,6 +400,12 @@ class BirdHeadDetectorE2ETest(unittest.TestCase):
         """Test default behavior: should create crop by default."""
         # Run detector with minimal arguments
         result = self._run_detector([str(self.single_image)])
+        
+        # Verify command succeeded
+        self.assertEqual(result.returncode, 0, f"Command failed with return code {result.returncode}")
+        
+        # Verify the output indicates successful detection
+        self.assertIn("bird head detections", result.stdout, "Expected detection summary in output")
 
         # Check that crop was created
         expected_crop = self.single_image.parent / "test_bird-crop.jpg"

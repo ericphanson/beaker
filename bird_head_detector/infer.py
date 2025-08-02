@@ -220,6 +220,21 @@ def create_square_crop(image_path, bbox, output_dir=None, padding=0.25):
     return output_path
 
 
+def detect_device():
+    """Detect the best available device for inference."""
+    try:
+        import torch
+        if torch.backends.mps.is_available():
+            return "mps"  # Apple Silicon Mac
+        elif torch.cuda.is_available():
+            return "cuda"  # NVIDIA GPU
+        else:
+            return "cpu"  # Fallback to CPU
+    except ImportError:
+        # If PyTorch isn't available, let YOLO handle device selection
+        return None
+
+
 def save_bounding_box_image(image_path, bbox, output_dir=None):
     """Save image with bounding box drawn on it."""
     # Load image
@@ -297,12 +312,15 @@ def main():
 
     # Run inference
     print(f"🔍 Running inference on: {args.source}")
+    device = detect_device()
+    if device:
+        print(f"🚀 Using device: {device}")
     results = model(
         args.source,
         save=False,  # We handle saving manually
         show=args.show,
         conf=args.conf,
-        device="mps",  # Use MPS on Mac
+        device=device,  # Auto-detect best device
     )
 
     # Process results and create outputs
