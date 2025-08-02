@@ -1,7 +1,7 @@
 [project]
 name = "bird-head-detector"
 version = "0.1.0"
-description = "Detect bird's heads!"
+description = "Detect bird heads in images using YOLOv8"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -13,4 +13,16 @@ dependencies = [
     "comet-ml>=3.41.0",
     "opencv-python>=4.8.0",
     "pyyaml>=6.0",
+    "platformdirs>=4.0.0",
 ]
+
+[project.scripts]
+bird-head-detector = "bird_head_detector.infer:main"
+
+[project.urls]
+"Homepage" = "https://github.com/ericphanson/bird-head-detector"
+"Repository" = "https://github.com/ericphanson/bird-head-detector"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

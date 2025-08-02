@@ -19,9 +19,27 @@ Commercial use would require **separate rights to the images** *and* a **non-AGP
 
 ## 2. Quick Start Inference
 
-You'll need `git` and [`uv`](https://docs.astral.sh/uv/getting-started/installation/).
+### Option A: Install as a Tool (Recommended)
 
-To run detection on images using a pre-trained model:
+Install directly from GitHub using `uv` (requires `uv` to be installed):
+
+```bash
+# Install the bird-head-detector tool
+uv tool install git+https://github.com/ericphanson/bird-head-detector.git
+
+# Run inference (downloads model automatically to cache)
+bird-head-detector --source example.jpg --crop
+
+# Process all images in a directory
+bird-head-detector --source path/to/images/ --crop
+
+# Save to specific directory with custom padding
+bird-head-detector --source example.jpg --crop --output-dir crops/ --padding 0.5
+```
+
+### Option B: Clone and Run Locally
+
+You'll need `git` and [`uv`](https://docs.astral.sh/uv/getting-started/installation/).
 
 ```bash
 # Clone the repository
@@ -51,12 +69,6 @@ uv run python infer.py --source example.jpg --crop --output-dir crops/
 uv run python infer.py --source example.jpg --crop --padding 0.5
 ```
 
-**Limitations:**
-- Works best on clear, well-lit images of single birds
-- Performance degrades with poor lighting, motion blur, or multiple birds
-- May struggle with unusual poses or partially occluded heads
-- False positives possible on non-bird objects
-
 For example, the example image
 
 ![](./example.jpg)
@@ -71,6 +83,11 @@ yielding the output crop saved as `example-crop.jpg` (with 25% padding around th
 
 ![](./example-crop.jpg)
 
+**Limitations:**
+- Works best on clear, well-lit images of single birds
+- Performance degrades with poor lighting, motion blur, or multiple birds
+- May struggle with unusual poses or partially occluded heads
+- False positives possible on non-bird objects. The model has _only_ been finetuned on bird images.
 
 ## 3. Model Card
 

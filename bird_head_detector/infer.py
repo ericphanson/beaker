@@ -12,14 +12,22 @@ from pathlib import Path
 import cv2
 import numpy as np
 from ultralytics import YOLO
+from platformdirs import user_cache_dir
+
+
+def get_cache_dir():
+    """Get the cache directory for bird-head-detector models."""
+    cache_dir = Path(user_cache_dir("bird-head-detector", "ericphanson"))
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir
 
 
 def get_repo_info():
-    """Get repository owner/name from remote origin."""
+    """Get repository owner/name from remote origin or use default."""
     try:
         result = subprocess.run(
             ["git", "remote", "get-url", "origin"],
-            capture_output=True, text=True, check=True
+            capture_output=True, text=True, check=True, cwd="."
         )
         stdout = result.stdout.strip()
 
@@ -64,7 +72,9 @@ def download_latest_model(models_dir):
 
         if not model_asset:
             print("❌ No model file (.pt) found in latest release")
-            return None        # Create models directory
+            return None
+
+        # Create models directory
         models_dir.mkdir(parents=True, exist_ok=True)
         model_path = models_dir / model_asset['name']
 
@@ -95,7 +105,7 @@ def find_or_download_model(model_path_arg):
     if model_path_arg != 'runs/detect/bird_head_yolov8n/weights/best.pt' and model_path.exists():
         return model_path
 
-    # Check local training outputs
+    # Check local training outputs (for development)
     local_paths = [
         Path("runs/detect/bird_head_yolov8n/weights/best.pt"),
         Path("runs/detect/bird_head_yolov8n_debug/weights/best.pt"),
@@ -106,18 +116,21 @@ def find_or_download_model(model_path_arg):
             print(f"✅ Found local model: {path}")
             return path
 
-    # Check downloaded models directory
-    models_dir = Path("models")
+    # Use cache directory for downloaded models
+    cache_dir = get_cache_dir()
+    models_dir = cache_dir / "models"
+
+    # Check cached models directory
     if models_dir.exists():
         # First look for the standardized name
         standard_model = models_dir / "bird-head-detector.pt"
         if standard_model.exists():
-            print(f"✅ Found downloaded model: {standard_model}")
+            print(f"✅ Found cached model: {standard_model}")
             return standard_model
 
         # Then look for any other .pt file
         for model_file in models_dir.glob("*.pt"):
-            print(f"✅ Found downloaded model: {model_file}")
+            print(f"✅ Found cached model: {model_file}")
             return model_file
 
     # Try to download from releases
