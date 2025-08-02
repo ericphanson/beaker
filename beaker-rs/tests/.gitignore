@@ -1,0 +1,4 @@
+# Test data files (copied from parent directory)
+test_data/
+# Test outputs
+test_outputs/

@@ -440,3 +440,360 @@ fn test_output_file_naming() {
         assert_file_exists_with_content(&toml_path);
     }
 }
+
+// ============================================================================
+// NEW TESTS FOR MULTIPLE INPUT SOURCES (directories, globs, multiple files)
+// ============================================================================
+
+/// Set up test data in a temporary directory for the new multi-source tests
+fn setup_test_data(temp_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    // Copy test images from parent directory
+    let source_dir = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+
+    // Copy main test images
+    fs::copy(source_dir.join("example.jpg"), temp_dir.join("example.jpg"))?;
+    fs::copy(
+        source_dir.join("example-2-birds.jpg"),
+        temp_dir.join("example-2-birds.jpg"),
+    )?;
+    fs::copy(
+        source_dir.join("example-crop.jpg"),
+        temp_dir.join("example-crop.jpg"),
+    )?;
+
+    // Create a subdirectory with more images
+    let subdir = temp_dir.join("subdir");
+    fs::create_dir(&subdir)?;
+    fs::copy(source_dir.join("example.jpg"), subdir.join("bird1.jpg"))?;
+    fs::copy(
+        source_dir.join("example-2-birds.jpg"),
+        subdir.join("bird2.jpg"),
+    )?;
+
+    Ok(())
+}
+
+#[test]
+fn test_directory_batch_processing() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let test_data_dir = temp_dir.path().join("test_images");
+    fs::create_dir(&test_data_dir).expect("Failed to create test data directory");
+
+    // Set up test data
+    setup_test_data(&test_data_dir).expect("Failed to set up test data");
+
+    let output_dir = temp_dir.path().join("output");
+    fs::create_dir(&output_dir).expect("Failed to create output directory");
+
+    let (exit_code, stdout, stderr) = run_beaker_command(&[
+        "head",
+        test_data_dir.to_str().unwrap(),
+        "--confidence",
+        "0.5",
+        "--crop",
+        "--output-dir",
+        output_dir.to_str().unwrap(),
+    ]);
+
+    assert_eq!(
+        exit_code, 0,
+        "Directory processing should exit successfully. Stderr: {stderr}"
+    );
+
+    // Should indicate batch processing
+    assert!(
+        stdout.contains("Processing") && stdout.contains("images"),
+        "Should indicate multiple image processing"
+    );
+
+    // Should show intelligent device selection for multiple images
+    assert!(
+        stdout.contains("CoreML") || stdout.contains("CPU"),
+        "Should show device selection based on batch size"
+    );
+
+    // Check that multiple TOML files were created
+    let toml_files: Vec<_> = fs::read_dir(&output_dir)
+        .expect("Failed to read output directory")
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .ends_with("-beaker.toml")
+        })
+        .collect();
+
+    assert!(
+        toml_files.len() >= 2,
+        "Should create TOML files for multiple images, found: {}",
+        toml_files.len()
+    );
+
+    // Check that crop files were created
+    let crop_files: Vec<_> = fs::read_dir(&output_dir)
+        .expect("Failed to read output directory")
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.file_name().to_string_lossy().contains("crop"))
+        .collect();
+
+    assert!(
+        !crop_files.is_empty(),
+        "Should create crop files for detected heads"
+    );
+}
+
+#[test]
+fn test_glob_pattern_processing() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let test_data_dir = temp_dir.path().join("test_images");
+    fs::create_dir(&test_data_dir).expect("Failed to create test data directory");
+
+    // Set up test data
+    setup_test_data(&test_data_dir).expect("Failed to set up test data");
+
+    let output_dir = temp_dir.path().join("output");
+    fs::create_dir(&output_dir).expect("Failed to create output directory");
+
+    // Use glob pattern to match specific files
+    let glob_pattern = format!("{}/*-2-*.jpg", test_data_dir.display());
+
+    let (exit_code, stdout, stderr) = run_beaker_command(&[
+        "head",
+        &glob_pattern,
+        "--confidence",
+        "0.5",
+        "--output-dir",
+        output_dir.to_str().unwrap(),
+    ]);
+
+    assert_eq!(
+        exit_code, 0,
+        "Glob pattern processing should exit successfully. Stderr: {stderr}"
+    );
+
+    // Should process the matched file(s)
+    assert!(
+        stdout.contains("Processing") && stdout.contains("image"),
+        "Should indicate image processing"
+    );
+
+    // Check that TOML file was created for the matched image
+    let toml_files: Vec<_> = fs::read_dir(&output_dir)
+        .expect("Failed to read output directory")
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            let name = entry.file_name().to_string_lossy().to_string();
+            name.contains("2-birds") && name.ends_with("-beaker.toml")
+        })
+        .collect();
+
+    assert!(
+        !toml_files.is_empty(),
+        "Should create TOML file for glob-matched image"
+    );
+}
+
+#[test]
+fn test_multiple_explicit_files() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let test_data_dir = temp_dir.path().join("test_images");
+    fs::create_dir(&test_data_dir).expect("Failed to create test data directory");
+
+    // Set up test data
+    setup_test_data(&test_data_dir).expect("Failed to set up test data");
+
+    let output_dir = temp_dir.path().join("output");
+    fs::create_dir(&output_dir).expect("Failed to create output directory");
+
+    // Specify multiple files explicitly
+    let file1 = test_data_dir.join("example.jpg");
+    let file2 = test_data_dir.join("example-2-birds.jpg");
+
+    let (exit_code, stdout, stderr) = run_beaker_command(&[
+        "head",
+        file1.to_str().unwrap(),
+        file2.to_str().unwrap(),
+        "--confidence",
+        "0.5",
+        "--crop",
+        "--output-dir",
+        output_dir.to_str().unwrap(),
+    ]);
+
+    assert_eq!(
+        exit_code, 0,
+        "Multiple file processing should exit successfully. Stderr: {stderr}"
+    );
+
+    // Should indicate processing multiple images from multiple sources
+    assert!(
+        stdout.contains("Processing") && stdout.contains("images from 2 sources"),
+        "Should indicate processing from multiple sources"
+    );
+
+    // Check that TOML files were created for both images
+    let expected_tomls = ["example-beaker.toml", "example-2-birds-beaker.toml"];
+    for expected_toml in &expected_tomls {
+        let toml_path = output_dir.join(expected_toml);
+        assert_file_exists_with_content(&toml_path);
+    }
+
+    // Check that crop files were created
+    let crop_files: Vec<_> = fs::read_dir(&output_dir)
+        .expect("Failed to read output directory")
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.file_name().to_string_lossy().contains("crop"))
+        .collect();
+
+    assert!(
+        !crop_files.is_empty(),
+        "Should create crop files for detected heads"
+    );
+}
+
+#[test]
+fn test_mixed_sources_file_and_directory() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let test_data_dir = temp_dir.path().join("test_images");
+    fs::create_dir(&test_data_dir).expect("Failed to create test data directory");
+
+    // Set up test data
+    setup_test_data(&test_data_dir).expect("Failed to set up test data");
+
+    let output_dir = temp_dir.path().join("output");
+    fs::create_dir(&output_dir).expect("Failed to create output directory");
+
+    // Mix a single file and a directory
+    let single_file = test_data_dir.join("example.jpg");
+    let subdir = test_data_dir.join("subdir");
+
+    let (exit_code, stdout, stderr) = run_beaker_command(&[
+        "head",
+        single_file.to_str().unwrap(),
+        subdir.to_str().unwrap(),
+        "--confidence",
+        "0.5",
+        "--output-dir",
+        output_dir.to_str().unwrap(),
+    ]);
+
+    assert_eq!(
+        exit_code, 0,
+        "Mixed source processing should exit successfully. Stderr: {stderr}"
+    );
+
+    // Should indicate processing multiple images from multiple sources
+    assert!(
+        stdout.contains("Processing") && stdout.contains("from 2 sources"),
+        "Should indicate processing from 2 different source types"
+    );
+
+    // Should process at least 3 images (1 from file + 2 from subdir)
+    assert!(
+        stdout.contains("3 images") || stdout.contains("Processing 3"),
+        "Should process 3 images total"
+    );
+
+    // Check that TOML files were created
+    let toml_files: Vec<_> = fs::read_dir(&output_dir)
+        .expect("Failed to read output directory")
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .ends_with("-beaker.toml")
+        })
+        .collect();
+
+    assert!(
+        toml_files.len() >= 3,
+        "Should create TOML files for all processed images, found: {}",
+        toml_files.len()
+    );
+}
+
+#[test]
+fn test_device_selection_based_on_batch_size() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let test_data_dir = temp_dir.path().join("test_images");
+    fs::create_dir(&test_data_dir).expect("Failed to create test data directory");
+
+    // Set up test data
+    setup_test_data(&test_data_dir).expect("Failed to set up test data");
+
+    let output_dir = temp_dir.path().join("output");
+    fs::create_dir(&output_dir).expect("Failed to create output directory");
+
+    // Test with single image (should use CPU for small batch)
+    let single_file = test_data_dir.join("example.jpg");
+    let (exit_code, stdout, stderr) = run_beaker_command(&[
+        "head",
+        single_file.to_str().unwrap(),
+        "--confidence",
+        "0.5",
+        "--device",
+        "auto",
+        "--output-dir",
+        output_dir.to_str().unwrap(),
+    ]);
+
+    assert_eq!(exit_code, 0, "Single image should work. Stderr: {stderr}");
+    assert!(
+        stdout.contains("CPU") || stdout.contains("using CPU for small batch"),
+        "Single image should prefer CPU, got: {stdout}"
+    );
+
+    // Test with directory (multiple images, should consider CoreML if available)
+    let (exit_code, stdout, stderr) = run_beaker_command(&[
+        "head",
+        test_data_dir.to_str().unwrap(),
+        "--confidence",
+        "0.5",
+        "--device",
+        "auto",
+        "--output-dir",
+        output_dir.to_str().unwrap(),
+    ]);
+
+    assert_eq!(exit_code, 0, "Directory should work. Stderr: {stderr}");
+    // For multiple images, should either use CoreML (if available) or CPU
+    assert!(
+        stdout.contains("CoreML") || stdout.contains("CPU"),
+        "Should show device selection for batch processing"
+    );
+}
+
+#[test]
+fn test_empty_directory_handling() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let empty_dir = temp_dir.path().join("empty");
+    fs::create_dir(&empty_dir).expect("Failed to create empty directory");
+
+    let (exit_code, _stdout, _stderr) =
+        run_beaker_command(&["head", empty_dir.to_str().unwrap(), "--confidence", "0.5"]);
+
+    // Should exit with success but report no images found
+    assert_eq!(exit_code, 0, "Empty directory should not cause failure");
+    // The stdout should indicate no images were processed
+}
+
+#[test]
+fn test_nonexistent_glob_pattern() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let test_data_dir = temp_dir.path().join("test_images");
+    fs::create_dir(&test_data_dir).expect("Failed to create test data directory");
+
+    // Use a glob pattern that won't match anything
+    let glob_pattern = format!("{}/*.nonexistent", test_data_dir.display());
+
+    let (exit_code, _stdout, _stderr) =
+        run_beaker_command(&["head", &glob_pattern, "--confidence", "0.5"]);
+
+    assert_ne!(exit_code, 0, "Should fail when no files match glob pattern");
+    assert!(
+        _stderr.contains("No image files found") || _stderr.contains("matching pattern"),
+        "Should indicate no matching files"
+    );
+}
