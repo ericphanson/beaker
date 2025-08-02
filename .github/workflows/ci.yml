@@ -38,6 +38,62 @@ jobs:
     - name: Set up Python ${{ matrix.python-version }}
       run: uv python install ${{ matrix.python-version }}
 
+    - name: Install minimal dependencies for cache path detection
+      run: uv pip install platformdirs
+
+    - name: Get cache directory path and latest tag
+      id: cache-path
+      run: |
+        echo "🔍 Getting cache directory path..."
+        CACHE_PATH=$(uv run python -c "
+        from platformdirs import user_cache_dir
+        from pathlib import Path
+        cache_dir = Path(user_cache_dir('bird-head-detector', 'ericphanson'))
+        models_dir = cache_dir / 'models'
+        print(str(models_dir))
+        ")
+        echo "cache-dir=$CACHE_PATH" >> $GITHUB_OUTPUT
+        echo "Cache directory will be: $CACHE_PATH"
+
+        echo "🔍 Getting latest git tag..."
+        LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "no-tags")
+        echo "latest-tag=$LATEST_TAG" >> $GITHUB_OUTPUT
+        echo "Latest git tag: $LATEST_TAG"
+
+    - name: Cache bird-head-detector models
+      uses: actions/cache@v4
+      with:
+        path: ${{ steps.cache-path.outputs.cache-dir }}
+        key: bird-detector-models-${{ steps.cache-path.outputs.latest-tag }}-v1
+        restore-keys: |
+          bird-detector-models-${{ steps.cache-path.outputs.latest-tag }}-
+          bird-detector-models-
+
+    - name: Show cache status
+      run: |
+        echo "🔍 Checking model cache status..."
+        uv run python -c "
+        from platformdirs import user_cache_dir
+        from pathlib import Path
+        import os
+
+        cache_dir = Path(user_cache_dir('bird-head-detector', 'ericphanson'))
+        models_dir = cache_dir / 'models'
+
+        print(f'Cache directory: {cache_dir}')
+        print(f'Models directory: {models_dir}')
+        print(f'Models dir exists: {models_dir.exists()}')
+
+        if models_dir.exists():
+            models = list(models_dir.glob('*.pt'))
+            print(f'Cached models: {len(models)}')
+            for model in models:
+                size_mb = model.stat().st_size / (1024 * 1024)
+                print(f'  - {model.name} ({size_mb:.1f} MB)')
+        else:
+            print('No models directory found')
+        "
+
     - name: Install dependencies
       run: uv sync --all-extras
 
