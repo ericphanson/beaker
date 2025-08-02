@@ -823,3 +823,159 @@ fn test_version_command() {
         "Version output should contain repository info"
     );
 }
+
+#[test]
+fn test_raw_image_processing() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let raw_image_path = test_image_path("example-raw.rw2");
+
+    // Test basic raw image processing
+    let (exit_code, stdout, stderr) = run_beaker_command(&[
+        "head",
+        &raw_image_path,
+        "--confidence",
+        "0.4",
+        "--output-dir",
+        temp_dir.path().to_str().unwrap(),
+    ]);
+
+    assert_eq!(
+        exit_code, 0,
+        "Raw image processing should exit successfully. Stderr: {stderr}"
+    );
+
+    // Should indicate it's processing a raw image
+    assert!(
+        stdout.contains("Processing raw image"),
+        "Should indicate raw image processing"
+    );
+
+    // Should show the raw image dimensions
+    assert!(
+        stdout.contains("Raw image dimensions"),
+        "Should show raw image dimensions"
+    );
+
+    assert!(stdout.contains("Found"), "Should report found detections");
+
+    // Check that TOML output was created
+    let toml_path = temp_dir.path().join("example-raw-beaker.toml");
+    assert_file_exists_with_content(&toml_path);
+
+    // Verify TOML content structure
+    let toml_content = fs::read_to_string(&toml_path).expect("Failed to read TOML file");
+    assert!(
+        toml_content.contains("[head]"),
+        "TOML should contain head section"
+    );
+    assert!(
+        toml_content.contains("confidence_threshold"),
+        "TOML should contain confidence threshold"
+    );
+}
+
+#[test]
+fn test_raw_image_with_crops() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let raw_image_path = test_image_path("example-raw.rw2");
+
+    // Test raw image processing with crops
+    let (exit_code, stdout, stderr) = run_beaker_command(&[
+        "head",
+        &raw_image_path,
+        "--confidence",
+        "0.4",
+        "--crop",
+        "--output-dir",
+        temp_dir.path().to_str().unwrap(),
+    ]);
+
+    assert_eq!(
+        exit_code, 0,
+        "Raw image processing with crops should exit successfully. Stderr: {stderr}"
+    );
+
+    assert!(
+        stdout.contains("Will create head crops"),
+        "Should indicate crop creation"
+    );
+
+    assert!(
+        stdout.contains("Processing raw image"),
+        "Should indicate raw image processing"
+    );
+
+    assert!(stdout.contains("Found"), "Should report found detections");
+
+    // Check for TOML output
+    let toml_path = temp_dir.path().join("example-raw-beaker.toml");
+    assert_file_exists_with_content(&toml_path);
+
+    // Check for crop images (should be DNG files derived from raw)
+    let crop_files: Vec<_> = fs::read_dir(temp_dir.path())
+        .expect("Failed to read temp directory")
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            entry.file_name().to_string_lossy().contains("crop")
+                && entry.file_name().to_string_lossy().ends_with(".dng")
+        })
+        .collect();
+
+    assert!(
+        !crop_files.is_empty(),
+        "Should create at least one crop file from raw image"
+    );
+
+    // Verify crop files have content
+    for crop_file in crop_files {
+        assert_file_exists_with_content(&crop_file.path());
+
+        // Should indicate it's a raw-derived crop in verbose output
+        assert!(
+            stdout.contains("Created raw-derived crop"),
+            "Should indicate raw-derived crop creation"
+        );
+    }
+}
+
+#[test]
+fn test_raw_image_with_bounding_boxes() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let raw_image_path = test_image_path("example-raw.rw2");
+
+    // Test raw image processing with bounding boxes
+    let (exit_code, stdout, stderr) = run_beaker_command(&[
+        "head",
+        &raw_image_path,
+        "--confidence",
+        "0.4",
+        "--bounding-box",
+        "--output-dir",
+        temp_dir.path().to_str().unwrap(),
+    ]);
+
+    assert_eq!(
+        exit_code, 0,
+        "Raw image processing with bounding boxes should exit successfully. Stderr: {stderr}"
+    );
+
+    assert!(
+        stdout.contains("Will save bounding box images"),
+        "Should indicate bounding box creation"
+    );
+
+    assert!(
+        stdout.contains("Processing raw image"),
+        "Should indicate raw image processing"
+    );
+
+    assert!(stdout.contains("Found"), "Should report found detections");
+
+    // Check for TOML output
+    let toml_path = temp_dir.path().join("example-raw-beaker.toml");
+    assert_file_exists_with_content(&toml_path);
+
+    // Check for bounding box image (should be created from the preview image)
+    let bbox_path = temp_dir.path().join("example-raw-bounding-box.jpg");
+    assert_file_exists_with_content(&bbox_path);
+}

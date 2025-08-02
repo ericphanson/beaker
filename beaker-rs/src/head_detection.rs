@@ -11,6 +11,7 @@ use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
+use crate::raw_processing::{is_raw_format, RawImageProcessor};
 use crate::yolo_postprocessing::{postprocess_output, Detection};
 use crate::yolo_preprocessing::preprocess_image;
 
@@ -92,13 +93,30 @@ pub struct HeadDetectionConfig {
     pub verbose: bool,
 }
 
-/// Check if a file is a supported image format
+/// Check if a file is a supported image format (including raw formats)
 fn is_image_file(path: &Path) -> bool {
     if let Some(ext) = path.extension() {
         let ext = ext.to_string_lossy().to_lowercase();
         matches!(
             ext.as_str(),
-            "jpg" | "jpeg" | "png" | "bmp" | "tiff" | "tif" | "webp"
+            "jpg"
+                | "jpeg"
+                | "png"
+                | "bmp"
+                | "tiff"
+                | "tif"
+                | "webp"
+                | "rw2"
+                | "raw"
+                | "arw"
+                | "cr2"
+                | "cr3"
+                | "nef"
+                | "orf"
+                | "dng"
+                | "raf"
+                | "srw"
+                | "x3f"
         )
     } else {
         false
@@ -479,6 +497,20 @@ fn process_single_image(
     image_path: &Path,
     config: &HeadDetectionConfig,
 ) -> Result<usize> {
+    // Check if this is a raw image
+    if is_raw_format(image_path) {
+        process_raw_image(session, image_path, config)
+    } else {
+        process_regular_image(session, image_path, config)
+    }
+}
+
+/// Process a regular (non-raw) image
+fn process_regular_image(
+    session: &mut Session,
+    image_path: &Path,
+    config: &HeadDetectionConfig,
+) -> Result<usize> {
     // Load the image
     let img = image::open(image_path)?;
     let (orig_width, orig_height) = img.dimensions();
@@ -544,13 +576,91 @@ fn process_single_image(
     }
 
     // Handle outputs for this specific image
-    handle_image_outputs(&img, &detections, image_path, config)?;
+    handle_regular_image_outputs(&img, &detections, image_path, config)?;
 
     Ok(detections.len())
 }
 
-/// Handle outputs (crops, bounding boxes, metadata) for a single image
-fn handle_image_outputs(
+/// Process a raw image (RW2, CR2, NEF, etc.)
+fn process_raw_image(
+    session: &mut Session,
+    image_path: &Path,
+    config: &HeadDetectionConfig,
+) -> Result<usize> {
+    verbose_println!(config, "📷 Processing raw image: {}", image_path.display());
+
+    // Load the raw image and create a preview for YOLO processing
+    let raw_processor = RawImageProcessor::load_raw_file(image_path)?;
+    let preview_img = raw_processor.get_preview_image();
+    let (orig_width, orig_height) = preview_img.dimensions();
+
+    verbose_println!(
+        config,
+        "📷 Raw image dimensions: {}x{}",
+        orig_width,
+        orig_height
+    );
+
+    // Preprocess the preview image for YOLO
+    let model_size = 640; // Standard YOLO input size
+    let input_tensor = preprocess_image(preview_img, model_size)?;
+
+    // Run inference using ORT v2 API with timing
+    let inference_start = Instant::now();
+    let input_value = Value::from_array(input_tensor)?;
+    let outputs = session.run(ort::inputs!["images" => &input_value])?;
+    let inference_time = inference_start.elapsed();
+
+    // Extract the output tensor using ORT v2 API and convert to owned array
+    let output_view = outputs["output0"].try_extract_array::<f32>()?;
+    let output_array =
+        Array::from_shape_vec(output_view.shape(), output_view.iter().cloned().collect())?;
+
+    // Postprocess to get detections
+    let detections = postprocess_output(
+        &output_array,
+        config.confidence,
+        config.iou_threshold,
+        orig_width,
+        orig_height,
+        model_size,
+    )?;
+
+    verbose_println!(
+        config,
+        "⚡ Inference completed in {:.3}ms",
+        inference_time.as_secs_f64() * 1000.0
+    );
+    verbose_println!(
+        config,
+        "🎯 Found {} detections after confidence filtering (>{}) and NMS (IoU>{})",
+        detections.len(),
+        config.confidence,
+        config.iou_threshold
+    );
+
+    // Display detections
+    for (i, detection) in detections.iter().enumerate() {
+        verbose_println!(
+            config,
+            "  Detection {}: bbox=({:.1}, {:.1}, {:.1}, {:.1}), confidence={:.3}",
+            i + 1,
+            detection.x1,
+            detection.y1,
+            detection.x2,
+            detection.y2,
+            detection.confidence
+        );
+    }
+
+    // Handle outputs for raw images (using DNG format for crops)
+    handle_raw_image_outputs(&raw_processor, preview_img, &detections, image_path, config)?;
+
+    Ok(detections.len())
+}
+
+/// Handle outputs (crops, bounding boxes, metadata) for a regular image
+fn handle_regular_image_outputs(
     img: &DynamicImage,
     detections: &[Detection],
     image_path: &Path,
@@ -649,6 +759,183 @@ fn handle_image_outputs(
         };
 
         save_bounding_box_image(img, detections, &bbox_filename)?;
+
+        // Make path relative to metadata file if metadata will be created
+        bounding_box_path = Some(if let Some(ref toml_path) = toml_filename {
+            make_path_relative_to_toml(&bbox_filename, toml_path)?
+        } else {
+            bbox_filename.to_string_lossy().to_string()
+        });
+    }
+
+    // Create metadata output unless skipped
+    if !config.skip_metadata {
+        let source_path = image_path;
+        let input_stem = source_path.file_stem().unwrap().to_str().unwrap();
+
+        let toml_filename = if let Some(output_dir) = &config.output_dir {
+            let output_dir = Path::new(output_dir);
+            std::fs::create_dir_all(output_dir)?;
+            output_dir.join(format!("{input_stem}-beaker.toml"))
+        } else {
+            source_path
+                .parent()
+                .unwrap()
+                .join(format!("{input_stem}-beaker.toml"))
+        };
+
+        let output = HeadDetectionOutput {
+            head: HeadResult {
+                model_version: MODEL_VERSION.trim().to_string(),
+                confidence_threshold: config.confidence,
+                iou_threshold: config.iou_threshold,
+                bounding_box_path,
+                detections: detections_with_paths,
+            },
+        };
+
+        let toml_content = toml::to_string_pretty(&output)?;
+        std::fs::write(&toml_filename, toml_content)?;
+
+        verbose_println!(
+            config,
+            "📝 Created TOML output: {}",
+            toml_filename.display()
+        );
+    }
+
+    Ok(())
+}
+
+/// Handle outputs (crops, bounding boxes, metadata) for a raw image
+fn handle_raw_image_outputs(
+    raw_processor: &RawImageProcessor,
+    preview_img: &DynamicImage,
+    detections: &[Detection],
+    image_path: &Path,
+    config: &HeadDetectionConfig,
+) -> Result<()> {
+    let source_path = image_path;
+    let input_stem = source_path.file_stem().unwrap().to_str().unwrap();
+
+    // Determine the metadata file path early so we can make paths relative to it
+    let toml_filename = if !config.skip_metadata {
+        Some(if let Some(output_dir) = &config.output_dir {
+            let output_dir = Path::new(output_dir);
+            output_dir.join(format!("{input_stem}-beaker.toml"))
+        } else {
+            source_path
+                .parent()
+                .unwrap()
+                .join(format!("{input_stem}-beaker.toml"))
+        })
+    } else {
+        None
+    };
+
+    let mut detections_with_paths = Vec::new();
+
+    // Create DNG crops if requested
+    if config.crop && !detections.is_empty() {
+        for (i, detection) in detections.iter().enumerate() {
+            let crop_filename = if detections.len() == 1 {
+                if let Some(output_dir) = &config.output_dir {
+                    let output_dir = Path::new(output_dir);
+                    std::fs::create_dir_all(output_dir)?;
+                    output_dir.join(format!("{input_stem}-crop.dng"))
+                } else {
+                    source_path
+                        .parent()
+                        .unwrap()
+                        .join(format!("{input_stem}-crop.dng"))
+                }
+            } else if let Some(output_dir) = &config.output_dir {
+                let output_dir = Path::new(output_dir);
+                std::fs::create_dir_all(output_dir)?;
+                if detections.len() >= 10 {
+                    output_dir.join(format!("{input_stem}-crop-{:02}.dng", i + 1))
+                } else {
+                    output_dir.join(format!("{input_stem}-crop-{}.dng", i + 1))
+                }
+            } else if detections.len() >= 10 {
+                source_path
+                    .parent()
+                    .unwrap()
+                    .join(format!("{input_stem}-crop-{:02}.dng", i + 1))
+            } else {
+                source_path
+                    .parent()
+                    .unwrap()
+                    .join(format!("{input_stem}-crop-{}.dng", i + 1))
+            };
+
+            // Calculate crop bounds with padding
+            let padding = 0.1;
+            let detection_width = detection.x2 - detection.x1;
+            let detection_height = detection.y2 - detection.y1;
+            let detection_size = detection_width.max(detection_height);
+
+            let padded_size = detection_size * (1.0 + 2.0 * padding);
+            let center_x = (detection.x1 + detection.x2) / 2.0;
+            let center_y = (detection.y1 + detection.y2) / 2.0;
+
+            let crop_x = (center_x - padded_size / 2.0).max(0.0) as u32;
+            let crop_y = (center_y - padded_size / 2.0).max(0.0) as u32;
+            let crop_width = padded_size as u32;
+            let crop_height = padded_size as u32;
+
+            // Crop the raw image and save as DNG
+            raw_processor.crop_and_save_dng(
+                crop_x,
+                crop_y,
+                crop_width,
+                crop_height,
+                &crop_filename,
+            )?;
+
+            verbose_println!(
+                config,
+                "✂️  Created raw-derived crop: {}",
+                crop_filename.display()
+            );
+
+            // Make path relative to metadata file if metadata will be created
+            let crop_path = if let Some(ref toml_path) = toml_filename {
+                make_path_relative_to_toml(&crop_filename, toml_path)?
+            } else {
+                crop_filename.to_string_lossy().to_string()
+            };
+
+            detections_with_paths.push(DetectionWithPath {
+                detection: detection.clone(),
+                crop_path: Some(crop_path),
+            });
+        }
+    } else {
+        // No crops, but still need to store detections for metadata
+        for detection in detections {
+            detections_with_paths.push(DetectionWithPath {
+                detection: detection.clone(),
+                crop_path: None,
+            });
+        }
+    }
+
+    // Create bounding box image if requested (using the preview image)
+    let mut bounding_box_path = None;
+    if config.bounding_box && !detections.is_empty() {
+        let bbox_filename = if let Some(output_dir) = &config.output_dir {
+            let output_dir = Path::new(output_dir);
+            std::fs::create_dir_all(output_dir)?;
+            output_dir.join(format!("{input_stem}-bounding-box.jpg"))
+        } else {
+            source_path
+                .parent()
+                .unwrap()
+                .join(format!("{input_stem}-bounding-box.jpg"))
+        };
+
+        save_bounding_box_image(preview_img, detections, &bbox_filename)?;
 
         // Make path relative to metadata file if metadata will be created
         bounding_box_path = Some(if let Some(ref toml_path) = toml_filename {
