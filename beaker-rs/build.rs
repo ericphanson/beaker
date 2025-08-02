@@ -5,6 +5,7 @@ use std::path::Path;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let out_dir = env::var("OUT_DIR")?;
     let model_path = Path::new(&out_dir).join("bird-head-detector.onnx");
+    let version_path = Path::new(&out_dir).join("bird-head-detector.version");
 
     // Check if we have a cached model from CI
     let cache_dir = env::var("ONNX_MODEL_CACHE_DIR").ok();
@@ -17,9 +18,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Check if cached model is up-to-date
     let mut use_cache = false;
-    if let (Some(cached_path), Some(version_path)) = (&cached_model, &cached_version) {
-        if cached_path.exists() && version_path.exists() {
-            if let Ok(cached_tag) = fs::read_to_string(version_path) {
+    if let (Some(cached_path), Some(cached_version_path)) = (&cached_model, &cached_version) {
+        if cached_path.exists() && cached_version_path.exists() {
+            if let Ok(cached_tag) = fs::read_to_string(cached_version_path) {
                 if let Ok(latest_tag) = get_latest_release_tag() {
                     if cached_tag.trim() == latest_tag.trim() {
                         println!(
@@ -27,6 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             cached_tag.trim()
                         );
                         fs::copy(cached_path, &model_path)?;
+                        fs::copy(cached_version_path, &version_path)?;
                         use_cache = true;
                     } else {
                         println!(
@@ -37,6 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } else {
                     println!("cargo:warning=Could not check latest release, using cached model");
                     fs::copy(cached_path, &model_path)?;
+                    fs::copy(cached_version_path, &version_path)?;
                     use_cache = true;
                 }
             }
@@ -54,6 +57,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("cargo:warning=Downloading latest ONNX model from GitHub releases...");
         let release_tag = download_latest_model(&model_path)?;
 
+        // Write version file
+        fs::write(&version_path, &release_tag)?;
+
         // Cache the model and version for CI if cache directory is set
         if let Some(cached_path) = cached_model {
             if let Some(parent) = cached_path.parent() {
@@ -61,8 +67,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 fs::copy(&model_path, &cached_path)?;
 
                 // Save the version information
-                if let Some(version_path) = cached_version {
-                    fs::write(&version_path, &release_tag)?;
+                if let Some(cached_version_path) = cached_version {
+                    fs::copy(&version_path, &cached_version_path)?;
                 }
 
                 println!(
@@ -74,6 +80,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     } else {
         println!("cargo:warning=Using existing ONNX model");
+
+        // If we have an existing model but no version file, try to get version
+        if !version_path.exists() {
+            if let Ok(latest_tag) = get_latest_release_tag() {
+                fs::write(&version_path, &latest_tag)?;
+            } else {
+                fs::write(&version_path, "unknown")?;
+            }
+        }
     }
 
     // Tell cargo to rebuild if this script changes

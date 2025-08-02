@@ -1,103 +1,135 @@
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::Parser;
 use image::{DynamicImage, GenericImageView, Rgb};
 use ndarray::Array;
 use ort::{Environment, ExecutionProvider, SessionBuilder, Value};
+use serde::Serialize;
 use std::path::Path;
 use std::sync::Arc;
+
+#[derive(Serialize, Clone)]
+struct HeadDetection {
+    x1: f32,
+    y1: f32,
+    x2: f32,
+    y2: f32,
+    confidence: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    crop_path: Option<String>,
+}
+
+#[derive(Serialize)]
+struct HeadSection {
+    model_version: String,
+    confidence_threshold: f32,
+    iou_threshold: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    bounding_box_path: Option<String>,
+    detections: Vec<HeadDetection>,
+}
+
+#[derive(Serialize)]
+struct BeakerOutput {
+    head: HeadSection,
+}
+
+#[derive(clap::Subcommand)]
+pub enum Commands {
+    /// Detect bird heads in images
+    Head {
+        /// Path to the input image
+        #[arg(value_name = "IMAGE")]
+        source: String,
+
+        /// Confidence threshold for detections (0.0-1.0)
+        #[arg(short, long, default_value = "0.25")]
+        confidence: f32,
+
+        /// IoU threshold for non-maximum suppression (0.0-1.0)
+        #[arg(long, default_value = "0.45")]
+        iou_threshold: f32,
+
+        /// Create a square crop of the detected head
+        #[arg(long)]
+        crop: bool,
+
+        /// Save an image with bounding boxes drawn
+        #[arg(long)]
+        bounding_box: bool,
+
+        /// Device to use for inference (auto, cpu, coreml)
+        #[arg(long, default_value = "auto")]
+        device: String,
+    },
+}
 
 // Embed the ONNX model at compile time
 const MODEL_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/bird-head-detector.onnx"));
 
+// Get model version from build script
+const MODEL_VERSION: &str = include_str!(concat!(env!("OUT_DIR"), "/bird-head-detector.version"));
+
 #[derive(Parser)]
 #[command(name = "beaker")]
-#[command(about = "Detect bird heads in images using YOLOv8")]
-#[command(version)]
+#[command(about = "Bird detection and analysis toolkit")]
 struct Cli {
+    /// Global output directory (overrides default placement next to input)
+    #[arg(long, global = true)]
+    output_dir: Option<String>,
+
+    /// Skip creating TOML output files
+    #[arg(long, global = true)]
+    skip_toml: bool,
+
     #[command(subcommand)]
     command: Option<Commands>,
-
-    /// Input image path (when not using subcommands)
-    #[arg(short, long)]
-    image: Option<String>,
-}
-
-#[derive(Subcommand)]
-enum Commands {
-    /// Run bird head detection on an image
-    Detect {
-        /// Input image or directory path
-        source: String,
-
-        /// Output directory for results
-        #[arg(short, long)]
-        output: Option<String>,
-
-        /// Confidence threshold
-        #[arg(short, long, default_value = "0.25")]
-        confidence: f32,
-
-        /// IoU threshold for NMS
-        #[arg(long, default_value = "0.45")]
-        iou_threshold: f32,
-
-        /// Device to use for inference
-        #[arg(short, long, default_value = "auto")]
-        device: String,
-
-        /// Skip creating square crops around detected heads
-        #[arg(long)]
-        skip_crop: bool,
-
-        /// Save detection results with bounding boxes
-        #[arg(long)]
-        save_bounding_box: bool,
-    },
-    /// Run benchmark tests
-    Benchmark,
-    /// Show version information
-    Version,
 }
 
 fn main() {
     let cli = Cli::parse();
 
     match &cli.command {
-        Some(Commands::Detect {
+        Some(Commands::Head {
             source,
-            output,
             confidence,
             iou_threshold,
             device,
-            skip_crop,
-            save_bounding_box,
+            crop,
+            bounding_box,
         }) => {
-            println!("🔍 Would detect bird heads in: {source}");
-            println!("   Model: embedded ONNX model");
+            println!("🔍 Running head detection on: {source}");
+            println!(
+                "   Model: embedded ONNX model (version: {})",
+                MODEL_VERSION.trim()
+            );
             println!("   Confidence threshold: {confidence}");
             println!("   IoU threshold: {iou_threshold}");
             println!("   Device: {device}");
-            if *skip_crop {
-                println!("   Skipping crop generation");
+            if *crop {
+                println!("   Will create head crops");
             }
-            if *save_bounding_box {
+            if *bounding_box {
                 println!("   Will save bounding box images");
             }
-            if let Some(output) = output {
-                println!("   Output directory: {output}");
+            if !cli.skip_toml {
+                println!("   Will create TOML output");
+            }
+            if let Some(output_dir) = &cli.output_dir {
+                println!("   Output directory: {output_dir}");
             }
 
             // Run actual detection
-            let config = DetectionConfig {
+            let config = HeadDetectionConfig {
                 source,
                 confidence: *confidence,
                 iou_threshold: *iou_threshold,
                 device,
-                output_dir: output.as_deref(),
-                skip_crop: *skip_crop,
-                save_bounding_box: *save_bounding_box,
+                output_dir: cli.output_dir.as_deref(),
+                crop: *crop,
+                bounding_box: *bounding_box,
+                skip_toml: cli.skip_toml,
             };
-            match run_detection(config) {
+            match run_head_detection(config) {
                 Ok(detections) => {
                     println!("✅ Found {detections} detections");
                 }
@@ -107,25 +139,11 @@ fn main() {
                 }
             }
         }
-        Some(Commands::Benchmark) => {
-            println!("🏃 Would run benchmark tests");
-            println!("   [Not implemented yet - this is a skeleton]");
-        }
-        Some(Commands::Version) => {
-            println!("beaker {}", env!("CARGO_PKG_VERSION"));
-            println!("Rust implementation of YOLOv8 bird head detection");
-        }
         None => {
-            if let Some(image) = &cli.image {
-                println!("🔍 Would detect bird heads in: {image}");
-                println!("   [Not implemented yet - this is a skeleton]");
-                println!("   Hint: Use 'beaker detect {image}' for more options");
-            } else {
-                // Show help if no command or image specified
-                use clap::CommandFactory;
-                let mut cmd = Cli::command();
-                cmd.print_help().unwrap();
-            }
+            // Show help if no command specified
+            use clap::CommandFactory;
+            let mut cmd = Cli::command();
+            cmd.print_help().unwrap();
         }
     }
 }
@@ -231,6 +249,17 @@ impl Detection {
             0.0
         }
     }
+
+    fn to_head_detection(&self) -> HeadDetection {
+        HeadDetection {
+            x1: self.x1,
+            y1: self.y1,
+            x2: self.x2,
+            y2: self.y2,
+            confidence: self.confidence,
+            crop_path: None,
+        }
+    }
 }
 
 fn nms(mut detections: Vec<Detection>, iou_threshold: f32) -> Vec<Detection> {
@@ -260,6 +289,20 @@ fn nms(mut detections: Vec<Detection>, iou_threshold: f32) -> Vec<Detection> {
     }
 
     keep
+}
+
+fn make_path_relative_to_toml(file_path: &Path, toml_path: &Path) -> Result<String> {
+    // Get the directory containing the TOML file
+    let toml_dir = toml_path.parent().unwrap_or(Path::new("."));
+
+    // Try to create a relative path from the TOML directory to the file
+    match file_path.strip_prefix(toml_dir) {
+        Ok(relative_path) => Ok(relative_path.to_string_lossy().to_string()),
+        Err(_) => {
+            // If they're not in a parent-child relationship, use absolute path
+            Ok(file_path.to_string_lossy().to_string())
+        }
+    }
 }
 
 fn create_square_crop(
@@ -454,17 +497,18 @@ fn postprocess_output(
 }
 
 #[derive(Debug)]
-struct DetectionConfig<'a> {
+struct HeadDetectionConfig<'a> {
     source: &'a str,
     confidence: f32,
     iou_threshold: f32,
     device: &'a str,
     output_dir: Option<&'a str>,
-    skip_crop: bool,
-    save_bounding_box: bool,
+    crop: bool,
+    bounding_box: bool,
+    skip_toml: bool,
 }
 
-fn run_detection(config: DetectionConfig) -> Result<usize> {
+fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
     // Load the image
     let img = image::open(config.source)?;
     let (orig_width, orig_height) = img.dimensions();
@@ -558,6 +602,15 @@ fn run_detection(config: DetectionConfig) -> Result<usize> {
     // Process detections for output generation
     let mut crops_created = 0;
     let mut bbox_images_created = 0;
+    let mut bounding_box_path: Option<String> = None;
+
+    // Sort detections by confidence (highest first) and convert to HeadDetection
+    let mut sorted_detections = detections.clone();
+    sorted_detections.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap());
+    let mut head_detections: Vec<HeadDetection> = sorted_detections
+        .iter()
+        .map(|d| d.to_head_detection())
+        .collect();
 
     if !detections.is_empty() {
         let source_path = Path::new(config.source);
@@ -568,17 +621,29 @@ fn run_detection(config: DetectionConfig) -> Result<usize> {
             .to_str()
             .unwrap();
 
-        // Get the highest confidence detection for cropping
-        let best_detection = detections
-            .iter()
-            .max_by(|a, b| a.confidence.partial_cmp(&b.confidence).unwrap())
-            .unwrap();
+        // Determine the TOML file path early so we can make paths relative to it
+        let toml_filename = if !config.skip_toml {
+            Some(if let Some(output_dir) = config.output_dir {
+                let output_dir = Path::new(output_dir);
+                output_dir.join(format!("{input_stem}-beaker.toml"))
+            } else {
+                source_path
+                    .parent()
+                    .unwrap()
+                    .join(format!("{input_stem}-beaker.toml"))
+            })
+        } else {
+            None
+        };
 
-        // Create crop if not skipped
-        if !config.skip_crop {
+        // Use the highest confidence detection (first in sorted list) for outputs
+        let best_detection = &sorted_detections[0];
+
+        // Create crop if requested
+        if config.crop {
             let crop_filename = if let Some(output_dir) = config.output_dir {
                 let output_dir = Path::new(output_dir);
-                output_dir.join(format!("{input_stem}.{input_ext}"))
+                output_dir.join(format!("{input_stem}-crop.{input_ext}"))
             } else {
                 source_path
                     .parent()
@@ -599,6 +664,15 @@ fn run_detection(config: DetectionConfig) -> Result<usize> {
                             detections.len()
                         );
                     }
+
+                    // Update only the highest confidence detection with crop path
+                    // Make path relative to TOML file if TOML will be created
+                    let crop_path = if let Some(ref toml_path) = toml_filename {
+                        make_path_relative_to_toml(&crop_filename, toml_path)?
+                    } else {
+                        crop_filename.to_string_lossy().to_string()
+                    };
+                    head_detections[0].crop_path = Some(crop_path);
                 }
                 Err(e) => {
                     eprintln!("❌ Failed to create crop: {e}");
@@ -607,10 +681,10 @@ fn run_detection(config: DetectionConfig) -> Result<usize> {
         }
 
         // Save bounding box image if requested
-        if config.save_bounding_box {
+        if config.bounding_box {
             let bbox_filename = if let Some(output_dir) = config.output_dir {
                 let output_dir = Path::new(output_dir);
-                output_dir.join(format!("{input_stem}.{input_ext}"))
+                output_dir.join(format!("{input_stem}-bounding-box.{input_ext}"))
             } else {
                 source_path
                     .parent()
@@ -618,6 +692,7 @@ fn run_detection(config: DetectionConfig) -> Result<usize> {
                     .join(format!("{input_stem}-bounding-box.{input_ext}"))
             };
 
+            // Pass the original unsorted detections to maintain all detections in the image
             match save_bounding_box_image(&img, &detections, &bbox_filename) {
                 Ok(()) => {
                     bbox_images_created += 1;
@@ -630,31 +705,81 @@ fn run_detection(config: DetectionConfig) -> Result<usize> {
                             detections.len()
                         );
                     }
+
+                    // Set the bounding box path at the top level (includes all detections)
+                    // Make path relative to TOML file if TOML will be created
+                    bounding_box_path = Some(if let Some(ref toml_path) = toml_filename {
+                        make_path_relative_to_toml(&bbox_filename, toml_path)?
+                    } else {
+                        bbox_filename.to_string_lossy().to_string()
+                    });
                 }
                 Err(e) => {
                     eprintln!("❌ Failed to save bounding box image: {e}");
                 }
             }
         }
-    } else {
-        // No detections found
-        if !config.skip_crop || config.save_bounding_box {
-            println!("ℹ️  No detections found, no outputs created");
+    }
+
+    // Create TOML output unless skipped
+    if !config.skip_toml {
+        let source_path = Path::new(config.source);
+        let input_stem = source_path.file_stem().unwrap().to_str().unwrap();
+
+        let toml_filename = if let Some(output_dir) = config.output_dir {
+            let output_dir = Path::new(output_dir);
+            output_dir.join(format!("{input_stem}-beaker.toml"))
+        } else {
+            source_path
+                .parent()
+                .unwrap()
+                .join(format!("{input_stem}-beaker.toml"))
+        };
+
+        let beaker_output = BeakerOutput {
+            head: HeadSection {
+                model_version: MODEL_VERSION.trim().to_string(),
+                confidence_threshold: config.confidence,
+                iou_threshold: config.iou_threshold,
+                bounding_box_path,
+                detections: head_detections,
+            },
+        };
+
+        match toml::to_string_pretty(&beaker_output) {
+            Ok(toml_content) => {
+                // Create output directory if it doesn't exist
+                if let Some(parent) = toml_filename.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+
+                match std::fs::write(&toml_filename, toml_content) {
+                    Ok(()) => {
+                        println!("📝 Created TOML output: {}", toml_filename.display());
+                    }
+                    Err(e) => {
+                        eprintln!("❌ Failed to write TOML file: {e}");
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("❌ Failed to serialize TOML: {e}");
+            }
         }
     }
 
     // Print summary
-    if !config.skip_crop && crops_created > 0 {
+    if config.crop && crops_created > 0 {
         if let Some(output_dir) = config.output_dir {
-            println!("✂️  Created {crops_created} square head crop in: {output_dir}");
+            println!("✂️  Created {crops_created} head crop in: {output_dir}");
         } else {
-            println!("✂️  Created {crops_created} square head crop next to original image");
+            println!("✂️  Created {crops_created} head crop next to original image");
         }
     }
 
-    if config.save_bounding_box && bbox_images_created > 0 {
+    if config.bounding_box && bbox_images_created > 0 {
         if let Some(output_dir) = config.output_dir {
-            println!("� Created {bbox_images_created} bounding box image in: {output_dir}");
+            println!("📦 Created {bbox_images_created} bounding box image in: {output_dir}");
         } else {
             println!("📦 Created {bbox_images_created} bounding box image next to original image");
         }
