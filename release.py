@@ -202,7 +202,7 @@ def collect_run_assets(model_path):
         for file_path in run_dir.glob(pattern):
             if file_path.is_file():
                 assets.append(file_path)
-    
+
     # Add only the selected model file
     assets.append(model_path)
 
@@ -385,7 +385,7 @@ uv run python infer.py --model bird-head-detector.pt --source your_image.jpg --s
     # Upload assets to the release
     if assets:
         print(f"📦 Uploading {len(assets)} assets to release...")
-        
+
         # Prepare asset paths, renaming the model file
         asset_args = []
         for asset in assets:
@@ -395,7 +395,7 @@ uv run python infer.py --model bird-head-detector.pt --source your_image.jpg --s
                 print(f"   📝 Renaming {asset.name} → bird-head-detector.pt")
             else:
                 asset_args.append(f'"{asset}"')
-        
+
         assets_str = " ".join(asset_args)
 
         upload_cmd = f'gh release upload {version} {assets_str}'

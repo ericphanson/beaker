@@ -61,7 +61,7 @@ def download_latest_model(models_dir):
             elif asset['name'].endswith('.pt'):
                 # Fallback to any .pt file if bird-head-detector.pt not found
                 model_asset = asset
-        
+
         if not model_asset:
             print("❌ No model file (.pt) found in latest release")
             return None        # Create models directory
@@ -114,7 +114,7 @@ def find_or_download_model(model_path_arg):
         if standard_model.exists():
             print(f"✅ Found downloaded model: {standard_model}")
             return standard_model
-        
+
         # Then look for any other .pt file
         for model_file in models_dir.glob("*.pt"):
             print(f"✅ Found downloaded model: {model_file}")
