@@ -5,6 +5,9 @@ on:
     tags:
       - 'beaker-rs-v*'  # Matches beaker-rs-v1.0.0, beaker-rs-v1.0.0-alpha.1, etc.
 
+permissions:
+  contents: write
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -13,7 +16,6 @@ jobs:
     name: Create GitHub Release
     runs-on: ubuntu-latest
     outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
       tag_name: ${{ steps.get_tag.outputs.tag_name }}
       version: ${{ steps.get_tag.outputs.version }}
       is_prerelease: ${{ steps.get_tag.outputs.is_prerelease }}
@@ -41,51 +43,61 @@ jobs:
 
     - name: Create Release
       id: create_release
-      uses: actions/create-release@v1
+      run: |
+        TAG_NAME="${{ steps.get_tag.outputs.tag_name }}"
+        VERSION="${{ steps.get_tag.outputs.version }}"
+        IS_PRERELEASE="${{ steps.get_tag.outputs.is_prerelease }}"
+
+        PRERELEASE_FLAG=""
+        if [[ "$IS_PRERELEASE" == "true" ]]; then
+          PRERELEASE_FLAG="--prerelease"
+        fi
+
+        cat > release_notes.md << 'EOF'
+        # Beaker-rs ${{ steps.get_tag.outputs.version }}
+
+        Self-contained bird head detection CLI tool built with Rust and ONNX Runtime.
+
+        ## Downloads
+
+        Choose the appropriate binary for your platform:
+
+        - **Linux (x86_64)**: `beaker-x86_64-unknown-linux-gnu`
+        - **Linux (static)**: `beaker-x86_64-unknown-linux-musl-static`
+        - **macOS (Intel)**: `beaker-x86_64-apple-darwin`
+        - **macOS (Apple Silicon)**: `beaker-aarch64-apple-darwin`
+        - **Windows**: `beaker-x86_64-pc-windows-msvc.exe`
+
+        ## Features
+
+        - 🦅 **Bird head detection** using YOLOv8 ONNX model
+        - 📦 **Self-contained** - no dependencies required
+        - ⚡ **Fast** - optimized Rust implementation
+        - 🍎 **CoreML acceleration** on macOS
+        - 🔧 **CLI interface** with confidence thresholds
+
+        ## Usage
+
+        ```bash
+        # Download and make executable
+        chmod +x beaker-*
+
+        # Detect bird heads in an image
+        ./beaker-* head image.jpg --confidence 0.75
+
+        # Show help
+        ./beaker-* --help
+        ```
+
+        Each binary is approximately 13MB and includes the embedded ONNX model.
+        EOF
+
+        gh release create "$TAG_NAME" \
+          --title "Beaker-rs $VERSION" \
+          --notes-file release_notes.md \
+          $PRERELEASE_FLAG
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ steps.get_tag.outputs.tag_name }}
-        release_name: Beaker-rs ${{ steps.get_tag.outputs.version }}
-        body: |
-          # Beaker-rs ${{ steps.get_tag.outputs.version }}
-
-          Self-contained bird head detection CLI tool built with Rust and ONNX Runtime.
-
-          ## Downloads
-
-          Choose the appropriate binary for your platform:
-
-          - **Linux (x86_64)**: `beaker-x86_64-unknown-linux-gnu`
-          - **Linux (static)**: `beaker-x86_64-unknown-linux-musl-static`
-          - **macOS (Intel)**: `beaker-x86_64-apple-darwin`
-          - **macOS (Apple Silicon)**: `beaker-aarch64-apple-darwin`
-          - **Windows**: `beaker-x86_64-pc-windows-msvc.exe`
-
-          ## Features
-
-          - 🦅 **Bird head detection** using YOLOv8 ONNX model
-          - 📦 **Self-contained** - no dependencies required
-          - ⚡ **Fast** - optimized Rust implementation
-          - 🍎 **CoreML acceleration** on macOS
-          - 🔧 **CLI interface** with confidence thresholds
-
-          ## Usage
-
-          ```bash
-          # Download and make executable
-          chmod +x beaker-*
-
-          # Detect bird heads in an image
-          ./beaker-* head image.jpg --confidence 0.75
-
-          # Show help
-          ./beaker-* --help
-          ```
-
-          Each binary is approximately 13MB and includes the embedded ONNX model.
-        draft: false
-        prerelease: ${{ steps.get_tag.outputs.is_prerelease }}
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-and-upload:
     name: Build and Upload Binaries
@@ -168,14 +180,11 @@ jobs:
         echo "UPLOAD_NAME=$UPLOAD_NAME" >> $GITHUB_ENV
 
     - name: Upload Release Asset
-      uses: actions/upload-release-asset@v1
+      run: |
+        TAG_NAME="${{ needs.create-release.outputs.tag_name }}"
+        gh release upload "$TAG_NAME" "./${{ env.UPLOAD_NAME }}"
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ needs.create-release.outputs.upload_url }}
-        asset_path: ./${{ env.UPLOAD_NAME }}
-        asset_name: ${{ env.UPLOAD_NAME }}
-        asset_content_type: application/octet-stream
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-musl-and-upload:
     name: Build and Upload Static Binary
@@ -235,14 +244,11 @@ jobs:
         echo "UPLOAD_NAME=$UPLOAD_NAME" >> $GITHUB_ENV
 
     - name: Upload Static Release Asset
-      uses: actions/upload-release-asset@v1
+      run: |
+        TAG_NAME="${{ needs.create-release.outputs.tag_name }}"
+        gh release upload "$TAG_NAME" "./${{ env.UPLOAD_NAME }}"
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ needs.create-release.outputs.upload_url }}
-        asset_path: ./${{ env.UPLOAD_NAME }}
-        asset_name: ${{ env.UPLOAD_NAME }}
-        asset_content_type: application/octet-stream
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   release-success:
     name: Release Success
