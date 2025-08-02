@@ -1,0 +1,261 @@
+name: Beaker-rs Release
+
+on:
+  push:
+    tags:
+      - 'beaker-rs-v*'  # Matches beaker-rs-v1.0.0, beaker-rs-v1.0.0-alpha.1, etc.
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      tag_name: ${{ steps.get_tag.outputs.tag_name }}
+      version: ${{ steps.get_tag.outputs.version }}
+      is_prerelease: ${{ steps.get_tag.outputs.is_prerelease }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Get tag information
+      id: get_tag
+      run: |
+        TAG_NAME=${GITHUB_REF#refs/tags/}
+        VERSION=${TAG_NAME#beaker-rs-v}
+
+        echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+        # Check if this is a prerelease (contains alpha, beta, rc, or pre)
+        if [[ "$VERSION" =~ (alpha|beta|rc|pre) ]]; then
+          echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          echo "🔖 Detected prerelease: $VERSION"
+        else
+          echo "is_prerelease=false" >> $GITHUB_OUTPUT
+          echo "🔖 Detected stable release: $VERSION"
+        fi
+
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.get_tag.outputs.tag_name }}
+        release_name: Beaker-rs ${{ steps.get_tag.outputs.version }}
+        body: |
+          # Beaker-rs ${{ steps.get_tag.outputs.version }}
+
+          Self-contained bird head detection CLI tool built with Rust and ONNX Runtime.
+
+          ## Downloads
+
+          Choose the appropriate binary for your platform:
+
+          - **Linux (x86_64)**: `beaker-x86_64-unknown-linux-gnu`
+          - **Linux (static)**: `beaker-x86_64-unknown-linux-musl-static`
+          - **macOS (Intel)**: `beaker-x86_64-apple-darwin`
+          - **macOS (Apple Silicon)**: `beaker-aarch64-apple-darwin`
+          - **Windows**: `beaker-x86_64-pc-windows-msvc.exe`
+
+          ## Features
+
+          - 🦅 **Bird head detection** using YOLOv8 ONNX model
+          - 📦 **Self-contained** - no dependencies required
+          - ⚡ **Fast** - optimized Rust implementation
+          - 🍎 **CoreML acceleration** on macOS
+          - 🔧 **CLI interface** with confidence thresholds
+
+          ## Usage
+
+          ```bash
+          # Download and make executable
+          chmod +x beaker-*
+
+          # Detect bird heads in an image
+          ./beaker-* detect image.jpg --confidence 0.75
+
+          # Show help
+          ./beaker-* --help
+          ```
+
+          Each binary is approximately 13MB and includes the embedded ONNX model.
+        draft: false
+        prerelease: ${{ steps.get_tag.outputs.is_prerelease }}
+
+  build-and-upload:
+    name: Build and Upload Binaries
+    needs: create-release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            features: "cpu"
+            binary_name: beaker
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            features: "coreml"
+            binary_name: beaker
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            features: "coreml"
+            binary_name: beaker
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            features: "cpu"
+            binary_name: beaker.exe
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ matrix.target }}
+
+    - name: Cache Rust dependencies
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: "beaker-rs -> target"
+        key: release-${{ matrix.target }}-${{ hashFiles('beaker-rs/Cargo.lock') }}-${{ hashFiles('beaker-rs/build.rs') }}
+
+    - name: Cache ONNX model
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/onnx-models
+        key: onnx-model-${{ hashFiles('beaker-rs/build.rs') }}
+        restore-keys: |
+          onnx-model-
+        enableCrossOsArchive: true
+
+    - name: Set model cache environment
+      run: echo "ONNX_MODEL_CACHE_DIR=$HOME/.cache/onnx-models" >> $GITHUB_ENV
+
+    - name: Build release binary
+      run: cargo build --release --target ${{ matrix.target }} --features ${{ matrix.features }}
+      working-directory: beaker-rs
+
+    - name: Prepare binary for upload
+      shell: bash
+      run: |
+        cd beaker-rs
+        BINARY_PATH="target/${{ matrix.target }}/release/${{ matrix.binary_name }}"
+        UPLOAD_NAME="beaker-${{ matrix.target }}${{ matrix.target == 'x86_64-pc-windows-msvc' && '.exe' || '' }}"
+
+        echo "📦 Preparing binary: $BINARY_PATH -> $UPLOAD_NAME"
+
+        # Copy binary to root with upload name
+        cp "$BINARY_PATH" "../$UPLOAD_NAME"
+
+        # Get file size
+        if [[ "${{ runner.os }}" == "Windows" ]]; then
+          SIZE=$(powershell -command "(Get-Item '../$UPLOAD_NAME').Length")
+          SIZE_MB=$(powershell -command "[math]::Round((Get-Item '../$UPLOAD_NAME').Length / 1MB, 2)")
+        else
+          SIZE=$(stat -c%s "../$UPLOAD_NAME" 2>/dev/null || stat -f%z "../$UPLOAD_NAME")
+          SIZE_MB=$(echo "scale=2; $SIZE / 1024 / 1024" | bc)
+        fi
+
+        echo "✅ Binary prepared: $UPLOAD_NAME (${SIZE_MB}MB)"
+        echo "UPLOAD_NAME=$UPLOAD_NAME" >> $GITHUB_ENV
+
+    - name: Upload Release Asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: ./${{ env.UPLOAD_NAME }}
+        asset_name: ${{ env.UPLOAD_NAME }}
+        asset_content_type: application/octet-stream
+
+  build-musl-and-upload:
+    name: Build and Upload Static Binary
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: x86_64-unknown-linux-musl
+
+    - name: Install musl tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y musl-tools
+
+    - name: Cache Rust dependencies
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: "beaker-rs -> target"
+        key: release-musl-${{ hashFiles('beaker-rs/Cargo.lock') }}-${{ hashFiles('beaker-rs/build.rs') }}
+
+    - name: Cache ONNX model
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/onnx-models
+        key: onnx-model-${{ hashFiles('beaker-rs/build.rs') }}
+        restore-keys: |
+          onnx-model-
+        enableCrossOsArchive: true
+
+    - name: Set model cache environment
+      run: echo "ONNX_MODEL_CACHE_DIR=$HOME/.cache/onnx-models" >> $GITHUB_ENV
+
+    - name: Build static binary
+      run: cargo build --release --target x86_64-unknown-linux-musl --features cpu
+      working-directory: beaker-rs
+      env:
+        RUSTFLAGS: '-C target-feature=+crt-static'
+
+    - name: Prepare static binary for upload
+      run: |
+        cd beaker-rs
+        BINARY_PATH="target/x86_64-unknown-linux-musl/release/beaker"
+        UPLOAD_NAME="beaker-x86_64-unknown-linux-musl-static"
+
+        echo "📦 Preparing static binary: $BINARY_PATH -> $UPLOAD_NAME"
+        cp "$BINARY_PATH" "../$UPLOAD_NAME"
+
+        SIZE=$(stat -c%s "../$UPLOAD_NAME")
+        SIZE_MB=$(echo "scale=2; $SIZE / 1024 / 1024" | bc)
+
+        echo "✅ Static binary prepared: $UPLOAD_NAME (${SIZE_MB}MB)"
+        echo "UPLOAD_NAME=$UPLOAD_NAME" >> $GITHUB_ENV
+
+    - name: Upload Static Release Asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: ./${{ env.UPLOAD_NAME }}
+        asset_name: ${{ env.UPLOAD_NAME }}
+        asset_content_type: application/octet-stream
+
+  release-success:
+    name: Release Success
+    runs-on: ubuntu-latest
+    needs: [create-release, build-and-upload, build-musl-and-upload]
+    steps:
+    - name: Celebrate
+      run: |
+        echo "🎉 Beaker-rs ${{ needs.create-release.outputs.version }} released successfully!"
+        echo "🔗 Release URL: https://github.com/${{ github.repository }}/releases/tag/${{ needs.create-release.outputs.tag_name }}"
+        echo "📦 Binaries uploaded:"
+        echo "  - beaker-x86_64-unknown-linux-gnu"
+        echo "  - beaker-x86_64-apple-darwin"
+        echo "  - beaker-aarch64-apple-darwin"
+        echo "  - beaker-x86_64-pc-windows-msvc.exe"
+        echo "  - beaker-x86_64-unknown-linux-musl-static"

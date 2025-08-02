@@ -60,6 +60,7 @@ jobs:
         key: onnx-model-${{ hashFiles('beaker-rs/build.rs') }}
         restore-keys: |
           onnx-model-
+        enableCrossOsArchive: true
 
     - name: Set model cache environment
       run: echo "ONNX_MODEL_CACHE_DIR=$HOME/.cache/onnx-models" >> $GITHUB_ENV
@@ -170,6 +171,7 @@ jobs:
         key: onnx-model-${{ hashFiles('beaker-rs/build.rs') }}
         restore-keys: |
           onnx-model-
+        enableCrossOsArchive: true
 
     - name: Set model cache environment
       run: echo "ONNX_MODEL_CACHE_DIR=$HOME/.cache/onnx-models" >> $GITHUB_ENV
