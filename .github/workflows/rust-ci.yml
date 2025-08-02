@@ -184,6 +184,15 @@ jobs:
         echo "Execution provider testing complete"
       working-directory: beaker-rs
 
+    - name: Copy second test image
+      run: cp example-2-birds.jpg beaker-rs/
+
+    - name: Run integration tests
+      env:
+        RUST_LOG: "warn"  # Reduce log noise for tests
+      run: cargo test --test integration_tests --release --target ${{ matrix.target }} --features ${{ matrix.features }}
+      working-directory: beaker-rs
+
     - name: Upload binary artifact
       uses: actions/upload-artifact@v4
       with:
