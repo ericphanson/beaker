@@ -3,6 +3,7 @@ data
 yolov8n.pt
 runs
 crops
+models
 __pycache__
 
 # Rust build artifacts
