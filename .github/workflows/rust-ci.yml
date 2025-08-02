@@ -25,19 +25,15 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            features: "cpu,coreml"  # Use unified features for cross-platform builds
             device: "auto"  # Will fallback to CPU on Linux
           - target: x86_64-apple-darwin
             os: macos-latest
-            features: "cpu,coreml"
             device: "auto"  # Will use CoreML on macOS
           - target: aarch64-apple-darwin
             os: macos-latest
-            features: "cpu,coreml"
             device: "auto"  # Will use CoreML on macOS
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-            features: "cpu,coreml"  # Use unified features for cross-platform builds
             device: "auto"  # Will fallback to CPU on Windows
     runs-on: ${{ matrix.os }}
 
@@ -74,15 +70,15 @@ jobs:
       working-directory: beaker-rs
 
     - name: Run clippy
-      run: cargo clippy --target ${{ matrix.target }} --features ${{ matrix.features }} -- -D warnings
+      run: cargo clippy --target ${{ matrix.target }} -- -D warnings
       working-directory: beaker-rs
 
     - name: Build (debug)
-      run: cargo build --target ${{ matrix.target }} --features ${{ matrix.features }}
+      run: cargo build --target ${{ matrix.target }}
       working-directory: beaker-rs
 
     - name: Build (release)
-      run: cargo build --release --target ${{ matrix.target }} --features ${{ matrix.features }}
+      run: cargo build --release --target ${{ matrix.target }}
       working-directory: beaker-rs
 
     - name: Show binary information (Unix)
@@ -190,7 +186,7 @@ jobs:
     - name: Run integration tests
       env:
         RUST_LOG: "warn"  # Reduce log noise for tests
-      run: cargo test --test integration_tests --release --target ${{ matrix.target }} --features ${{ matrix.features }}
+      run: cargo test --test integration_tests --release --target ${{ matrix.target }}
       working-directory: beaker-rs
 
     - name: Upload binary artifact
