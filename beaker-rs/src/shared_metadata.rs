@@ -45,7 +45,7 @@ pub fn get_metadata_path(
         .and_then(|s| s.to_str())
         .ok_or_else(|| anyhow::anyhow!("Invalid input filename"))?;
 
-    let metadata_filename = format!("{input_stem}-beaker.toml");
+    let metadata_filename = format!("{input_stem}.beaker.toml");
 
     let metadata_path = if let Some(output_dir) = output_dir {
         Path::new(output_dir).join(metadata_filename)
@@ -67,7 +67,7 @@ mod tests {
     #[test]
     fn test_metadata_roundtrip() {
         let temp_dir = tempdir().unwrap();
-        let metadata_path = temp_dir.path().join("test-beaker.toml");
+        let metadata_path = temp_dir.path().join("test.beaker.toml");
 
         // Create and save metadata
         let metadata = BeakerMetadata::default();
@@ -83,13 +83,13 @@ mod tests {
     fn test_get_metadata_path() {
         let input_path = Path::new("/path/to/image.jpg");
         let metadata_path = get_metadata_path(input_path, None).unwrap();
-        assert_eq!(metadata_path.file_name().unwrap(), "image-beaker.toml");
+        assert_eq!(metadata_path.file_name().unwrap(), "image.beaker.toml");
         assert_eq!(metadata_path.parent().unwrap(), Path::new("/path/to"));
 
         let metadata_path_with_output = get_metadata_path(input_path, Some("/output")).unwrap();
         assert_eq!(
             metadata_path_with_output,
-            Path::new("/output/image-beaker.toml")
+            Path::new("/output/image.beaker.toml")
         );
     }
 }

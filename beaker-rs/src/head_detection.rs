@@ -522,31 +522,31 @@ fn handle_image_outputs(
                 if let Some(output_dir) = &config.output_dir {
                     let output_dir = Path::new(output_dir);
                     std::fs::create_dir_all(output_dir)?;
-                    output_dir.join(format!("{input_stem}-crop.{output_ext}"))
+                    output_dir.join(format!("{input_stem}.{output_ext}"))
                 } else {
                     source_path
                         .parent()
                         .unwrap()
-                        .join(format!("{input_stem}-crop.{output_ext}"))
+                        .join(format!("{input_stem}_crop.{output_ext}"))
                 }
             } else if let Some(output_dir) = &config.output_dir {
                 let output_dir = Path::new(output_dir);
                 std::fs::create_dir_all(output_dir)?;
                 if detections.len() >= 10 {
-                    output_dir.join(format!("{input_stem}-crop-{:02}.{output_ext}", i + 1))
+                    output_dir.join(format!("{input_stem}-{:02}.{output_ext}", i + 1))
                 } else {
-                    output_dir.join(format!("{input_stem}-crop-{}.{output_ext}", i + 1))
+                    output_dir.join(format!("{input_stem}-{}.{output_ext}", i + 1))
                 }
             } else if detections.len() >= 10 {
                 source_path
                     .parent()
                     .unwrap()
-                    .join(format!("{input_stem}-crop-{:02}.{output_ext}", i + 1))
+                    .join(format!("{input_stem}_crop-{:02}.{output_ext}", i + 1))
             } else {
                 source_path
                     .parent()
                     .unwrap()
-                    .join(format!("{input_stem}-crop-{}.{output_ext}", i + 1))
+                    .join(format!("{input_stem}_crop-{}.{output_ext}", i + 1))
             };
 
             create_square_crop(img, detection, &crop_filename, 0.1)?;

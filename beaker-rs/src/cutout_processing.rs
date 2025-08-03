@@ -187,7 +187,9 @@ fn process_single_image(
     // Generate output paths
     let output_path = generate_output_path(image_path, config, "cutout", "png")?;
     let mask_path = if config.save_mask {
-        Some(generate_output_path(image_path, config, "mask", "png")?)
+        Some(generate_auxiliary_output_path(
+            image_path, config, "mask", "png",
+        )?)
     } else {
         None
     };
@@ -253,12 +255,38 @@ fn generate_output_path(
     suffix: &str,
     extension: &str,
 ) -> Result<std::path::PathBuf> {
+    generate_output_path_with_suffix_control(input_path, config, suffix, extension, false)
+}
+
+/// Generate output path for auxiliary files (always with suffix)
+fn generate_auxiliary_output_path(
+    input_path: &Path,
+    config: &CutoutConfig,
+    suffix: &str,
+    extension: &str,
+) -> Result<std::path::PathBuf> {
+    generate_output_path_with_suffix_control(input_path, config, suffix, extension, true)
+}
+
+/// Generate output path with control over suffix behavior
+fn generate_output_path_with_suffix_control(
+    input_path: &Path,
+    config: &CutoutConfig,
+    suffix: &str,
+    extension: &str,
+    force_suffix: bool,
+) -> Result<std::path::PathBuf> {
     let input_stem = input_path
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("output");
 
-    let output_filename = format!("{input_stem}_{suffix}.{extension}");
+    // Add suffix if we're NOT using --output-dir OR if force_suffix is true
+    let output_filename = if config.output_dir.is_some() && !force_suffix {
+        format!("{input_stem}.{extension}")
+    } else {
+        format!("{input_stem}_{suffix}.{extension}")
+    };
 
     let output_path = if let Some(output_dir) = &config.output_dir {
         Path::new(output_dir).join(&output_filename)

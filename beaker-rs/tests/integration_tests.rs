@@ -79,7 +79,7 @@ fn test_basic_head_detection_single_bird() {
     assert!(stdout.contains("detections"), "Should mention detections");
 
     // Check that TOML output was created
-    let toml_path = temp_dir.path().join("example-beaker.toml");
+    let toml_path = temp_dir.path().join("example.beaker.toml");
     assert_file_exists_with_content(&toml_path);
 
     // Verify TOML content structure
@@ -115,7 +115,7 @@ fn test_basic_head_detection_two_birds() {
     assert!(stdout.contains("Found"), "Should report found detections");
 
     // Check that TOML output was created
-    let toml_path = temp_dir.path().join("example-2-birds-beaker.toml");
+    let toml_path = temp_dir.path().join("example-2-birds.beaker.toml");
     assert_file_exists_with_content(&toml_path);
 }
 
@@ -145,16 +145,19 @@ fn test_head_detection_with_crops() {
     assert!(stdout.contains("Found"), "Should report found detections");
 
     // Check for TOML output
-    let toml_path = temp_dir.path().join("example-beaker.toml");
+    let toml_path = temp_dir.path().join("example.beaker.toml");
     assert_file_exists_with_content(&toml_path);
 
-    // Check for crop images (pattern: example-crop-1.jpg, example-crop-2.jpg, etc.)
+    // Check for crop images (no "_crop" suffix when using --output-dir)
     let crop_files: Vec<_> = fs::read_dir(temp_dir.path())
         .expect("Failed to read temp directory")
         .filter_map(|entry| entry.ok())
         .filter(|entry| {
-            entry.file_name().to_string_lossy().contains("crop")
-                && entry.file_name().to_string_lossy().ends_with(".jpg")
+            let name = entry.file_name().to_string_lossy().to_string();
+            name.starts_with("example")
+                && name.ends_with(".jpg")
+                && !name.contains("bounding-box")
+                && !name.contains("beaker")
         })
         .collect();
 
@@ -195,7 +198,7 @@ fn test_head_detection_with_bounding_boxes() {
     assert!(stdout.contains("Found"), "Should report found detections");
 
     // Check for TOML output
-    let toml_path = temp_dir.path().join("example-beaker.toml");
+    let toml_path = temp_dir.path().join("example.beaker.toml");
     assert_file_exists_with_content(&toml_path);
 
     // Check for bounding box image
@@ -234,20 +237,27 @@ fn test_head_detection_with_all_outputs() {
     assert!(stdout.contains("Found"), "Should report found detections");
 
     // Check for TOML output
-    let toml_path = temp_dir.path().join("example-2-birds-beaker.toml");
+    let toml_path = temp_dir.path().join("example-2-birds.beaker.toml");
     assert_file_exists_with_content(&toml_path);
 
     // Check for bounding box image
     let bbox_path = temp_dir.path().join("example-2-birds-bounding-box.jpg");
     assert_file_exists_with_content(&bbox_path);
 
-    // Check for crop images
+    // Check for crop images (numbered files when using --output-dir with multiple detections)
     let crop_files: Vec<_> = fs::read_dir(temp_dir.path())
         .expect("Failed to read temp directory")
         .filter_map(|entry| entry.ok())
         .filter(|entry| {
-            entry.file_name().to_string_lossy().contains("crop")
-                && entry.file_name().to_string_lossy().ends_with(".jpg")
+            let name = entry.file_name().to_string_lossy().to_string();
+            name.starts_with("example-2-birds")
+                && name.ends_with(".jpg")
+                && !name.contains("bounding-box")
+                && !name.contains("beaker")
+                && (name.contains("-1.")
+                    || name.contains("-2.")
+                    || name.contains("-01.")
+                    || name.contains("-02."))
         })
         .collect();
 
@@ -283,7 +293,7 @@ fn test_no_metadata_option() {
     assert!(stdout.contains("Found"), "Should report found detections");
 
     // Check that metadata output was NOT created
-    let toml_path = temp_dir.path().join("example-beaker.toml");
+    let toml_path = temp_dir.path().join("example.beaker.toml");
     assert!(
         !toml_path.exists(),
         "Metadata file should not exist when --no-metadata is used"
@@ -417,8 +427,8 @@ fn test_output_file_naming() {
 
     // Test that different input files create different output files
     let tests = vec![
-        ("example.jpg", "example-beaker.toml"),
-        ("example-2-birds.jpg", "example-2-birds-beaker.toml"),
+        ("example.jpg", "example.beaker.toml"),
+        ("example-2-birds.jpg", "example-2-birds.beaker.toml"),
     ];
 
     for (input_file, expected_toml) in tests {
@@ -486,7 +496,10 @@ fn test_png_transparency_preservation() {
         .filter(|entry| {
             let binding = entry.file_name();
             let name = binding.to_string_lossy();
-            name.contains("crop") && name.ends_with(".png")
+            name.starts_with("test-transparent")
+                && name.ends_with(".png")
+                && !name.contains("bounding-box")
+                && !name.contains("beaker")
         })
         .collect();
 
@@ -502,7 +515,10 @@ fn test_png_transparency_preservation() {
         .filter(|entry| {
             let binding = entry.file_name();
             let name = binding.to_string_lossy();
-            name.contains("crop") && (name.ends_with(".jpg") || name.ends_with(".jpeg"))
+            name.starts_with("test-transparent")
+                && (name.ends_with(".jpg") || name.ends_with(".jpeg"))
+                && !name.contains("bounding-box")
+                && !name.contains("beaker")
         })
         .collect();
 
@@ -562,7 +578,10 @@ fn test_jpeg_format_preservation() {
         .filter(|entry| {
             let binding = entry.file_name();
             let name = binding.to_string_lossy();
-            name.contains("crop") && (name.ends_with(".jpg") || name.ends_with(".jpeg"))
+            name.starts_with("test-image")
+                && (name.ends_with(".jpg") || name.ends_with(".jpeg"))
+                && !name.contains("bounding-box")
+                && !name.contains("beaker")
         })
         .collect();
 
@@ -578,7 +597,10 @@ fn test_jpeg_format_preservation() {
         .filter(|entry| {
             let binding = entry.file_name();
             let name = binding.to_string_lossy();
-            name.contains("crop") && name.ends_with(".png")
+            name.starts_with("test-image")
+                && name.ends_with(".png")
+                && !name.contains("bounding-box")
+                && !name.contains("beaker")
         })
         .collect();
 
@@ -721,8 +743,9 @@ fn test_mixed_format_batch_processing() {
     );
 
     // Check that both JPEG and PNG output files were created with correct extensions
-    let jpg_crop = output_dir.join("test1-crop.jpg");
-    let png_crop = output_dir.join("test2-crop.png");
+    // No "_crop" suffix when using --output-dir
+    let jpg_crop = output_dir.join("test1.jpg");
+    let png_crop = output_dir.join("test2.png");
     let jpg_bbox = output_dir.join("test1-bounding-box.jpg");
     let png_bbox = output_dir.join("test2-bounding-box.png");
 
@@ -761,8 +784,8 @@ fn setup_test_data(temp_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
         temp_dir.join("example-2-birds.jpg"),
     )?;
     fs::copy(
-        source_dir.join("example-crop.jpg"),
-        temp_dir.join("example-crop.jpg"),
+        source_dir.join("example_crop.jpg"),
+        temp_dir.join("example_crop.jpg"),
     )?;
 
     // Create a subdirectory with more images
@@ -824,7 +847,7 @@ fn test_directory_batch_processing() {
             entry
                 .file_name()
                 .to_string_lossy()
-                .ends_with("-beaker.toml")
+                .ends_with(".beaker.toml")
         })
         .collect();
 
@@ -888,7 +911,7 @@ fn test_glob_pattern_processing() {
         .filter_map(|entry| entry.ok())
         .filter(|entry| {
             let name = entry.file_name().to_string_lossy().to_string();
-            name.contains("2-birds") && name.ends_with("-beaker.toml")
+            name.contains("2-birds") && name.ends_with(".beaker.toml")
         })
         .collect();
 
@@ -937,17 +960,24 @@ fn test_multiple_explicit_files() {
     );
 
     // Check that TOML files were created for both images
-    let expected_tomls = ["example-beaker.toml", "example-2-birds-beaker.toml"];
+    let expected_tomls = ["example.beaker.toml", "example-2-birds.beaker.toml"];
     for expected_toml in &expected_tomls {
         let toml_path = output_dir.join(expected_toml);
         assert_file_exists_with_content(&toml_path);
     }
 
-    // Check that crop files were created
+    // Check that crop files were created (no "_crop" suffix when using --output-dir)
     let crop_files: Vec<_> = fs::read_dir(&output_dir)
         .expect("Failed to read output directory")
         .filter_map(|entry| entry.ok())
-        .filter(|entry| entry.file_name().to_string_lossy().contains("crop"))
+        .filter(|entry| {
+            let binding = entry.file_name();
+            let name = binding.to_string_lossy();
+            name.starts_with("example")
+                && name.ends_with(".jpg")
+                && !name.contains("bounding-box")
+                && !name.contains("beaker")
+        })
         .collect();
 
     assert!(
@@ -1007,7 +1037,7 @@ fn test_mixed_sources_file_and_directory() {
             entry
                 .file_name()
                 .to_string_lossy()
-                .ends_with("-beaker.toml")
+                .ends_with(".beaker.toml")
         })
         .collect();
 
@@ -1148,12 +1178,12 @@ fn test_basic_cutout_single_image() {
         "Should mention processing 1 image"
     );
 
-    // Check that cutout output was created
-    let cutout_path = temp_dir.path().join("example_cutout.png");
+    // Check that cutout output was created (no suffix when using --output-dir)
+    let cutout_path = temp_dir.path().join("example.png");
     assert_file_exists_with_content(&cutout_path);
 
     // Check that TOML metadata was created
-    let toml_path = temp_dir.path().join("example-beaker.toml");
+    let toml_path = temp_dir.path().join("example.beaker.toml");
     assert_file_exists_with_content(&toml_path);
 
     // Verify TOML content structure
@@ -1195,14 +1225,15 @@ fn test_cutout_with_mask_saving() {
     );
 
     // Check that both cutout and mask outputs were created
-    let cutout_path = temp_dir.path().join("example_cutout.png");
+    // Cutout has no suffix when using --output-dir, mask always has suffix
+    let cutout_path = temp_dir.path().join("example.png");
     let mask_path = temp_dir.path().join("example_mask.png");
 
     assert_file_exists_with_content(&cutout_path);
     assert_file_exists_with_content(&mask_path);
 
     // Verify TOML contains mask path
-    let toml_path = temp_dir.path().join("example-beaker.toml");
+    let toml_path = temp_dir.path().join("example.beaker.toml");
     let toml_content = fs::read_to_string(&toml_path).expect("Failed to read TOML file");
     assert!(
         toml_content.contains("mask_path"),
@@ -1233,12 +1264,12 @@ fn test_cutout_with_background_color() {
         "Should report processed images"
     );
 
-    // Check that cutout output was created
-    let cutout_path = temp_dir.path().join("example_cutout.png");
+    // Check that cutout output was created (no suffix when using --output-dir)
+    let cutout_path = temp_dir.path().join("example.png");
     assert_file_exists_with_content(&cutout_path);
 
     // Verify TOML contains background color info
-    let toml_path = temp_dir.path().join("example-beaker.toml");
+    let toml_path = temp_dir.path().join("example.beaker.toml");
     let toml_content = fs::read_to_string(&toml_path).expect("Failed to read TOML file");
     assert!(
         toml_content.contains("background_color"),
@@ -1278,12 +1309,12 @@ fn test_cutout_with_alpha_matting() {
         "Should report processed images"
     );
 
-    // Check that cutout output was created
-    let cutout_path = temp_dir.path().join("example_cutout.png");
+    // Check that cutout output was created (no suffix when using --output-dir)
+    let cutout_path = temp_dir.path().join("example.png");
     assert_file_exists_with_content(&cutout_path);
 
     // Verify TOML contains alpha matting settings
-    let toml_path = temp_dir.path().join("example-beaker.toml");
+    let toml_path = temp_dir.path().join("example.beaker.toml");
     let toml_content = fs::read_to_string(&toml_path).expect("Failed to read TOML file");
     assert!(
         toml_content.contains("alpha_matting = true"),
@@ -1316,16 +1347,16 @@ fn test_cutout_multiple_images() {
         "Should mention processing 2 images"
     );
 
-    // Check that both cutout outputs were created
-    let cutout1_path = temp_dir.path().join("example_cutout.png");
-    let cutout2_path = temp_dir.path().join("example-2-birds_cutout.png");
+    // Check that both cutout outputs were created (no suffix when using --output-dir)
+    let cutout1_path = temp_dir.path().join("example.png");
+    let cutout2_path = temp_dir.path().join("example-2-birds.png");
 
     assert_file_exists_with_content(&cutout1_path);
     assert_file_exists_with_content(&cutout2_path);
 
     // Check that both TOML metadata files were created
-    let toml1_path = temp_dir.path().join("example-beaker.toml");
-    let toml2_path = temp_dir.path().join("example-2-birds-beaker.toml");
+    let toml1_path = temp_dir.path().join("example.beaker.toml");
+    let toml2_path = temp_dir.path().join("example-2-birds.beaker.toml");
 
     assert_file_exists_with_content(&toml1_path);
     assert_file_exists_with_content(&toml2_path);
@@ -1358,8 +1389,8 @@ fn test_cutout_device_cpu() {
         "Should mention CPU execution provider"
     );
 
-    // Check that cutout output was created
-    let cutout_path = temp_dir.path().join("example_cutout.png");
+    // Check that cutout output was created (no suffix when using --output-dir)
+    let cutout_path = temp_dir.path().join("example.png");
     assert_file_exists_with_content(&cutout_path);
 }
 
@@ -1386,8 +1417,8 @@ fn test_cutout_device_coreml() {
         "Should report using CoreML device"
     );
 
-    // Check that cutout output was created
-    let cutout_path = temp_dir.path().join("example_cutout.png");
+    // Check that cutout output was created (no suffix when using --output-dir)
+    let cutout_path = temp_dir.path().join("example.png");
     assert_file_exists_with_content(&cutout_path);
 }
 
@@ -1441,12 +1472,12 @@ fn test_cutout_no_metadata() {
         "Should report processed images"
     );
 
-    // Check that cutout output was created
-    let cutout_path = temp_dir.path().join("example_cutout.png");
+    // Check that cutout output was created (no suffix when using --output-dir)
+    let cutout_path = temp_dir.path().join("example.png");
     assert_file_exists_with_content(&cutout_path);
 
     // Check that NO TOML metadata was created
-    let toml_path = temp_dir.path().join("example-beaker.toml");
+    let toml_path = temp_dir.path().join("example.beaker.toml");
     assert!(
         !toml_path.exists(),
         "TOML metadata should not be created with --no-metadata"
