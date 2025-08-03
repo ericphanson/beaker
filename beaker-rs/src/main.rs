@@ -5,6 +5,7 @@ mod cutout_preprocessing;
 mod cutout_processing;
 mod head_detection;
 mod model_cache;
+mod onnx_session;
 mod shared_metadata;
 mod yolo_postprocessing;
 mod yolo_preprocessing;

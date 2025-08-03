@@ -1,12 +1,7 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use image::GenericImageView;
-use ort::{
-    execution_providers::{CPUExecutionProvider, CoreMLExecutionProvider, ExecutionProvider},
-    logging::LogLevel,
-    session::Session,
-    value::Value,
-};
+use ort::{session::Session, value::Value};
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
@@ -17,6 +12,9 @@ use crate::cutout_postprocessing::{
 };
 use crate::cutout_preprocessing::preprocess_image_for_isnet_v2;
 use crate::model_cache::{get_or_download_model, ISNET_GENERAL_MODEL};
+use crate::onnx_session::{
+    create_onnx_session, determine_optimal_device, ModelSource, SessionConfig, VerboseOutput,
+};
 use crate::shared_metadata::{get_metadata_path, load_or_create_metadata, save_metadata};
 
 /// Macro to print only when verbose mode is enabled
@@ -72,6 +70,14 @@ pub struct CutoutConfig {
     pub save_mask: bool,
     pub skip_metadata: bool,
     pub verbose: bool,
+}
+
+impl VerboseOutput for CutoutConfig {
+    fn verbose_println(&self, msg: String) {
+        if self.verbose {
+            println!("{msg}");
+        }
+    }
 }
 
 /// Check if a file is a supported image format
@@ -137,87 +143,6 @@ fn collect_image_files_from_sources(sources: &[String]) -> Result<Vec<std::path:
     all_image_files.dedup();
 
     Ok(all_image_files)
-}
-
-/// Determine optimal device based on number of images and user preference
-fn determine_optimal_device(config: &CutoutConfig, num_images: usize) -> String {
-    const COREML_THRESHOLD: usize = 3; // Use CoreML for 3+ images
-
-    match config.device.as_str() {
-        "auto" => {
-            if num_images >= COREML_THRESHOLD {
-                "coreml".to_string()
-            } else {
-                "cpu".to_string()
-            }
-        }
-        device => device.to_string(),
-    }
-}
-
-/// Create an ONNX Runtime session with the specified device
-fn create_session(
-    config: &CutoutConfig,
-    device: &str,
-    model_path: &Path,
-) -> Result<(Session, f64)> {
-    // Determine execution provider based on device with availability checking
-    let execution_providers = match device {
-        "coreml" => match CoreMLExecutionProvider::default().is_available() {
-            Ok(true) => vec![
-                CoreMLExecutionProvider::default().build(),
-                CPUExecutionProvider::default().build(),
-            ],
-            _ => {
-                verbose_println!(config, "⚠️  CoreML not available, falling back to CPU");
-                vec![CPUExecutionProvider::default().build()]
-            }
-        },
-        "cpu" => vec![CPUExecutionProvider::default().build()],
-        _ => {
-            verbose_println!(config, "⚠️  Unknown device '{}', using CPU", device);
-            vec![CPUExecutionProvider::default().build()]
-        }
-    };
-
-    // Store EP info for logging before moving the vector
-    let ep_names: Vec<String> = execution_providers
-        .iter()
-        .map(|ep| format!("{ep:?}"))
-        .collect();
-
-    // Set log level to suppress warnings unless verbose mode is enabled
-    let log_level = if config.verbose {
-        LogLevel::Warning // Show warnings in verbose mode
-    } else {
-        LogLevel::Error // Only show errors in normal mode
-    };
-
-    // Load the model using ORT v2 API
-    let session_start = Instant::now();
-    let model_bytes =
-        fs::read(model_path).map_err(|e| anyhow::anyhow!("Failed to read model file: {}", e))?;
-
-    let session = Session::builder()
-        .map_err(|e| anyhow::anyhow!("Failed to create session builder: {}", e))?
-        .with_log_level(log_level)
-        .map_err(|e| anyhow::anyhow!("Failed to set log level: {}", e))?
-        .with_execution_providers(execution_providers)
-        .map_err(|e| anyhow::anyhow!("Failed to set execution providers: {}", e))?
-        .commit_from_memory(&model_bytes)
-        .map_err(|e| anyhow::anyhow!("Failed to load model from memory: {}", e))?;
-
-    let session_time = session_start.elapsed().as_secs_f64() * 1000.0;
-
-    verbose_println!(
-        config,
-        "🤖 Loaded ISNet model ({} bytes) in {:.3}ms using {:?}",
-        fs::metadata(model_path)?.len(),
-        session_time,
-        ep_names
-    );
-
-    Ok((session, session_time))
 }
 
 /// Process a single image with an existing session
@@ -400,11 +325,26 @@ pub fn run_cutout_processing(config: CutoutConfig) -> Result<usize> {
     let model_path = get_or_download_model(&ISNET_GENERAL_MODEL, config.verbose)?;
 
     // Determine optimal device
-    let device = determine_optimal_device(&config, image_files.len());
-    verbose_println!(config, "🔧 Using device: {}", device);
+    let device_selection = determine_optimal_device(&config.device, image_files.len(), &config);
+    verbose_println!(
+        config,
+        "🔧 Using device: {} ({})",
+        device_selection.device,
+        device_selection.reason
+    );
 
-    // Create session
-    let (mut session, session_creation_time) = create_session(&config, &device, &model_path)?;
+    // Create session using unified configuration
+    let session_config = SessionConfig {
+        device: &device_selection.device,
+        num_images: image_files.len(),
+        verbose: config.verbose,
+        suppress_warnings: false, // Allow warnings in cutout processing
+    };
+    let (mut session, session_creation_time) = create_onnx_session(
+        ModelSource::FilePath(model_path.to_str().unwrap()),
+        &session_config,
+        &config,
+    )?;
 
     // Process all images
     let mut results = Vec::new();

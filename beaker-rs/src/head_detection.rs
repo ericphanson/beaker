@@ -2,17 +2,15 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use image::{DynamicImage, GenericImageView};
 use ndarray::Array;
-use ort::{
-    execution_providers::{CPUExecutionProvider, CoreMLExecutionProvider, ExecutionProvider},
-    logging::LogLevel,
-    session::Session,
-    value::Value,
-};
+use ort::{session::Session, value::Value};
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
+use crate::onnx_session::{
+    create_onnx_session, determine_optimal_device, ModelSource, SessionConfig, VerboseOutput,
+};
 use crate::shared_metadata::{get_metadata_path, load_or_create_metadata, save_metadata};
 use crate::yolo_postprocessing::{postprocess_output, Detection};
 use crate::yolo_preprocessing::preprocess_image;
@@ -64,6 +62,14 @@ pub struct HeadDetectionConfig {
     pub bounding_box: bool,
     pub skip_metadata: bool,
     pub verbose: bool,
+}
+
+impl VerboseOutput for HeadDetectionConfig {
+    fn verbose_println(&self, msg: String) {
+        if self.verbose {
+            println!("{msg}");
+        }
+    }
 }
 
 /// Check if a file is a supported image format
@@ -176,40 +182,6 @@ fn collect_image_files_from_sources(sources: &[String]) -> Result<Vec<std::path:
     all_image_files.dedup();
 
     Ok(all_image_files)
-}
-
-/// Determine optimal device based on number of images and user preference
-fn determine_optimal_device(config: &HeadDetectionConfig, num_images: usize) -> String {
-    const COREML_THRESHOLD: usize = 3; // Use CoreML for 3+ images
-
-    match config.device.as_str() {
-        "auto" => {
-            if num_images >= COREML_THRESHOLD {
-                // Check if CoreML is available
-                let coreml = CoreMLExecutionProvider::default();
-                match coreml.is_available() {
-                    Ok(true) => {
-                        verbose_println!(config, "📊 Processing {num_images} images - using CoreML for better batch performance");
-                        "coreml".to_string()
-                    }
-                    _ => {
-                        verbose_println!(
-                            config,
-                            "📊 Processing {num_images} images - CoreML not available, using CPU"
-                        );
-                        "cpu".to_string()
-                    }
-                }
-            } else {
-                verbose_println!(
-                    config,
-                    "📊 Processing {num_images} images - using CPU for small batch"
-                );
-                "cpu".to_string()
-            }
-        }
-        other => other.to_string(), // User explicitly chose a device
-    }
 }
 
 pub fn make_path_relative_to_toml(file_path: &Path, toml_path: &Path) -> Result<String> {
@@ -432,118 +404,6 @@ pub fn save_bounding_box_image(
     output_img.save(output_path)?;
 
     Ok(())
-}
-
-/// Create an ONNX Runtime session with the specified device
-fn create_session(config: &HeadDetectionConfig, device: &str) -> Result<(Session, f64)> {
-    // Determine execution provider based on device with availability checking
-    let execution_providers = match device {
-        "cpu" => {
-            verbose_println!(config, "🖥️  Using CPU execution provider");
-            vec![CPUExecutionProvider::default().build()]
-        }
-        "auto" => {
-            // Check CoreML availability (works on all platforms but only available on macOS)
-            let coreml = CoreMLExecutionProvider::default();
-            match coreml.is_available() {
-                Ok(true) => {
-                    verbose_println!(config, "🍎 CoreML execution provider is available");
-                    verbose_println!(
-                        config,
-                        "🍎 Using CoreML + CPU execution providers (auto mode)"
-                    );
-                    vec![coreml.build(), CPUExecutionProvider::default().build()]
-                }
-                Ok(false) => {
-                    verbose_println!(
-                        config,
-                        "⚠️  CoreML execution provider not available on this platform"
-                    );
-                    verbose_println!(
-                        config,
-                        "🖥️  Using CPU execution provider (auto mode fallback)"
-                    );
-                    vec![CPUExecutionProvider::default().build()]
-                }
-                Err(e) => {
-                    verbose_println!(config, "⚠️  Error checking CoreML availability: {e}");
-                    verbose_println!(
-                        config,
-                        "🖥️  Using CPU execution provider (auto mode fallback)"
-                    );
-                    vec![CPUExecutionProvider::default().build()]
-                }
-            }
-        }
-        "coreml" => {
-            // Explicit CoreML request - check availability and error if not available
-            let coreml = CoreMLExecutionProvider::default();
-            match coreml.is_available() {
-                Ok(true) => {
-                    verbose_println!(
-                        config,
-                        "🍎 Using CoreML + CPU execution providers (explicit)"
-                    );
-                    vec![coreml.build(), CPUExecutionProvider::default().build()]
-                }
-                Ok(false) => {
-                    return Err(anyhow::anyhow!(
-                        "CoreML execution provider requested but not available on this platform"
-                    ));
-                }
-                Err(e) => {
-                    return Err(anyhow::anyhow!("Error checking CoreML availability: {}", e));
-                }
-            }
-        }
-        _ => {
-            verbose_println!(config, "🖥️  Using CPU execution provider (fallback)");
-            vec![CPUExecutionProvider::default().build()]
-        }
-    };
-
-    // Store EP info for logging before moving the vector
-    let ep_names: Vec<String> = execution_providers
-        .iter()
-        .enumerate()
-        .map(|(i, _)| format!("EP{}", i + 1))
-        .collect();
-
-    // Set log level to suppress CoreML warnings unless verbose mode is enabled
-    // These warnings are normal for complex models like YOLO and don't indicate problems
-    let log_level = if config.verbose {
-        LogLevel::Warning // Show warnings in verbose mode
-    } else {
-        LogLevel::Error // Suppress warnings in normal mode
-    };
-
-    // Load the embedded model using ORT v2 API
-    let session_start = Instant::now();
-    let session = Session::builder()
-        .map_err(|e| anyhow::anyhow!("Failed to create session builder: {}", e))?
-        .with_log_level(log_level)
-        .map_err(|e| anyhow::anyhow!("Failed to set log level: {}", e))?
-        .with_execution_providers(execution_providers)
-        .map_err(|e| anyhow::anyhow!("Failed to set execution providers: {}", e))?
-        .commit_from_memory(MODEL_BYTES)
-        .map_err(|e| anyhow::anyhow!("Failed to load model from memory: {}", e))?;
-    let session_load_time = session_start.elapsed();
-
-    verbose_println!(
-        config,
-        "🤖 Loaded embedded ONNX model ({} bytes) in {:.3}ms",
-        MODEL_BYTES.len(),
-        session_load_time.as_secs_f64() * 1000.0
-    );
-
-    // Log execution provider information
-    verbose_println!(
-        config,
-        "⚙️  Execution providers registered: {}",
-        ep_names.join(" -> ")
-    );
-
-    Ok((session, session_load_time.as_secs_f64() * 1000.0))
 }
 
 /// Process a single image with an existing session
@@ -794,8 +654,21 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
     }
 
     // Determine optimal device based on number of images
-    let optimal_device = determine_optimal_device(&config, image_files.len());
-    let (mut session, load_time) = create_session(&config, &optimal_device)?;
+    let device_selection = determine_optimal_device(&config.device, image_files.len(), &config);
+
+    // Create session using unified ONNX session management
+    let session_config = SessionConfig {
+        device: &device_selection.device,
+        num_images: image_files.len(),
+        verbose: config.verbose,
+        suppress_warnings: true, // Suppress CoreML warnings for YOLO models
+    };
+
+    let (mut session, load_time) = create_onnx_session(
+        ModelSource::EmbeddedBytes(MODEL_BYTES),
+        &session_config,
+        &config,
+    )?;
 
     // Process all images with the same session
     let total_start = Instant::now();
