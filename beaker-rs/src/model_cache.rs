@@ -16,7 +16,7 @@ pub struct ModelInfo {
 /// ISNet General Use model information
 pub const ISNET_GENERAL_MODEL: ModelInfo = ModelInfo {
     name: "isnet-general-use",
-    url: "https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx",
+    url: "https://github.com/ericphanson/beaker/releases/download/beaker-cutout-model-v1/isnet-general-use.onnx",
     md5_checksum: "fc16ebd8b0c10d971d3513d564d01e29",
     filename: "isnet-general-use.onnx",
 };
