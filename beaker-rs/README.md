@@ -1,18 +1,12 @@
-# Beaker (Rust)
+# Beaker
 
-A fast, self-contained Rust implementation of the Beaker bird head detection CLI tool.
+The Beaker bird head detection CLI tool.
 
-## Features
+## Goals
 
-- ✅ **Fully self-contained**: No external dependencies or library paths required
-- ✅ **Embedded model**: Downloads latest ONNX model from GitHub releases during build
-- ✅ **Cross-platform**: Supports Linux, macOS, and Windows
-- ✅ **Fast**: Optimized release builds with LTO and strip
-- ✅ **Real-time inference**: YOLOv8n bird head detection with ONNX Runtime v2
-- ✅ **Multiple outputs**: Individual crops per detection, bounding box visualization, metadata files
-- ✅ **Smart file naming**: Automatic numbering for multiple detections with zero-padding
-- ✅ **Relative paths**: Metadata output uses paths relative to output location
-- ✅ **Modular architecture**: Separated preprocessing, postprocessing, and detection modules
+- Self-contained
+- Cross-platform
+- use CoreML on Apple Silicon
 
 ## Usage
 
@@ -55,26 +49,15 @@ cargo build --release
 ```
 
 The build process automatically:
-1. Downloads the latest ONNX model from GitHub releases
+1. Downloads the latest ONNX head model from GitHub releases
 2. Embeds it into the binary as bytes
 3. Downloads and bundles ONNX Runtime libraries with proper rpath
 4. Creates a fully self-contained executable
 5. Detects platform capabilities (CoreML on macOS, CPU elsewhere)
 
-## Architecture
+## `beaker head`
 
-- **Modular design**: Separated into `head_detection`, `yolo_preprocessing`, and `yolo_postprocessing` modules
-- **Model loading**: Embedded 12MB ONNX model loaded from memory
-- **ONNX Runtime**: Automatically downloaded and linked during build
-- **Image processing**: Letterbox resizing and tensor preprocessing
-- **Inference**: YOLOv8n object detection with configurable confidence and IoU thresholds
-- **Post-processing**: Non-Maximum Suppression (NMS) for clean detection results
-- **Output generation**: Individual crops per detection, combined bounding box visualization, structured metadata files
-- **Cross-platform**: Uses optimal execution providers (CoreML on macOS, CPU elsewhere)
-
-## Output Files
-
-When running detection, beaker can generate several output files:
+When running detection, `beaker head` can generate several output files:
 
 - **Crops**: Individual square crops for each detected bird head (`image_crop-1.jpg`, `image_crop-2.jpg`, etc.)
   - Single detection: `image_crop.jpg` (no suffix)
