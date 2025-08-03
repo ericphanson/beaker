@@ -51,7 +51,11 @@ pub struct CutoutSection {
     pub alpha_matting: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub background_color: Option<[u8; 4]>,
-    pub results: Vec<CutoutResult>,
+    pub input_path: String,
+    pub output_path: String,
+    pub processing_time_ms: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mask_path: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -361,7 +365,10 @@ fn handle_individual_metadata_output(
         post_process_mask: config.post_process_mask,
         alpha_matting: config.alpha_matting,
         background_color: config.background_color,
-        results: vec![cutout_result.clone()],
+        input_path: cutout_result.input_path.clone(),
+        output_path: cutout_result.output_path.clone(),
+        processing_time_ms: cutout_result.processing_time_ms,
+        mask_path: cutout_result.mask_path.clone(),
     };
 
     // Update metadata with cutout section

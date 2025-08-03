@@ -39,6 +39,7 @@ pub struct HeadResult {
     pub model_version: String,
     pub confidence_threshold: f32,
     pub iou_threshold: f32,
+    pub processing_time_ms: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bounding_box_path: Option<String>,
     pub detections: Vec<DetectionWithPath>,
@@ -550,7 +551,9 @@ fn process_single_image(
     session: &mut Session,
     image_path: &Path,
     config: &HeadDetectionConfig,
-) -> Result<usize> {
+) -> Result<(usize, f64)> {
+    let processing_start = Instant::now();
+
     // Load the image
     let img = image::open(image_path)?;
     let (orig_width, orig_height) = img.dimensions();
@@ -620,10 +623,12 @@ fn process_single_image(
         );
     }
 
-    // Handle outputs for this specific image
-    handle_image_outputs(&img, &detections, image_path, config)?;
+    let total_processing_time = processing_start.elapsed().as_secs_f64() * 1000.0;
 
-    Ok(detections.len())
+    // Handle outputs for this specific image
+    handle_image_outputs(&img, &detections, image_path, config, total_processing_time)?;
+
+    Ok((detections.len(), total_processing_time))
 }
 
 /// Handle outputs (crops, bounding boxes, metadata) for a single image
@@ -632,6 +637,7 @@ fn handle_image_outputs(
     detections: &[Detection],
     image_path: &Path,
     config: &HeadDetectionConfig,
+    processing_time_ms: f64,
 ) -> Result<()> {
     let source_path = image_path;
     let input_stem = source_path.file_stem().unwrap().to_str().unwrap();
@@ -744,6 +750,7 @@ fn handle_image_outputs(
             model_version: MODEL_VERSION.trim().to_string(),
             confidence_threshold: config.confidence,
             iou_threshold: config.iou_threshold,
+            processing_time_ms,
             bounding_box_path,
             detections: detections_with_paths,
         };
@@ -809,7 +816,7 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
         image_config.sources = vec![image_path.to_string_lossy().to_string()];
 
         match process_single_image(&mut session, image_path, &image_config) {
-            Ok(detections) => {
+            Ok((detections, _processing_time)) => {
                 total_detections += detections;
             }
             Err(e) => {
