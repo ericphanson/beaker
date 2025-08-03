@@ -15,7 +15,7 @@ repos:
     rev: v4.4.0
     hooks:
       - id: trailing-whitespace
-        exclude: "beaker/line_counts.txt"
+        exclude: "beaker/line_counts.md"
       - id: end-of-file-fixer
       - id: check-yaml
       - id: check-added-large-files

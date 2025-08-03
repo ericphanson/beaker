@@ -379,6 +379,8 @@ Note:
 ### Phase 3: Model Processor Framework
 **Goal**: Implement the core ModelProcessor trait and generic processing
 
+See API design about for the details on the framework.
+
 **Tasks:**
 1. **Define ModelProcessor trait** (`src/model_processing.rs`):
    - Create trait with required and provided methods
@@ -394,7 +396,14 @@ Note:
    - Replace direct model calls with generic processor calls
    - Simplify command handling logic
 
-**Validation**: All models work through the generic interface
+**Validation**:
+
+- All models work through the generic interface
+- No warnings (run `cargo check`!)
+- No duplicated structs or functions (search to be sure)
+- uniform behavior between models
+- [qualitative] easy to new model
+- Reduction in lines of non-test code by `cargo warloc` (see success metrics below) in each model, some increase in shared code (but still net reduction overall ideally)
 
 ### Phase 4: Logging Unification
 **Goal**: Centralize all logging and error handling
