@@ -6,3 +6,19 @@
 - [x] hide all printing unless we pass `--verbose`. This is a top-level flag, not a head-model specific one. We should be silent unless `--verbose` is passed. Then we can include the same printing as now. Additionally, we should tend to use `--verbose` in tests/CI so we can see what is going on.
 - [ ] support stdin when `-` is passed as the input image name
 - [x] add back version command
+- [ ] pipeline subcommand. Used as `beaker pipeline --steps cutout,head --output-dir out_dir path/*.jpg`. This should have a help like
+```
+Usage: beaker pipeline [OPTIONS] --steps <STEPS> <IMAGES_OR_DIRS>...
+
+Options:
+  --steps <STEPS>
+      Comma-separated list of processing steps to apply (e.g., cutout,head)
+  --output-dir <OUTPUT_DIR>
+      Global output directory
+  --device <DEVICE>
+      Inference device (auto, cpu, coreml)
+  --no-metadata
+  --verbose
+  --shared-options ...
+      (Or allow step-specific override syntax like: cutout:--alpha-matting)
+```
