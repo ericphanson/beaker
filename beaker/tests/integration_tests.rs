@@ -63,7 +63,7 @@ fn test_basic_head_detection_single_bird() {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
     let image_path = test_image_path("example.jpg");
 
-    let (exit_code, stdout, stderr) = run_beaker_command(&[
+    let (exit_code, _stdout, stderr) = run_beaker_command(&[
         "head",
         &image_path,
         "--confidence",
@@ -100,7 +100,7 @@ fn test_basic_head_detection_two_birds() {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
     let image_path = test_image_path("example-2-birds.jpg");
 
-    let (exit_code, stdout, stderr) = run_beaker_command(&[
+    let (exit_code, _stdout, stderr) = run_beaker_command(&[
         "head",
         &image_path,
         "--confidence",
@@ -125,7 +125,7 @@ fn test_head_detection_with_crops() {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
     let image_path = test_image_path("example.jpg");
 
-    let (exit_code, stdout, stderr) = run_beaker_command(&[
+    let (exit_code, _stdout, stderr) = run_beaker_command(&[
         "head",
         &image_path,
         "--confidence",
@@ -178,7 +178,7 @@ fn test_head_detection_with_bounding_boxes() {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
     let image_path = test_image_path("example.jpg");
 
-    let (exit_code, stdout, stderr) = run_beaker_command(&[
+    let (exit_code, _stdout, stderr) = run_beaker_command(&[
         "head",
         &image_path,
         "--confidence",
@@ -212,7 +212,7 @@ fn test_head_detection_with_all_outputs() {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
     let image_path = test_image_path("example-2-birds.jpg");
 
-    let (exit_code, stdout, stderr) = run_beaker_command(&[
+    let (exit_code, _stdout, stderr) = run_beaker_command(&[
         "head",
         &image_path,
         "--confidence",
@@ -273,7 +273,7 @@ fn test_no_metadata_option() {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
     let image_path = test_image_path("example.jpg");
 
-    let (exit_code, stdout, stderr) = run_beaker_command(&[
+    let (exit_code, _stdoutt, stderr) = run_beaker_command(&[
         "head",
         &image_path,
         "--confidence",
@@ -307,7 +307,7 @@ fn test_different_confidence_thresholds() {
     let image_path = test_image_path("example.jpg");
 
     // Test with high confidence (should find fewer detections)
-    let (exit_code, stdout, stderr) = run_beaker_command(&[
+    let (exit_code, _stdout, stderr) = run_beaker_command(&[
         "head",
         &image_path,
         "--confidence",
@@ -333,7 +333,7 @@ fn test_different_devices() {
     let image_path = test_image_path("example.jpg");
 
     // Test CPU device
-    let (exit_code, stdout, stderr) = run_beaker_command(&[
+    let (exit_code, _stdout, stderr) = run_beaker_command(&[
         "head",
         &image_path,
         "--confidence",
@@ -350,7 +350,7 @@ fn test_different_devices() {
 
     // Test auto device (default)
     let temp_dir2 = TempDir::new().expect("Failed to create temp directory");
-    let (exit_code, stdout, stderr) = run_beaker_command(&[
+    let (exit_code, _stdout, stderr) = run_beaker_command(&[
         "head",
         &image_path,
         "--confidence",
@@ -425,7 +425,7 @@ fn test_custom_iou_threshold() {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
     let image_path = test_image_path("example.jpg");
 
-    let (exit_code, stdout, stderr) = run_beaker_command(&[
+    let (exit_code, _stdout, stderr) = run_beaker_command(&[
         "head",
         &image_path,
         "--confidence",
@@ -460,7 +460,7 @@ fn test_output_file_naming() {
     for (input_file, expected_toml) in tests {
         let image_path = test_image_path(input_file);
 
-        let (exit_code, stdout, stderr) = run_beaker_command(&[
+        let (exit_code, _stdout, stderr) = run_beaker_command(&[
             "head",
             &image_path,
             "--confidence",
@@ -499,7 +499,7 @@ fn test_png_transparency_preservation() {
     let output_dir = temp_dir.path().join("output");
     fs::create_dir(&output_dir).expect("Failed to create output directory");
 
-    let (exit_code, stdout, stderr) = run_beaker_command(&[
+    let (exit_code, _stdout, stderr) = run_beaker_command(&[
         "head",
         test_png.to_str().unwrap(),
         "--confidence",
@@ -581,7 +581,7 @@ fn test_jpeg_format_preservation() {
     let output_dir = temp_dir.path().join("output");
     fs::create_dir(&output_dir).expect("Failed to create output directory");
 
-    let (exit_code, stdout, stderr) = run_beaker_command(&[
+    let (exit_code, _stdout, stderr) = run_beaker_command(&[
         "head",
         test_jpg.to_str().unwrap(),
         "--confidence",
@@ -746,7 +746,7 @@ fn test_mixed_format_batch_processing() {
     let output_dir = temp_dir.path().join("output");
     fs::create_dir(&output_dir).expect("Failed to create output directory");
 
-    let (exit_code, stdout, stderr) = run_beaker_command(&[
+    let (exit_code, _stdout, stderr) = run_beaker_command(&[
         "head",
         test_data_dir.to_str().unwrap(),
         "--confidence",
@@ -838,7 +838,7 @@ fn test_directory_batch_processing() {
     let output_dir = temp_dir.path().join("output");
     fs::create_dir(&output_dir).expect("Failed to create output directory");
 
-    let (exit_code, stdout, stderr) = run_beaker_command(&[
+    let (exit_code, _stdout, stderr) = run_beaker_command(&[
         "head",
         test_data_dir.to_str().unwrap(),
         "--confidence",
@@ -911,7 +911,7 @@ fn test_glob_pattern_processing() {
     // Use glob pattern to match specific files
     let glob_pattern = format!("{}/*-2-*.jpg", test_data_dir.display());
 
-    let (exit_code, stdout, stderr) = run_beaker_command(&[
+    let (exit_code, _stdout, stderr) = run_beaker_command(&[
         "head",
         &glob_pattern,
         "--confidence",
@@ -963,7 +963,7 @@ fn test_multiple_explicit_files() {
     let file1 = test_data_dir.join("example.jpg");
     let file2 = test_data_dir.join("example-2-birds.jpg");
 
-    let (exit_code, stdout, stderr) = run_beaker_command(&[
+    let (exit_code, _stdout, stderr) = run_beaker_command(&[
         "head",
         file1.to_str().unwrap(),
         file2.to_str().unwrap(),
@@ -1028,7 +1028,7 @@ fn test_mixed_sources_file_and_directory() {
     let single_file = test_data_dir.join("example.jpg");
     let subdir = test_data_dir.join("subdir");
 
-    let (exit_code, stdout, stderr) = run_beaker_command(&[
+    let (exit_code, _stdout, stderr) = run_beaker_command(&[
         "head",
         single_file.to_str().unwrap(),
         subdir.to_str().unwrap(),
@@ -1106,7 +1106,7 @@ fn test_device_selection_based_on_batch_size() {
     );
 
     // Test with directory (multiple images, should consider CoreML if available)
-    let (exit_code, stdout, stderr) = run_beaker_command(&[
+    let (exit_code, _stdout, stderr) = run_beaker_command(&[
         "head",
         test_data_dir.to_str().unwrap(),
         "--confidence",
@@ -1212,7 +1212,7 @@ fn test_basic_cutout_single_image() {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
     let image_path = test_image_path("example.jpg");
 
-    let (exit_code, stdout, stderr) = run_beaker_command(&[
+    let (exit_code, _stdout, stderr) = run_beaker_command(&[
         "cutout",
         &image_path,
         "--output-dir",
@@ -1261,7 +1261,7 @@ fn test_cutout_with_mask_saving() {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
     let image_path = test_image_path("example.jpg");
 
-    let (exit_code, stdout, stderr) = run_beaker_command(&[
+    let (exit_code, _stdout, stderr) = run_beaker_command(&[
         "cutout",
         &image_path,
         "--save-mask",
@@ -1300,7 +1300,7 @@ fn test_cutout_with_background_color() {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
     let image_path = test_image_path("example.jpg");
 
-    let (exit_code, stdout, stderr) = run_beaker_command(&[
+    let (exit_code, _stdout, stderr) = run_beaker_command(&[
         "cutout",
         &image_path,
         "--background-color",
@@ -1340,7 +1340,7 @@ fn test_cutout_with_alpha_matting() {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
     let image_path = test_image_path("example.jpg");
 
-    let (exit_code, stdout, stderr) = run_beaker_command(&[
+    let (exit_code, _stdout, stderr) = run_beaker_command(&[
         "cutout",
         &image_path,
         "--alpha-matting",
@@ -1380,7 +1380,7 @@ fn test_cutout_with_alpha_matting() {
 fn test_cutout_multiple_images() {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
 
-    let (exit_code, stdout, stderr) = run_beaker_command(&[
+    let (exit_code, _stdout, stderr) = run_beaker_command(&[
         "cutout",
         &test_image_path("example.jpg"),
         &test_image_path("example-2-birds.jpg"),
@@ -1421,7 +1421,7 @@ fn test_cutout_device_cpu() {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
     let image_path = test_image_path("example.jpg");
 
-    let (exit_code, stdout, stderr) = run_beaker_command(&[
+    let (exit_code, _stdout, stderr) = run_beaker_command(&[
         "cutout",
         &image_path,
         "--device",
@@ -1453,7 +1453,7 @@ fn test_cutout_device_coreml() {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
     let image_path = test_image_path("example.jpg");
 
-    let (exit_code, stdout, stderr) = run_beaker_command(&[
+    let (exit_code, _stdout, stderr) = run_beaker_command(&[
         "cutout",
         &image_path,
         "--device",
@@ -1481,7 +1481,7 @@ fn test_cutout_device_auto_selection() {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
 
     // Test with single image (should select CPU)
-    let (exit_code, stdout, stderr) = run_beaker_command(&[
+    let (exit_code, _stdout, stderr) = run_beaker_command(&[
         "cutout",
         &test_image_path("example.jpg"),
         "--device",
@@ -1509,7 +1509,7 @@ fn test_cutout_no_metadata() {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
     let image_path = test_image_path("example.jpg");
 
-    let (exit_code, stdout, stderr) = run_beaker_command(&[
+    let (exit_code, _stdout, stderr) = run_beaker_command(&[
         "cutout",
         &image_path,
         "--no-metadata",
