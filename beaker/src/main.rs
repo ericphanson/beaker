@@ -8,6 +8,7 @@ mod cutout_processing;
 mod head_detection;
 mod image_input;
 mod model_cache;
+mod model_processing;
 mod onnx_session;
 mod output_manager;
 mod shared_metadata;

@@ -47,44 +47,30 @@ pub enum ModelSource<'a> {
 #[derive(Debug, Clone)]
 pub struct DeviceSelection {
     pub device: String,
+    #[allow(dead_code)]
     pub reason: String,
 }
 
-/// Determine optimal device based on number of images and user preference
-pub fn determine_optimal_device(requested_device: &str, num_images: usize) -> DeviceSelection {
-    const COREML_THRESHOLD: usize = 3; // Use CoreML for 3+ images
-
+/// Determine optimal device based on user preference
+pub fn determine_optimal_device(requested_device: &str) -> DeviceSelection {
     match requested_device {
         "auto" => {
-            if num_images >= COREML_THRESHOLD {
-                // Check if CoreML is available
-                let coreml = CoreMLExecutionProvider::default();
-                match coreml.is_available() {
-                    Ok(true) => {
-                        let reason = format!("Processing {num_images} images - using CoreML for better batch performance");
-                        log::info!("📊 {reason}");
-                        DeviceSelection {
-                            device: "coreml".to_string(),
-                            reason,
-                        }
-                    }
-                    _ => {
-                        let reason = format!(
-                            "Processing {num_images} images - CoreML not available, using CPU"
-                        );
-                        log::info!("📊 {reason}");
-                        DeviceSelection {
-                            device: "cpu".to_string(),
-                            reason,
-                        }
+            // For auto, prefer CoreML if available, otherwise CPU
+            let coreml = CoreMLExecutionProvider::default();
+            match coreml.is_available() {
+                Ok(true) => {
+                    log::info!("🖥️  Using CoreML execution provider");
+                    DeviceSelection {
+                        device: "coreml".to_string(),
+                        reason: "Auto-selected CoreML (available)".to_string(),
                     }
                 }
-            } else {
-                let reason = format!("Processing {num_images} images - using CPU for small batch");
-                log::info!("📊 {reason}");
-                DeviceSelection {
-                    device: "cpu".to_string(),
-                    reason,
+                _ => {
+                    log::info!("🖥️  Using CPU execution provider");
+                    DeviceSelection {
+                        device: "cpu".to_string(),
+                        reason: "Auto-selected CPU (CoreML not available)".to_string(),
+                    }
                 }
             }
         }

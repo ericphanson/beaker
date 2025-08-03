@@ -200,7 +200,7 @@ impl CutoutConfig {
     }
 }
 
-// Implement ModelConfig trait for output manager integration
+// Implement OutputManager's ModelConfig trait
 impl crate::output_manager::ModelConfig for HeadDetectionConfig {
     fn base(&self) -> &BaseModelConfig {
         &self.base
@@ -208,6 +208,21 @@ impl crate::output_manager::ModelConfig for HeadDetectionConfig {
 }
 
 impl crate::output_manager::ModelConfig for CutoutConfig {
+    fn base(&self) -> &BaseModelConfig {
+        &self.base
+    }
+}
+
+// ModelConfig trait implementations for model_processing integration
+use crate::model_processing::ModelConfig;
+
+impl ModelConfig for HeadDetectionConfig {
+    fn base(&self) -> &BaseModelConfig {
+        &self.base
+    }
+}
+
+impl ModelConfig for CutoutConfig {
     fn base(&self) -> &BaseModelConfig {
         &self.base
     }

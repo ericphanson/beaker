@@ -12,11 +12,7 @@ use crate::cutout_postprocessing::{
     apply_alpha_matting, create_cutout, create_cutout_with_background, postprocess_mask,
 };
 use crate::cutout_preprocessing::preprocess_image_for_isnet_v2;
-use crate::image_input::{collect_images_from_sources, ImageInputConfig};
 use crate::model_cache::{get_or_download_model, ISNET_GENERAL_MODEL};
-use crate::onnx_session::{
-    create_onnx_session, determine_optimal_device, ModelSource, SessionConfig,
-};
 use crate::output_manager::OutputManager;
 use log::{debug, info};
 
@@ -56,7 +52,6 @@ fn process_single_image(
     config: &CutoutConfig,
     session: &mut Session,
     image_path: &Path,
-    _session_creation_time: f64,
 ) -> Result<CutoutResult> {
     let start_time = Instant::now();
 
@@ -167,64 +162,50 @@ fn process_single_image(
 
 /// Process multiple images sequentially
 pub fn run_cutout_processing(config: CutoutConfig) -> Result<usize> {
-    // Collect all image files to process using the strict flag
-    let image_config = ImageInputConfig::from_strict_flag(config.base.strict);
-    let image_files = collect_images_from_sources(&config.base.sources, &image_config)?;
+    // Use the new generic processing framework
+    crate::model_processing::run_model_processing::<CutoutProcessor>(config)
+}
 
-    if image_files.is_empty() {
-        info!("🎯 No images found to process");
-        return Ok(0);
-    }
+// Implementation of ModelProcessor trait for cutout processing
+use crate::model_processing::{ModelProcessor, ModelResult};
 
-    info!("🎯 Found {} image(s) to process", image_files.len());
-
-    // Download model if needed
-    let model_path = get_or_download_model(&ISNET_GENERAL_MODEL)?;
-
-    // Determine optimal device
-    let device_selection = determine_optimal_device(&config.base.device, image_files.len());
-    log::info!(
-        "🔧 Using device: {} ({})",
-        device_selection.device,
-        device_selection.reason
-    );
-
-    // Create session using unified configuration
-    let session_config = SessionConfig {
-        device: &device_selection.device,
-    };
-    let (mut session, session_creation_time) = create_onnx_session(
-        ModelSource::FilePath(model_path.to_str().unwrap()),
-        &session_config,
-    )?;
-
-    // Process all images
-    let mut results = Vec::new();
-    let total_start = Instant::now();
-
-    for image_path in &image_files {
-        match process_single_image(&config, &mut session, image_path, session_creation_time) {
-            Ok(result) => results.push(result),
-            Err(e) => {
-                log::error!("❌ Failed to process {}: {}", image_path.display(), e);
-                // Continue with other images
-            }
+impl ModelResult for CutoutResult {
+    fn result_summary(&self) -> String {
+        if self.mask_path.is_some() {
+            "Generated cutout and mask".to_string()
+        } else {
+            "Generated cutout".to_string()
         }
     }
 
-    let total_time = total_start.elapsed().as_secs_f64() * 1000.0;
+    fn processing_time_ms(&self) -> f64 {
+        self.processing_time_ms
+    }
+}
 
-    // Individual metadata files are already created during processing
-    // No need for batch metadata output with the new shared system
+/// Cutout processor implementing the generic ModelProcessor trait
+pub struct CutoutProcessor;
 
-    if results.len() > 1 {
-        log::info!(
-            "🏁 Processed {} images in {:.1}ms (avg: {:.1}ms per image)",
-            results.len(),
-            total_time,
-            total_time / results.len() as f64
-        );
+impl ModelProcessor for CutoutProcessor {
+    type Config = CutoutConfig;
+    type Result = CutoutResult;
+
+    fn create_session(config: &Self::Config) -> Result<Session> {
+        use crate::model_processing::create_session_with_source;
+        use crate::onnx_session::ModelSource;
+
+        // Download model if needed
+        let model_path = get_or_download_model(&ISNET_GENERAL_MODEL)?;
+
+        create_session_with_source(config, ModelSource::FilePath(model_path.to_str().unwrap()))
     }
 
-    Ok(results.len())
+    fn process_single_image(
+        session: &mut Session,
+        image_path: &Path,
+        config: &Self::Config,
+    ) -> Result<Self::Result> {
+        // Use the existing process_single_image function
+        process_single_image(config, session, image_path)
+    }
 }

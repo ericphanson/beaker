@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use crate::config::BaseModelConfig;
 use crate::shared_metadata::{get_metadata_path, load_or_create_metadata, save_metadata};
 
-/// Trait for configurations that can be used with OutputManager
+/// Configuration trait for models that can be used with OutputManager
 pub trait ModelConfig {
     fn base(&self) -> &BaseModelConfig;
 }

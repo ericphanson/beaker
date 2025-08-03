@@ -8,10 +8,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use crate::config::HeadDetectionConfig;
-use crate::image_input::{collect_images_from_sources, ImageInputConfig};
-use crate::onnx_session::{
-    create_onnx_session, determine_optimal_device, ModelSource, SessionConfig,
-};
+use crate::model_processing::{ModelProcessor, ModelResult};
 use crate::output_manager::OutputManager;
 use crate::yolo_postprocessing::{postprocess_output, Detection};
 use crate::yolo_preprocessing::preprocess_image;
@@ -268,87 +265,6 @@ pub fn save_bounding_box_image(
     Ok(())
 }
 
-/// Process a single image with an existing session
-fn process_single_image(
-    session: &mut Session,
-    image_path: &Path,
-    config: &HeadDetectionConfig,
-) -> Result<(usize, f64)> {
-    let processing_start = Instant::now();
-
-    // Load the image
-    let img = image::open(image_path)?;
-    let (orig_width, orig_height) = img.dimensions();
-
-    debug!(
-        "📷 Processing {}: {}x{}",
-        image_path.display(),
-        orig_width,
-        orig_height
-    );
-
-    // Preprocess the image
-    let model_size = 640; // Standard YOLO input size
-    let input_tensor = preprocess_image(&img, model_size)?;
-
-    // Run inference using ORT v2 API with timing
-    let inference_start = Instant::now();
-    let input_value = Value::from_array(input_tensor)
-        .map_err(|e| anyhow::anyhow!("Failed to create input value: {}", e))?;
-    let outputs = session
-        .run(ort::inputs!["images" => &input_value])
-        .map_err(|e| anyhow::anyhow!("Failed to run inference: {}", e))?;
-    let inference_time = inference_start.elapsed();
-
-    // Extract the output tensor using ORT v2 API and convert to owned array
-    let output_view = outputs["output0"]
-        .try_extract_array::<f32>()
-        .map_err(|e| anyhow::anyhow!("Failed to extract output array: {}", e))?;
-    let output_array =
-        Array::from_shape_vec(output_view.shape(), output_view.iter().cloned().collect())?;
-
-    // Postprocess to get detections
-    let detections = postprocess_output(
-        &output_array,
-        config.confidence,
-        config.iou_threshold,
-        orig_width,
-        orig_height,
-        model_size,
-    )?;
-
-    debug!(
-        "⚡ Inference completed in {:.3}ms",
-        inference_time.as_secs_f64() * 1000.0
-    );
-    info!(
-        "🎯 Found {} detections after confidence filtering (>{}) and NMS (IoU>{})",
-        detections.len(),
-        config.confidence,
-        config.iou_threshold
-    );
-
-    // Display detections
-    for (i, detection) in detections.iter().enumerate() {
-        debug!(
-            "  Detection {}: bbox=({:.1}, {:.1}, {:.1}, {:.1}), confidence={:.3}",
-            i + 1,
-            detection.x1,
-            detection.y1,
-            detection.x2,
-            detection.y2,
-            detection.confidence
-        );
-    }
-
-    let total_processing_time = processing_start.elapsed().as_secs_f64() * 1000.0;
-
-    // Handle outputs for this specific image
-    handle_image_outputs(&img, &detections, image_path, config, total_processing_time)?;
-
-    Ok((detections.len(), total_processing_time))
-}
-
 /// Handle outputs (crops, bounding boxes, metadata) for a single image
 fn handle_image_outputs(
     img: &DynamicImage,
@@ -422,100 +338,108 @@ fn handle_image_outputs(
 }
 
 pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
-    // Collect all image files from the provided sources using the strict flag
-    let image_config = ImageInputConfig::from_strict_flag(config.base.strict);
-    let image_files = collect_images_from_sources(&config.base.sources, &image_config)?;
+    // Use the new generic processing framework
+    crate::model_processing::run_model_processing::<HeadProcessor>(config)
+}
 
-    if image_files.is_empty() {
-        info!("🎯 No images found to process");
-        return Ok(0);
+// Implementation of ModelProcessor trait for head detection
+/// Implementation of ModelResult for HeadDetectionResult
+pub struct HeadDetectionResult {
+    pub detections: Vec<Detection>,
+    pub processing_time_ms: f64,
+}
+
+impl ModelResult for HeadDetectionResult {
+    fn result_summary(&self) -> String {
+        format!("Found {} bird head(s)", self.detections.len())
     }
 
-    // Log what we're processing
-    if image_files.len() == 1 {
-        log::info!("🔍 Processing single image: {}", image_files[0].display());
-    } else {
-        log::info!(
-            "📁 Processing {} images from {} source{}",
-            image_files.len(),
-            config.base.sources.len(),
-            if config.base.sources.len() == 1 {
-                ""
-            } else {
-                "s"
-            }
-        );
+    fn processing_time_ms(&self) -> f64 {
+        self.processing_time_ms
+    }
+}
+
+/// Head detection processor implementing the generic ModelProcessor trait
+pub struct HeadProcessor;
+
+impl ModelProcessor for HeadProcessor {
+    type Config = HeadDetectionConfig;
+    type Result = HeadDetectionResult;
+
+    fn create_session(config: &Self::Config) -> Result<Session> {
+        use crate::model_processing::create_session_with_source;
+        use crate::onnx_session::ModelSource;
+
+        create_session_with_source(config, ModelSource::EmbeddedBytes(MODEL_BYTES))
     }
 
-    // Determine optimal device based on number of images
-    let device_selection = determine_optimal_device(&config.base.device, image_files.len());
+    fn process_single_image(
+        session: &mut Session,
+        image_path: &Path,
+        config: &Self::Config,
+    ) -> Result<Self::Result> {
+        let processing_start = Instant::now();
 
-    // Create session using unified ONNX session management
-    let session_config = SessionConfig {
-        device: &device_selection.device,
-    };
+        // Load the image
+        let img = image::open(image_path)?;
+        let (orig_width, orig_height) = img.dimensions();
 
-    let (mut session, load_time) =
-        create_onnx_session(ModelSource::EmbeddedBytes(MODEL_BYTES), &session_config)?;
+        debug!(
+            "📷 Processing {}: {}x{}",
+            image_path.display(),
+            orig_width,
+            orig_height
+        );
 
-    // Process all images with the same session
-    let total_start = Instant::now();
-    let mut total_detections = 0;
+        // Preprocess the image
+        let model_size = 640; // Standard YOLO input size
+        let input_tensor = preprocess_image(&img, model_size)?;
 
-    for (i, image_path) in image_files.iter().enumerate() {
-        if image_files.len() > 1 {
-            log::debug!(
-                "📷 Processing image {}/{}: {}",
-                i + 1,
-                image_files.len(),
-                image_path.display()
-            );
-        }
+        // Run inference using ORT v2 API with timing
+        let inference_start = Instant::now();
+        let input_value = Value::from_array(input_tensor)
+            .map_err(|e| anyhow::anyhow!("Failed to create input value: {}", e))?;
+        let outputs = session
+            .run(ort::inputs!["images" => &input_value])
+            .map_err(|e| anyhow::anyhow!("Failed to run inference: {}", e))?;
+        let inference_time = inference_start.elapsed();
 
-        // Create individual config for each image
-        let mut image_config = config.clone();
-        image_config.base.sources = vec![image_path.to_string_lossy().to_string()];
+        // Extract the output tensor using ORT v2 API and convert to owned array
+        let output_view = outputs["output0"]
+            .try_extract_array::<f32>()
+            .map_err(|e| anyhow::anyhow!("Failed to extract output array: {}", e))?;
+        let output_array =
+            Array::from_shape_vec(output_view.shape(), output_view.iter().cloned().collect())?;
 
-        match process_single_image(&mut session, image_path, &image_config) {
-            Ok((detections, _processing_time)) => {
-                total_detections += detections;
-            }
-            Err(e) => {
-                log::error!("❌ Error processing {}: {}", image_path.display(), e);
-                continue;
-            }
-        }
+        // Postprocess to get detections
+        let detections = postprocess_output(
+            &output_array,
+            config.confidence,
+            config.iou_threshold,
+            orig_width,
+            orig_height,
+            model_size,
+        )?;
+
+        debug!(
+            "⚡ Inference completed in {:.3}ms",
+            inference_time.as_secs_f64() * 1000.0
+        );
+        info!(
+            "🎯 Found {} detections after confidence filtering (>{}) and NMS (IoU>{})",
+            detections.len(),
+            config.confidence,
+            config.iou_threshold
+        );
+
+        let total_processing_time = processing_start.elapsed().as_secs_f64() * 1000.0;
+
+        // Handle outputs for this specific image
+        handle_image_outputs(&img, &detections, image_path, config, total_processing_time)?;
+
+        Ok(HeadDetectionResult {
+            detections,
+            processing_time_ms: total_processing_time,
+        })
     }
-
-    let total_time = total_start.elapsed();
-
-    // Print appropriate summary
-    if image_files.len() == 1 {
-        log::info!("🎉 Processing complete!");
-        log::info!("🎯 Found {total_detections} bird head(s)");
-        log::info!(
-            "⚡ Total time: {:.1}ms (load: {:.1}ms, inference: {:.1}ms)",
-            total_time.as_secs_f64() * 1000.0,
-            load_time,
-            (total_time.as_secs_f64() * 1000.0) - load_time
-        );
-    } else {
-        let avg_time_per_image = total_time.as_secs_f64() / image_files.len() as f64;
-
-        log::info!("🎉 Batch processing complete!");
-        log::info!("📊 Summary:");
-        log::info!("  • Images processed: {}", image_files.len());
-        log::info!("  • Total detections: {total_detections}");
-        log::info!("  • Model load time: {load_time:.1}ms");
-        log::info!(
-            "  • Total processing time: {:.3}s",
-            total_time.as_secs_f64()
-        );
-        log::info!(
-            "  • Average time per image: {:.1}ms",
-            avg_time_per_image * 1000.0
-        );
-    }
-
-    Ok(total_detections)
 }
