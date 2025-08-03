@@ -7,6 +7,7 @@ use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
+use crate::config::CutoutConfig;
 use crate::cutout_postprocessing::{
     apply_alpha_matting, create_cutout, create_cutout_with_background, postprocess_mask,
 };
@@ -21,7 +22,7 @@ use crate::shared_metadata::{get_metadata_path, load_or_create_metadata, save_me
 /// Macro to print only when verbose mode is enabled
 macro_rules! verbose_println {
     ($config:expr, $($arg:tt)*) => {
-        if $config.verbose {
+        if $config.base.verbose {
             println!($($arg)*);
         }
     };
@@ -57,26 +58,9 @@ pub struct CutoutSection {
     pub mask_path: Option<String>,
 }
 
-#[derive(Debug, Clone)]
-pub struct CutoutConfig {
-    pub sources: Vec<String>,
-    pub device: String,
-    pub output_dir: Option<String>,
-    pub post_process_mask: bool,
-    pub alpha_matting: bool,
-    pub alpha_matting_foreground_threshold: u8,
-    pub alpha_matting_background_threshold: u8,
-    pub alpha_matting_erode_size: u32,
-    pub background_color: Option<[u8; 4]>,
-    pub save_mask: bool,
-    pub skip_metadata: bool,
-    pub verbose: bool,
-    pub strict: bool,
-}
-
-impl VerboseOutput for CutoutConfig {
+impl VerboseOutput for crate::config::CutoutConfig {
     fn verbose_println(&self, msg: String) {
-        if self.verbose {
+        if self.base.verbose {
             println!("{msg}");
         }
     }
@@ -180,7 +164,7 @@ fn process_single_image(
     };
 
     // Handle individual metadata output
-    if !config.skip_metadata {
+    if !config.base.skip_metadata {
         handle_individual_metadata_output(config, image_path, &cutout_result)?;
     }
 
@@ -220,13 +204,13 @@ fn generate_output_path_with_suffix_control(
         .unwrap_or("output");
 
     // Add suffix if we're NOT using --output-dir OR if force_suffix is true
-    let output_filename = if config.output_dir.is_some() && !force_suffix {
+    let output_filename = if config.base.output_dir.is_some() && !force_suffix {
         format!("{input_stem}.{extension}")
     } else {
         format!("{input_stem}_{suffix}.{extension}")
     };
 
-    let output_path = if let Some(output_dir) = &config.output_dir {
+    let output_path = if let Some(output_dir) = &config.base.output_dir {
         Path::new(output_dir).join(&output_filename)
     } else {
         input_path
@@ -244,7 +228,7 @@ fn handle_individual_metadata_output(
     image_path: &Path,
     cutout_result: &CutoutResult,
 ) -> Result<()> {
-    let metadata_path = get_metadata_path(image_path, config.output_dir.as_deref())?;
+    let metadata_path = get_metadata_path(image_path, config.base.output_dir.as_deref())?;
 
     // Load existing metadata or create new
     let mut metadata = load_or_create_metadata(&metadata_path)?;
@@ -276,8 +260,8 @@ fn handle_individual_metadata_output(
 /// Process multiple images sequentially
 pub fn run_cutout_processing(config: CutoutConfig) -> Result<usize> {
     // Collect all image files to process using the strict flag
-    let image_config = ImageInputConfig::from_strict_flag(config.strict);
-    let image_files = collect_images_from_sources(&config.sources, &image_config)?;
+    let image_config = ImageInputConfig::from_strict_flag(config.base.strict);
+    let image_files = collect_images_from_sources(&config.base.sources, &image_config)?;
 
     if image_files.is_empty() {
         return Err(anyhow::anyhow!(
@@ -288,10 +272,11 @@ pub fn run_cutout_processing(config: CutoutConfig) -> Result<usize> {
     verbose_println!(config, "🎯 Found {} image(s) to process", image_files.len());
 
     // Download model if needed
-    let model_path = get_or_download_model(&ISNET_GENERAL_MODEL, config.verbose)?;
+    let model_path = get_or_download_model(&ISNET_GENERAL_MODEL, config.base.verbose)?;
 
     // Determine optimal device
-    let device_selection = determine_optimal_device(&config.device, image_files.len(), &config);
+    let device_selection =
+        determine_optimal_device(&config.base.device, image_files.len(), &config);
     verbose_println!(
         config,
         "🔧 Using device: {} ({})",
@@ -302,7 +287,7 @@ pub fn run_cutout_processing(config: CutoutConfig) -> Result<usize> {
     // Create session using unified configuration
     let session_config = SessionConfig {
         device: &device_selection.device,
-        verbose: config.verbose,
+        verbose: config.base.verbose,
         suppress_warnings: false, // Allow warnings in cutout processing
     };
     let (mut session, session_creation_time) = create_onnx_session(
@@ -330,7 +315,7 @@ pub fn run_cutout_processing(config: CutoutConfig) -> Result<usize> {
     // Individual metadata files are already created during processing
     // No need for batch metadata output with the new shared system
 
-    if config.verbose && results.len() > 1 {
+    if config.base.verbose && results.len() > 1 {
         println!(
             "🏁 Processed {} images in {:.1}ms (avg: {:.1}ms per image)",
             results.len(),

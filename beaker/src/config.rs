@@ -1,0 +1,326 @@
+//! Configuration layer providing clean separation between CLI arguments and internal model configurations.
+//!
+//! This module defines the shared configuration structures used throughout the beaker toolkit:
+//! - `BaseModelConfig`: Common configuration options shared by all models
+//! - Model-specific configurations that embed the base config
+//! - Conversion traits from CLI commands to internal configurations
+//!
+//! The design separates CLI concerns (argument parsing, help text, validation) from
+//! business logic (processing parameters, feature flags, internal state).
+
+use clap::Parser;
+
+/// Parse RGBA color from string like "255,255,255,255"
+pub fn parse_rgba_color(s: &str) -> Result<[u8; 4], String> {
+    let parts: Vec<&str> = s.split(',').collect();
+    if parts.len() != 4 {
+        return Err("Color must be in format 'R,G,B,A' (e.g., '255,255,255,255')".to_string());
+    }
+
+    let mut color = [0u8; 4];
+    for (i, part) in parts.iter().enumerate() {
+        color[i] = part
+            .trim()
+            .parse::<u8>()
+            .map_err(|_| format!("Invalid color component: '{part}'"))?;
+    }
+
+    Ok(color)
+}
+
+/// Global CLI arguments that apply to all beaker commands
+#[derive(Parser, Debug, Clone)]
+pub struct GlobalArgs {
+    /// Global output directory (overrides default placement next to input)
+    #[arg(long, global = true)]
+    pub output_dir: Option<String>,
+
+    /// Skip creating metadata output files
+    #[arg(long, global = true)]
+    pub no_metadata: bool,
+
+    /// Enable verbose output
+    #[arg(short, long, global = true)]
+    pub verbose: bool,
+
+    /// Use permissive mode for input validation (silently skip unsupported files)
+    #[arg(long, global = true)]
+    pub permissive: bool,
+
+    /// Device to use for inference (auto, cpu, coreml)
+    #[arg(long, default_value = "auto", global = true)]
+    pub device: String,
+}
+
+/// Base model configuration containing common settings used by all models
+#[derive(Debug, Clone)]
+pub struct BaseModelConfig {
+    /// Input sources (images or directories)
+    pub sources: Vec<String>,
+    /// Device for inference
+    pub device: String,
+    /// Optional output directory override
+    pub output_dir: Option<String>,
+    /// Whether to skip metadata generation
+    pub skip_metadata: bool,
+    /// Enable verbose logging
+    pub verbose: bool,
+    /// Use strict mode (fail on unsupported files vs skip them)
+    pub strict: bool,
+}
+
+/// CLI command for head detection (only command-specific arguments)
+#[derive(Parser, Debug, Clone)]
+pub struct HeadCommand {
+    /// Path(s) to input images or directories. Supports glob patterns like *.jpg
+    #[arg(value_name = "IMAGES_OR_DIRS", required = true)]
+    pub sources: Vec<String>,
+
+    /// Confidence threshold for detections (0.0-1.0)
+    #[arg(short, long, default_value = "0.25")]
+    pub confidence: f32,
+
+    /// IoU threshold for non-maximum suppression (0.0-1.0)
+    #[arg(long, default_value = "0.45")]
+    pub iou_threshold: f32,
+
+    /// Create a square crop of the detected head
+    #[arg(long)]
+    pub crop: bool,
+
+    /// Save an image with bounding boxes drawn
+    #[arg(long)]
+    pub bounding_box: bool,
+}
+
+/// Internal configuration for head detection processing
+#[derive(Debug, Clone)]
+pub struct HeadDetectionConfig {
+    pub base: BaseModelConfig,
+    pub confidence: f32,
+    pub iou_threshold: f32,
+    pub crop: bool,
+    pub bounding_box: bool,
+}
+
+/// CLI command for cutout processing (only command-specific arguments)
+#[derive(Parser, Debug, Clone)]
+pub struct CutoutCommand {
+    /// Path(s) to input images or directories. Supports glob patterns like *.jpg
+    #[arg(value_name = "IMAGES_OR_DIRS", required = true)]
+    pub sources: Vec<String>,
+
+    /// Apply post-processing to smooth mask edges
+    #[arg(long)]
+    pub post_process: bool,
+
+    /// Use alpha matting for better edge quality
+    #[arg(long)]
+    pub alpha_matting: bool,
+
+    /// Foreground threshold for alpha matting (0-255)
+    #[arg(long, default_value = "240")]
+    pub alpha_matting_foreground_threshold: u8,
+
+    /// Background threshold for alpha matting (0-255)
+    #[arg(long, default_value = "10")]
+    pub alpha_matting_background_threshold: u8,
+
+    /// Erosion size for alpha matting
+    #[arg(long, default_value = "10")]
+    pub alpha_matting_erode_size: u32,
+
+    /// Background color as RGBA (e.g., "255,255,255,255" for white)
+    #[arg(long, value_parser = parse_rgba_color)]
+    pub background_color: Option<[u8; 4]>,
+
+    /// Save the segmentation mask as a separate image
+    #[arg(long)]
+    pub save_mask: bool,
+}
+
+/// Internal configuration for cutout processing
+#[derive(Debug, Clone)]
+pub struct CutoutConfig {
+    pub base: BaseModelConfig,
+    pub post_process_mask: bool,
+    pub alpha_matting: bool,
+    pub alpha_matting_foreground_threshold: u8,
+    pub alpha_matting_background_threshold: u8,
+    pub alpha_matting_erode_size: u32,
+    pub background_color: Option<[u8; 4]>,
+    pub save_mask: bool,
+}
+
+// Conversion traits from CLI commands to internal configurations
+
+impl From<GlobalArgs> for BaseModelConfig {
+    fn from(global: GlobalArgs) -> Self {
+        Self {
+            sources: Vec::new(), // Sources come from command, not global args
+            device: global.device,
+            output_dir: global.output_dir,
+            skip_metadata: global.no_metadata,
+            verbose: global.verbose,
+            strict: !global.permissive, // Note: CLI uses permissive, internal uses strict
+        }
+    }
+}
+
+impl HeadDetectionConfig {
+    /// Create configuration from global args and command-specific args
+    pub fn from_args(global: GlobalArgs, cmd: HeadCommand) -> Self {
+        let mut base: BaseModelConfig = global.into();
+        base.sources = cmd.sources; // Add sources from command
+
+        Self {
+            base,
+            confidence: cmd.confidence,
+            iou_threshold: cmd.iou_threshold,
+            crop: cmd.crop,
+            bounding_box: cmd.bounding_box,
+        }
+    }
+}
+
+impl CutoutConfig {
+    /// Create configuration from global args and command-specific args
+    pub fn from_args(global: GlobalArgs, cmd: CutoutCommand) -> Self {
+        let mut base: BaseModelConfig = global.into();
+        base.sources = cmd.sources; // Add sources from command
+
+        Self {
+            base,
+            post_process_mask: cmd.post_process,
+            alpha_matting: cmd.alpha_matting,
+            alpha_matting_foreground_threshold: cmd.alpha_matting_foreground_threshold,
+            alpha_matting_background_threshold: cmd.alpha_matting_background_threshold,
+            alpha_matting_erode_size: cmd.alpha_matting_erode_size,
+            background_color: cmd.background_color,
+            save_mask: cmd.save_mask,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_global_args_conversion() {
+        let global_args = GlobalArgs {
+            device: "cpu".to_string(),
+            output_dir: Some("/tmp".to_string()),
+            no_metadata: true,
+            verbose: true,
+            permissive: true,
+        };
+
+        let config: BaseModelConfig = global_args.into();
+
+        assert_eq!(config.sources, Vec::<String>::new()); // Sources come from command
+        assert_eq!(config.device, "cpu");
+        assert_eq!(config.output_dir, Some("/tmp".to_string()));
+        assert!(config.skip_metadata);
+        assert!(config.verbose);
+        assert!(!config.strict); // permissive=true -> strict=false
+    }
+
+    #[test]
+    fn test_head_command_conversion() {
+        let global_args = GlobalArgs {
+            device: "auto".to_string(),
+            output_dir: None,
+            no_metadata: false,
+            verbose: false,
+            permissive: false,
+        };
+
+        let head_cmd = HeadCommand {
+            sources: vec!["bird.jpg".to_string()],
+            confidence: 0.8,
+            iou_threshold: 0.5,
+            crop: true,
+            bounding_box: false,
+        };
+
+        let config = HeadDetectionConfig::from_args(global_args, head_cmd);
+
+        assert_eq!(config.base.sources, vec!["bird.jpg"]);
+        assert_eq!(config.confidence, 0.8);
+        assert_eq!(config.iou_threshold, 0.5);
+        assert!(config.crop);
+        assert!(!config.bounding_box);
+        assert!(config.base.strict); // permissive=false -> strict=true
+    }
+
+    #[test]
+    fn test_cutout_command_conversion() {
+        let global_args = GlobalArgs {
+            device: "coreml".to_string(),
+            output_dir: Some("/output".to_string()),
+            no_metadata: false,
+            verbose: true,
+            permissive: false,
+        };
+
+        let cutout_cmd = CutoutCommand {
+            sources: vec!["photo.png".to_string()],
+            post_process: true,
+            alpha_matting: false,
+            alpha_matting_foreground_threshold: 240,
+            alpha_matting_background_threshold: 10,
+            alpha_matting_erode_size: 10,
+            background_color: Some([255, 255, 255, 255]),
+            save_mask: true,
+        };
+
+        let config = CutoutConfig::from_args(global_args, cutout_cmd);
+
+        assert_eq!(config.base.sources, vec!["photo.png"]);
+        assert_eq!(config.base.device, "coreml");
+        assert!(config.post_process_mask);
+        assert!(!config.alpha_matting);
+        assert_eq!(config.background_color, Some([255, 255, 255, 255]));
+        assert!(config.save_mask);
+    }
+
+    #[test]
+    fn test_backward_compatibility_methods() {
+        let config = HeadDetectionConfig {
+            base: BaseModelConfig {
+                sources: vec!["test.jpg".to_string()],
+                device: "cpu".to_string(),
+                output_dir: Some("/tmp".to_string()),
+                skip_metadata: true,
+                verbose: false,
+                strict: true,
+            },
+            confidence: 0.25,
+            iou_threshold: 0.45,
+            crop: false,
+            bounding_box: false,
+        };
+
+        // Test field access through base config
+        assert_eq!(config.base.sources, vec!["test.jpg".to_string()]);
+        assert_eq!(config.base.device, "cpu");
+        assert_eq!(config.base.output_dir, Some("/tmp".to_string()));
+        assert!(config.base.skip_metadata);
+        assert!(!config.base.verbose);
+        assert!(config.base.strict);
+    }
+
+    #[test]
+    fn test_parse_rgba_color() {
+        // Valid color
+        assert_eq!(parse_rgba_color("255,128,0,255"), Ok([255, 128, 0, 255]));
+        assert_eq!(parse_rgba_color("0,0,0,0"), Ok([0, 0, 0, 0]));
+
+        // Invalid formats
+        assert!(parse_rgba_color("255,128,0").is_err()); // Too few components
+        assert!(parse_rgba_color("255,128,0,255,128").is_err()); // Too many components
+        assert!(parse_rgba_color("256,128,0,255").is_err()); // Out of range
+        assert!(parse_rgba_color("invalid,128,0,255").is_err()); // Non-numeric
+    }
+}

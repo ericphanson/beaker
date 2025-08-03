@@ -1,5 +1,6 @@
 use clap::Parser;
 
+mod config;
 mod cutout_postprocessing;
 mod cutout_preprocessing;
 mod cutout_processing;
@@ -11,94 +12,17 @@ mod shared_metadata;
 mod yolo_postprocessing;
 mod yolo_preprocessing;
 
-use cutout_processing::{run_cutout_processing, CutoutConfig};
-use head_detection::{run_head_detection, HeadDetectionConfig, MODEL_VERSION};
-
-/// Parse RGBA color from string like "255,255,255,255"
-fn parse_rgba_color(s: &str) -> Result<[u8; 4], String> {
-    let parts: Vec<&str> = s.split(',').collect();
-    if parts.len() != 4 {
-        return Err("Color must be in format 'R,G,B,A' (e.g., '255,255,255,255')".to_string());
-    }
-
-    let mut color = [0u8; 4];
-    for (i, part) in parts.iter().enumerate() {
-        color[i] = part
-            .trim()
-            .parse::<u8>()
-            .map_err(|_| format!("Invalid color component: '{part}'"))?;
-    }
-
-    Ok(color)
-}
+use config::{CutoutCommand, CutoutConfig, GlobalArgs, HeadCommand, HeadDetectionConfig};
+use cutout_processing::run_cutout_processing;
+use head_detection::{run_head_detection, MODEL_VERSION};
 
 #[derive(clap::Subcommand)]
 pub enum Commands {
     /// Detect bird heads in images
-    Head {
-        /// Path(s) to input images or directories. Supports glob patterns like *.jpg
-        #[arg(value_name = "IMAGES_OR_DIRS", required = true)]
-        sources: Vec<String>,
-
-        /// Confidence threshold for detections (0.0-1.0)
-        #[arg(short, long, default_value = "0.25")]
-        confidence: f32,
-
-        /// IoU threshold for non-maximum suppression (0.0-1.0)
-        #[arg(long, default_value = "0.45")]
-        iou_threshold: f32,
-
-        /// Create a square crop of the detected head
-        #[arg(long)]
-        crop: bool,
-
-        /// Save an image with bounding boxes drawn
-        #[arg(long)]
-        bounding_box: bool,
-
-        /// Device to use for inference (auto, cpu, coreml)
-        #[arg(long, default_value = "auto")]
-        device: String,
-    },
+    Head(HeadCommand),
 
     /// Remove backgrounds from images using AI segmentation
-    Cutout {
-        /// Path(s) to input images or directories. Supports glob patterns like *.jpg
-        #[arg(value_name = "IMAGES_OR_DIRS", required = true)]
-        sources: Vec<String>,
-
-        /// Device to use for inference (auto, cpu, coreml)
-        #[arg(long, default_value = "auto")]
-        device: String,
-
-        /// Apply post-processing to smooth mask edges
-        #[arg(long)]
-        post_process: bool,
-
-        /// Use alpha matting for better edge quality
-        #[arg(long)]
-        alpha_matting: bool,
-
-        /// Foreground threshold for alpha matting (0-255)
-        #[arg(long, default_value = "240")]
-        alpha_matting_foreground_threshold: u8,
-
-        /// Background threshold for alpha matting (0-255)
-        #[arg(long, default_value = "10")]
-        alpha_matting_background_threshold: u8,
-
-        /// Erosion size for alpha matting
-        #[arg(long, default_value = "10")]
-        alpha_matting_erode_size: u32,
-
-        /// Background color as RGBA (e.g., "255,255,255,255" for white)
-        #[arg(long, value_parser = parse_rgba_color)]
-        background_color: Option<[u8; 4]>,
-
-        /// Save the segmentation mask as a separate image
-        #[arg(long)]
-        save_mask: bool,
-    },
+    Cutout(CutoutCommand),
 
     /// Show version information
     Version,
@@ -108,21 +32,8 @@ pub enum Commands {
 #[command(name = "beaker")]
 #[command(about = "Bird detection and analysis toolkit")]
 struct Cli {
-    /// Global output directory (overrides default placement next to input)
-    #[arg(long, global = true)]
-    output_dir: Option<String>,
-
-    /// Skip creating metadata output files
-    #[arg(long, global = true)]
-    no_metadata: bool,
-
-    /// Enable verbose output
-    #[arg(short, long, global = true)]
-    verbose: bool,
-
-    /// Use permissive mode for input validation (silently skip unsupported files)
-    #[arg(long, global = true)]
-    permissive: bool,
+    #[command(flatten)]
+    global: GlobalArgs,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -135,21 +46,17 @@ fn main() {
     let cli = Cli::parse();
 
     match &cli.command {
-        Some(Commands::Head {
-            sources,
-            confidence,
-            iou_threshold,
-            device,
-            crop,
-            bounding_box,
-        }) => {
+        Some(Commands::Head(head_cmd)) => {
             // Display what we're processing (only if verbose)
-            if cli.verbose {
-                if sources.len() == 1 {
-                    println!("🔍 Running head detection on: {}", sources[0]);
+            if cli.global.verbose {
+                if head_cmd.sources.len() == 1 {
+                    println!("🔍 Running head detection on: {}", head_cmd.sources[0]);
                 } else {
-                    println!("🔍 Running head detection on {} inputs:", sources.len());
-                    for source in sources {
+                    println!(
+                        "🔍 Running head detection on {} inputs:",
+                        head_cmd.sources.len()
+                    );
+                    for source in &head_cmd.sources {
                         println!("   • {source}");
                     }
                 }
@@ -158,39 +65,29 @@ fn main() {
                     "   Model: embedded ONNX model (version: {})",
                     MODEL_VERSION.trim()
                 );
-                println!("   Confidence threshold: {confidence}");
-                println!("   IoU threshold: {iou_threshold}");
-                println!("   Device: {device}");
-                if *crop {
+                println!("   Confidence threshold: {}", head_cmd.confidence);
+                println!("   IoU threshold: {}", head_cmd.iou_threshold);
+                println!("   Device: {}", cli.global.device);
+                if head_cmd.crop {
                     println!("   Will create head crops");
                 }
-                if *bounding_box {
+                if head_cmd.bounding_box {
                     println!("   Will save bounding box images");
                 }
-                if !cli.no_metadata {
+                if !cli.global.no_metadata {
                     println!("   Will create metadata output");
                 }
-                if let Some(output_dir) = &cli.output_dir {
+                if let Some(output_dir) = &cli.global.output_dir {
                     println!("   Output directory: {output_dir}");
                 }
             }
 
-            // Run actual detection
-            let config = HeadDetectionConfig {
-                sources: sources.clone(),
-                confidence: *confidence,
-                iou_threshold: *iou_threshold,
-                device: device.to_string(),
-                output_dir: cli.output_dir,
-                crop: *crop,
-                bounding_box: *bounding_box,
-                skip_metadata: cli.no_metadata,
-                verbose: cli.verbose,
-                strict: !cli.permissive,
-            };
-            match run_head_detection(config) {
+            // Convert CLI command to internal config and run detection
+            let internal_config =
+                HeadDetectionConfig::from_args(cli.global.clone(), head_cmd.clone());
+            match run_head_detection(internal_config) {
                 Ok(detections) => {
-                    if cli.verbose {
+                    if cli.global.verbose {
                         println!("✅ Found {detections} detections");
                     }
                 }
@@ -200,75 +97,59 @@ fn main() {
                 }
             }
         }
-        Some(Commands::Cutout {
-            sources,
-            device,
-            post_process,
-            alpha_matting,
-            alpha_matting_foreground_threshold,
-            alpha_matting_background_threshold,
-            alpha_matting_erode_size,
-            background_color,
-            save_mask,
-        }) => {
+        Some(Commands::Cutout(cutout_cmd)) => {
             // Display what we're processing (only if verbose)
-            if cli.verbose {
-                if sources.len() == 1 {
-                    println!("✂️  Running background removal on: {}", sources[0]);
+            if cli.global.verbose {
+                if cutout_cmd.sources.len() == 1 {
+                    println!(
+                        "✂️  Running background removal on: {}",
+                        cutout_cmd.sources[0]
+                    );
                 } else {
                     println!(
                         "✂️  Running background removal on {} inputs:",
-                        sources.len()
+                        cutout_cmd.sources.len()
                     );
-                    for source in sources {
+                    for source in &cutout_cmd.sources {
                         println!("   • {source}");
                     }
                 }
 
                 println!("   Model: ISNet General Use");
-                println!("   Device: {device}");
-                if *post_process {
+                println!("   Device: {}", cli.global.device);
+                if cutout_cmd.post_process {
                     println!("   Will apply mask post-processing");
                 }
-                if *alpha_matting {
-                    println!("   Will use alpha matting (fg: {alpha_matting_foreground_threshold}, bg: {alpha_matting_background_threshold}, erode: {alpha_matting_erode_size})");
+                if cutout_cmd.alpha_matting {
+                    println!(
+                        "   Will use alpha matting (fg: {}, bg: {}, erode: {})",
+                        cutout_cmd.alpha_matting_foreground_threshold,
+                        cutout_cmd.alpha_matting_background_threshold,
+                        cutout_cmd.alpha_matting_erode_size
+                    );
                 }
-                if let Some(bg_color) = background_color {
+                if let Some(bg_color) = &cutout_cmd.background_color {
                     println!(
                         "   Background color: RGBA({}, {}, {}, {})",
                         bg_color[0], bg_color[1], bg_color[2], bg_color[3]
                     );
                 }
-                if *save_mask {
+                if cutout_cmd.save_mask {
                     println!("   Will save segmentation masks");
                 }
-                if !cli.no_metadata {
+                if !cli.global.no_metadata {
                     println!("   Will create metadata output");
                 }
-                if let Some(output_dir) = &cli.output_dir {
+                if let Some(output_dir) = &cli.global.output_dir {
                     println!("   Output directory: {output_dir}");
                 }
             }
 
-            // Run cutout processing
-            let config = CutoutConfig {
-                sources: sources.clone(),
-                device: device.to_string(),
-                output_dir: cli.output_dir,
-                post_process_mask: *post_process,
-                alpha_matting: *alpha_matting,
-                alpha_matting_foreground_threshold: *alpha_matting_foreground_threshold,
-                alpha_matting_background_threshold: *alpha_matting_background_threshold,
-                alpha_matting_erode_size: *alpha_matting_erode_size,
-                background_color: *background_color,
-                save_mask: *save_mask,
-                skip_metadata: cli.no_metadata,
-                verbose: cli.verbose,
-                strict: !cli.permissive,
-            };
-            match run_cutout_processing(config) {
+            // Convert CLI command to internal config and run cutout processing
+            let internal_config = CutoutConfig::from_args(cli.global.clone(), cutout_cmd.clone());
+            match run_cutout_processing(internal_config) {
                 Ok(processed) => {
-                    if cli.verbose {
+                    if cli.global.verbose {
                         println!("✅ Processed {processed} images");
                     }
                 }

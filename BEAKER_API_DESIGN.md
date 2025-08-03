@@ -271,7 +271,7 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
 
 ## 3. Implementation Plan
 
-### Phase 1: Foundation Layer (Week 1-2)
+### Phase 1: Foundation Layer
 **Goal**: Establish core infrastructure without breaking existing functionality
 
 **Tasks:**
@@ -290,9 +290,65 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
    - Verify no functional changes
    - Update tests to use new config types
 
-**Validation**: All existing functionality works identically
+4. **Verbosity refactor**: use crate `clap-verbosity-flag` to handle verbosity flag. Then configure logger like
+```
+let cli = Cli::parse();
+env_logger::Builder::new()
+    .filter_level(cli.verbosity.log_level_filter())
+    .init();
+```
 
-### Phase 2: Output Management (Week 3)
+Then replace all of our custom verbosity/println stuff with an `env_logger` using the `log` crate. The only tricky bit is ORT using tracing, so we still want to control ORT's tracing level with our verbosity flag (e.g. `if log_enabled!(Level::Info) {`). We won't use tracing though, we will use the `log` crate. That means replacing `println!` with `info!` and similar. Here is example code:
+
+```rust
+// simplest log-verbosity support in a Rust CLI, with env_logger & clap‑verbosity‑flag
+
+use clap::Parser;
+use clap_verbosity_flag::Verbosity;
+use env_logger;
+use log::{error, warn, info, debug};
+
+#[derive(Debug, Parser)]
+struct Cli {
+    /// -q / --quiet            ; -v / -vv / -vvv / -vvvv
+    #[command(flatten)]
+    verbosity: Verbosity,
+
+    // ... other CLI options ...
+}
+
+fn main() {
+    let cli = Cli::parse();
+
+    // initialize the global env_logger at the verbosity-set level:
+    env_logger::Builder::new()
+        .filter_level(cli.verbosity.log_level_filter())
+        .init();
+
+    error!("critical failure");       // always shown
+    warn!("something questionable");
+    info!("informational step");
+    debug!("detailed debug trace");
+}
+```
+
+Note:
+
+•	clap‑verbosity‑flag adds -q/--quiet and repeatable -v flags mapping to error‑only, warn, info, debug, trace levels (each extra -v increases verbosity)  ￼
+•	.filter_level(cli.verbosity.log_level_filter()) wires that choice into env_logger so log macros automatically respect the user-specified level  ￼
+•	If desired, RUST_LOG env vars still work for overriding or module-level filtering as supported by env_logger  ￼
+
+
+**Validation**:
+
+- All existing functionality works identically
+- No warnings
+- No duplicated structs or functions
+- Reduction in lines of non-test code by `cargo warloc` (see success metrics below) in each model, some increase in shared code (but still net reduction overall)
+- Better verbosity handling, supporting `-vvv` for example
+- No need to thread `verbose` everywhere, instead using `log_enabled!` checks
+
+### Phase 2: Output Management
 **Goal**: Unify all path generation logic
 
 **Tasks:**
@@ -313,7 +369,7 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
 
 **Validation**: All output paths remain identical to current behavior
 
-### Phase 3: Model Processor Framework (Week 4-5)
+### Phase 3: Model Processor Framework
 **Goal**: Implement the core ModelProcessor trait and generic processing
 
 **Tasks:**
@@ -333,7 +389,7 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
 
 **Validation**: All models work through the generic interface
 
-### Phase 4: Logging Unification (Week 6)
+### Phase 4: Logging Unification
 **Goal**: Centralize all logging and error handling
 
 **Tasks:**
@@ -353,7 +409,7 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
 
 **Validation**: Log output remains identical with improved consistency
 
-### Phase 5: Advanced Features (Week 7-8)
+### Phase 5: Advanced Features
 **Goal**: Implement pipeline and batch processing capabilities
 
 **Tasks:**
@@ -374,7 +430,7 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
 
 **Validation**: New features work correctly, no performance regressions
 
-### Phase 6: Documentation and Cleanup (Week 9)
+### Phase 6: Documentation and Cleanup
 **Goal**: Finalize the implementation with comprehensive documentation
 
 **Tasks:**

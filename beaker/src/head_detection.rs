@@ -7,6 +7,7 @@ use serde::Serialize;
 use std::path::Path;
 use std::time::Instant;
 
+use crate::config::HeadDetectionConfig;
 use crate::image_input::{collect_images_from_sources, ImageInputConfig};
 use crate::onnx_session::{
     create_onnx_session, determine_optimal_device, ModelSource, SessionConfig, VerboseOutput,
@@ -18,7 +19,7 @@ use crate::yolo_preprocessing::preprocess_image;
 /// Macro to print only when verbose mode is enabled
 macro_rules! verbose_println {
     ($config:expr, $($arg:tt)*) => {
-        if $config.verbose {
+        if $config.base.verbose {
             println!($($arg)*);
         }
     };
@@ -51,23 +52,9 @@ pub struct DetectionWithPath {
     pub crop_path: Option<String>,
 }
 
-#[derive(Debug, Clone)]
-pub struct HeadDetectionConfig {
-    pub sources: Vec<String>,
-    pub confidence: f32,
-    pub iou_threshold: f32,
-    pub device: String,
-    pub output_dir: Option<String>,
-    pub crop: bool,
-    pub bounding_box: bool,
-    pub skip_metadata: bool,
-    pub verbose: bool,
-    pub strict: bool,
-}
-
-impl VerboseOutput for HeadDetectionConfig {
+impl VerboseOutput for crate::config::HeadDetectionConfig {
     fn verbose_println(&self, msg: String) {
-        if self.verbose {
+        if self.base.verbose {
             println!("{msg}");
         }
     }
@@ -409,10 +396,10 @@ fn handle_image_outputs(
     let output_ext = get_output_extension(source_path);
 
     // Determine the metadata file path early so we can make paths relative to it
-    let metadata_path = if !config.skip_metadata {
+    let metadata_path = if !config.base.skip_metadata {
         Some(get_metadata_path(
             source_path,
-            config.output_dir.as_deref(),
+            config.base.output_dir.as_deref(),
         )?)
     } else {
         None
@@ -424,7 +411,7 @@ fn handle_image_outputs(
     if config.crop && !detections.is_empty() {
         for (i, detection) in detections.iter().enumerate() {
             let crop_filename = if detections.len() == 1 {
-                if let Some(output_dir) = &config.output_dir {
+                if let Some(output_dir) = &config.base.output_dir {
                     let output_dir = Path::new(output_dir);
                     std::fs::create_dir_all(output_dir)?;
                     output_dir.join(format!("{input_stem}.{output_ext}"))
@@ -434,7 +421,7 @@ fn handle_image_outputs(
                         .unwrap()
                         .join(format!("{input_stem}_crop.{output_ext}"))
                 }
-            } else if let Some(output_dir) = &config.output_dir {
+            } else if let Some(output_dir) = &config.base.output_dir {
                 let output_dir = Path::new(output_dir);
                 std::fs::create_dir_all(output_dir)?;
                 if detections.len() >= 10 {
@@ -481,7 +468,7 @@ fn handle_image_outputs(
     // Create bounding box image if requested
     let mut bounding_box_path = None;
     if config.bounding_box && !detections.is_empty() {
-        let bbox_filename = if let Some(output_dir) = &config.output_dir {
+        let bbox_filename = if let Some(output_dir) = &config.base.output_dir {
             let output_dir = Path::new(output_dir);
             std::fs::create_dir_all(output_dir)?;
             output_dir.join(format!("{input_stem}_bounding-box.{output_ext}"))
@@ -503,11 +490,11 @@ fn handle_image_outputs(
     }
 
     // Create metadata output unless skipped
-    if !config.skip_metadata {
+    if !config.base.skip_metadata {
         let source_path = image_path;
 
         // Save using shared metadata system
-        let metadata_path = get_metadata_path(source_path, config.output_dir.as_deref())?;
+        let metadata_path = get_metadata_path(source_path, config.base.output_dir.as_deref())?;
         let mut metadata = load_or_create_metadata(&metadata_path)?;
 
         let head_result = HeadResult {
@@ -535,37 +522,42 @@ fn handle_image_outputs(
 
 pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
     // Collect all image files from the provided sources using the strict flag
-    let image_config = ImageInputConfig::from_strict_flag(config.strict);
-    let image_files = collect_images_from_sources(&config.sources, &image_config)?;
+    let image_config = ImageInputConfig::from_strict_flag(config.base.strict);
+    let image_files = collect_images_from_sources(&config.base.sources, &image_config)?;
 
     if image_files.is_empty() {
-        if config.verbose {
+        if config.base.verbose {
             println!("⚠️  No image files found in the provided sources");
         }
         return Ok(0);
     }
 
     // Log what we're processing
-    if config.verbose {
+    if config.base.verbose {
         if image_files.len() == 1 {
             println!("🔍 Processing single image: {}", image_files[0].display());
         } else {
             println!(
                 "📁 Processing {} images from {} source{}",
                 image_files.len(),
-                config.sources.len(),
-                if config.sources.len() == 1 { "" } else { "s" }
+                config.base.sources.len(),
+                if config.base.sources.len() == 1 {
+                    ""
+                } else {
+                    "s"
+                }
             );
         }
     }
 
     // Determine optimal device based on number of images
-    let device_selection = determine_optimal_device(&config.device, image_files.len(), &config);
+    let device_selection =
+        determine_optimal_device(&config.base.device, image_files.len(), &config);
 
     // Create session using unified ONNX session management
     let session_config = SessionConfig {
         device: &device_selection.device,
-        verbose: config.verbose,
+        verbose: config.base.verbose,
         suppress_warnings: true, // Suppress CoreML warnings for YOLO models
     };
 
@@ -580,7 +572,7 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
     let mut total_detections = 0;
 
     for (i, image_path) in image_files.iter().enumerate() {
-        if config.verbose && image_files.len() > 1 {
+        if config.base.verbose && image_files.len() > 1 {
             println!(
                 "\n📷 Processing image {}/{}: {}",
                 i + 1,
@@ -591,7 +583,7 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
 
         // Create individual config for each image
         let mut image_config = config.clone();
-        image_config.sources = vec![image_path.to_string_lossy().to_string()];
+        image_config.base.sources = vec![image_path.to_string_lossy().to_string()];
 
         match process_single_image(&mut session, image_path, &image_config) {
             Ok((detections, _processing_time)) => {
@@ -607,7 +599,7 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
     let total_time = total_start.elapsed();
 
     // Print appropriate summary (only if verbose)
-    if config.verbose {
+    if config.base.verbose {
         if image_files.len() == 1 {
             println!("\n🎉 Processing complete!");
             println!("🎯 Found {total_detections} bird head(s)");
