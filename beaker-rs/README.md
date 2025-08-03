@@ -106,3 +106,40 @@ y2 = 582.3
 confidence = 0.473
 crop_path = "example-crop-2.jpg"
 ```
+
+## Performance Benchmarks
+
+To run the benchmarks, run
+
+```sh
+cargo build --release
+python3 benchmark.py
+```
+
+after installing `rembg`. The full results on a M1 macbook pro are in [benchmark_results.json](./benchmark_results.json) and are summarized below.
+
+### Single Image Processing
+
+| Task | Device | Load Time (ms) | Inference Time (ms) | Total Time (ms) |
+|------|--------|----------------|-------------------|-----------------|
+| **Head Detection** | CPU | 40 | 57 | 136 |
+| **Head Detection** | CoreML | 156 | 25 | 226 |
+| **Background Removal** | CPU | 88-117 | 1441-1687 | 1916-2200 |
+| **Background Removal** | CoreML | 501-540 | 651-691 | 1654-1754 |
+| **rembg** | CPU | - | - | 3540-3651 |
+
+### Batch Processing (per image, 10x batches)
+
+| Task | Device | Load Time (ms) | Inference Time (ms) | Total Time (ms/img) |
+|------|--------|----------------|-------------------|-------------------|
+| **Head Detection** | CPU | 23-37 | 38-39 | 63-72 |
+| **Head Detection** | CoreML | 152-155 | 14-16 | 53-59 |
+| **Background Removal** | CPU | 87 | 1491-1498 | 1540-1545 |
+| **Background Removal** | CoreML | 515-540 | 4863-5022 | 590-602 |
+| **rembg** | CPU | - | - | 1620-1710 |
+
+### Notes
+
+- Small head model is 4x slower to load with CoreML (156ms vs 40ms) but 2.3x faster (25ms vs 57ms). Worth it for batches, not single images
+- Larger `isnet-general-use` model for background removal is worth loading with CoreML even for single images. And CoreML provides 2-3x speedup for batches.
+- rembg here is only configured with ONNX on CPU. It has some overhead relative to beaker but that overhead is amortized over batches, so it comes out to the approximately the same time as beaker on CPU in the batch case.
