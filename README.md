@@ -1,8 +1,10 @@
 # Beaker
 
-A tool to crop bird images to around their heads using a finetuned YOLOv8n model trained on the CUB-200-2011 dataset.
+A tool to apply ML models to bird images. `beaker head` crops bird images to around their heads using a finetuned YOLOv8n model trained on the CUB-200-2011 dataset, and `beaker cutout` performs background removal using an off-the-shelf model.
 
 ## 1. License & Usage
+
+This is for the model used by `beaker head`.
 
 | Origin | Original terms | What that means for these weights |
 |--------|----------------|-----------------------------------|
@@ -58,17 +60,17 @@ beaker head --crop example.jpg
 
 yielding the output crop saved as `example_crop.jpg` (with 25% padding around the detected head)
 
-![](./example-crop.jpg)
+![](./example_crop.jpg)
 
 **Limitations:**
 - Works best on clear, well-lit images of single birds
-- Performance degrades with poor lighting, motion blur, or multiple birds
-- May struggle with unusual poses or partially occluded heads
-- False positives possible on non-bird objects. The model has _only_ been finetuned on bird images.
+- False positives possible on non-bird objects. The `head` model has _only_ been finetuned on bird images.
 
-## 3. Model Card
+## 3. Head Model Card
 
-- **Architecture:** YOLOv8n (nano) - optimized for speed over accuracy
+Here we describe the model used by `beaker head`, which has been finetuned to detect bird's heads. The model used by `beaker cutout` is `isnet-general-use` and has not been finetuned.
+
+- **Architecture:** YOLOv8n, ~3M parameters
 - **Finetuning dataset:** CUB-200-2011 bird parts (head regions only). ~6k train images, ~6k validation images
 - **Classes:** 1 (bird_head)
 - **Input size:** 640×640 pixels
@@ -156,7 +158,9 @@ uv run beaker-upload
 # Follow prompts for version number and model selection
 ```
 
-The script uploads the selected model as `bird-head-detector.pt` along with training artifacts (plots, configs, results) and an ONNX export ``bird-head-detector.onnx`.
+The script uploads the selected model as `bird-head-detector.pt` along with training artifacts (plots, configs, results) and an ONNX export `bird-head-detector.onnx`.
+
+Note: the `isnet-general-use` model was uploaded using the [`training/upload_cutout.sh`](./training/upload_cutout.sh) which simply copies the ONNX model from [rembg](https://github.com/danielgatis/rembg).
 
 ## 5. How to build `beaker` from source
 
