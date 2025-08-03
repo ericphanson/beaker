@@ -9,6 +9,7 @@ mod head_detection;
 mod image_input;
 mod model_cache;
 mod onnx_session;
+mod output_manager;
 mod shared_metadata;
 mod yolo_postprocessing;
 mod yolo_preprocessing;

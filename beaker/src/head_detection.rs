@@ -12,7 +12,7 @@ use crate::image_input::{collect_images_from_sources, ImageInputConfig};
 use crate::onnx_session::{
     create_onnx_session, determine_optimal_device, ModelSource, SessionConfig,
 };
-use crate::shared_metadata::{get_metadata_path, load_or_create_metadata, save_metadata};
+use crate::output_manager::OutputManager;
 use crate::yolo_postprocessing::{postprocess_output, Detection};
 use crate::yolo_preprocessing::preprocess_image;
 use log::{debug, info};
@@ -57,20 +57,6 @@ fn get_output_extension(input_path: &Path) -> &'static str {
         }
     } else {
         "jpg"
-    }
-}
-
-pub fn make_path_relative_to_toml(file_path: &Path, toml_path: &Path) -> Result<String> {
-    // Get the directory containing the TOML file
-    let toml_dir = toml_path.parent().unwrap_or(Path::new("."));
-
-    // Try to create a relative path from the TOML directory to the file
-    match file_path.strip_prefix(toml_dir) {
-        Ok(relative_path) => Ok(relative_path.to_string_lossy().to_string()),
-        Err(_) => {
-            // If they're not in a parent-child relationship, use absolute path
-            Ok(file_path.to_string_lossy().to_string())
-        }
     }
 }
 
@@ -372,63 +358,25 @@ fn handle_image_outputs(
     processing_time_ms: f64,
 ) -> Result<()> {
     let source_path = image_path;
-    let input_stem = source_path.file_stem().unwrap().to_str().unwrap();
     let output_ext = get_output_extension(source_path);
-
-    // Determine the metadata file path early so we can make paths relative to it
-    let metadata_path = if !config.base.skip_metadata {
-        Some(get_metadata_path(
-            source_path,
-            config.base.output_dir.as_deref(),
-        )?)
-    } else {
-        None
-    };
+    let output_manager = OutputManager::new(config, source_path);
 
     let mut detections_with_paths = Vec::new();
 
     // Create crops if requested
     if config.crop && !detections.is_empty() {
         for (i, detection) in detections.iter().enumerate() {
-            let crop_filename = if detections.len() == 1 {
-                if let Some(output_dir) = &config.base.output_dir {
-                    let output_dir = Path::new(output_dir);
-                    std::fs::create_dir_all(output_dir)?;
-                    output_dir.join(format!("{input_stem}.{output_ext}"))
-                } else {
-                    source_path
-                        .parent()
-                        .unwrap()
-                        .join(format!("{input_stem}_crop.{output_ext}"))
-                }
-            } else if let Some(output_dir) = &config.base.output_dir {
-                let output_dir = Path::new(output_dir);
-                std::fs::create_dir_all(output_dir)?;
-                if detections.len() >= 10 {
-                    output_dir.join(format!("{input_stem}-{:02}.{output_ext}", i + 1))
-                } else {
-                    output_dir.join(format!("{input_stem}-{}.{output_ext}", i + 1))
-                }
-            } else if detections.len() >= 10 {
-                source_path
-                    .parent()
-                    .unwrap()
-                    .join(format!("{input_stem}_crop-{:02}.{output_ext}", i + 1))
-            } else {
-                source_path
-                    .parent()
-                    .unwrap()
-                    .join(format!("{input_stem}_crop-{}.{output_ext}", i + 1))
-            };
+            let crop_filename = output_manager.generate_numbered_output(
+                "crop",
+                i + 1,
+                detections.len(),
+                output_ext,
+            )?;
 
             create_square_crop(img, detection, &crop_filename, 0.1)?;
 
             // Make path relative to metadata file if metadata will be created
-            let crop_path = if let Some(ref toml_path) = metadata_path {
-                make_path_relative_to_toml(&crop_filename, toml_path)?
-            } else {
-                crop_filename.to_string_lossy().to_string()
-            };
+            let crop_path = output_manager.make_relative_to_metadata(&crop_filename)?;
 
             detections_with_paths.push(DetectionWithPath {
                 detection: detection.clone(),
@@ -448,35 +396,15 @@ fn handle_image_outputs(
     // Create bounding box image if requested
     let mut bounding_box_path = None;
     if config.bounding_box && !detections.is_empty() {
-        let bbox_filename = if let Some(output_dir) = &config.base.output_dir {
-            let output_dir = Path::new(output_dir);
-            std::fs::create_dir_all(output_dir)?;
-            output_dir.join(format!("{input_stem}_bounding-box.{output_ext}"))
-        } else {
-            source_path
-                .parent()
-                .unwrap()
-                .join(format!("{input_stem}_bounding-box.{output_ext}"))
-        };
-
+        let bbox_filename = output_manager.generate_auxiliary_output("bounding-box", output_ext)?;
         save_bounding_box_image(img, detections, &bbox_filename)?;
 
         // Make path relative to metadata file if metadata will be created
-        bounding_box_path = Some(if let Some(ref toml_path) = metadata_path {
-            make_path_relative_to_toml(&bbox_filename, toml_path)?
-        } else {
-            bbox_filename.to_string_lossy().to_string()
-        });
+        bounding_box_path = Some(output_manager.make_relative_to_metadata(&bbox_filename)?);
     }
 
     // Create metadata output unless skipped
     if !config.base.skip_metadata {
-        let source_path = image_path;
-
-        // Save using shared metadata system
-        let metadata_path = get_metadata_path(source_path, config.base.output_dir.as_deref())?;
-        let mut metadata = load_or_create_metadata(&metadata_path)?;
-
         let head_result = HeadResult {
             timestamp: Utc::now(),
             model_version: MODEL_VERSION.trim().to_string(),
@@ -487,10 +415,7 @@ fn handle_image_outputs(
             detections: detections_with_paths,
         };
 
-        metadata.head = Some(serde_json::to_value(head_result)?);
-        save_metadata(&metadata, &metadata_path)?;
-
-        debug!("📝 Created TOML output: {}", metadata_path.display());
+        output_manager.save_metadata(head_result, "head")?;
     }
 
     Ok(())

@@ -362,12 +362,19 @@ Note:
    - Ensure identical output paths for existing use cases
    - Update tests
 
-3. **Add comprehensive path generation tests**:
+3. **Add comprehensive path generation unit tests**:
    - Test all suffix combinations
    - Test output directory vs same directory behavior
    - Test numbered output patterns
 
-**Validation**: All output paths remain identical to current behavior
+**Validation**:
+
+- All output paths remain identical to current behavior OR changed to be more uniform between models (bugfix)
+- No warnings
+- No duplicated structs or functions
+- uniform behavior between models
+- [qualitative] easy to add outputs for a new model
+- Reduction in lines of non-test code by `cargo warloc` (see success metrics below) in each model, some increase in shared code (but still net reduction overall)
 
 ### Phase 3: Model Processor Framework
 **Goal**: Implement the core ModelProcessor trait and generic processing

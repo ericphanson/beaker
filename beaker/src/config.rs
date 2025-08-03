@@ -200,6 +200,19 @@ impl CutoutConfig {
     }
 }
 
+// Implement ModelConfig trait for output manager integration
+impl crate::output_manager::ModelConfig for HeadDetectionConfig {
+    fn base(&self) -> &BaseModelConfig {
+        &self.base
+    }
+}
+
+impl crate::output_manager::ModelConfig for CutoutConfig {
+    fn base(&self) -> &BaseModelConfig {
+        &self.base
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

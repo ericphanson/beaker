@@ -17,7 +17,7 @@ use crate::model_cache::{get_or_download_model, ISNET_GENERAL_MODEL};
 use crate::onnx_session::{
     create_onnx_session, determine_optimal_device, ModelSource, SessionConfig,
 };
-use crate::shared_metadata::{get_metadata_path, load_or_create_metadata, save_metadata};
+use crate::output_manager::OutputManager;
 use log::{debug, info};
 
 #[derive(Serialize, Clone)]
@@ -90,12 +90,11 @@ fn process_single_image(
     // Post-process the mask
     let mask = postprocess_mask(&mask_2d, original_size, config.post_process_mask)?;
 
-    // Generate output paths
-    let output_path = generate_output_path(image_path, config, "cutout", "png")?;
+    // Generate output paths using OutputManager
+    let output_manager = OutputManager::new(config, image_path);
+    let output_path = output_manager.generate_main_output_path("cutout", "png")?;
     let mask_path = if config.save_mask {
-        Some(generate_auxiliary_output_path(
-            image_path, config, "mask", "png",
-        )?)
+        Some(output_manager.generate_auxiliary_output("mask", "png")?)
     } else {
         None
     };
@@ -148,96 +147,22 @@ fn process_single_image(
 
     // Handle individual metadata output
     if !config.base.skip_metadata {
-        handle_individual_metadata_output(config, image_path, &cutout_result)?;
+        let cutout_section = CutoutSection {
+            timestamp: Utc::now(),
+            model_version: "isnet-general-use".to_string(),
+            post_process_mask: config.post_process_mask,
+            alpha_matting: config.alpha_matting,
+            background_color: config.background_color,
+            input_path: cutout_result.input_path.clone(),
+            output_path: cutout_result.output_path.clone(),
+            processing_time_ms: cutout_result.processing_time_ms,
+            mask_path: cutout_result.mask_path.clone(),
+        };
+
+        output_manager.save_metadata(cutout_section, "cutout")?;
     }
 
     Ok(cutout_result)
-}
-/// Generate output path for processed files
-fn generate_output_path(
-    input_path: &Path,
-    config: &CutoutConfig,
-    suffix: &str,
-    extension: &str,
-) -> Result<std::path::PathBuf> {
-    generate_output_path_with_suffix_control(input_path, config, suffix, extension, false)
-}
-
-/// Generate output path for auxiliary files (always with suffix)
-fn generate_auxiliary_output_path(
-    input_path: &Path,
-    config: &CutoutConfig,
-    suffix: &str,
-    extension: &str,
-) -> Result<std::path::PathBuf> {
-    generate_output_path_with_suffix_control(input_path, config, suffix, extension, true)
-}
-
-/// Generate output path with control over suffix behavior
-fn generate_output_path_with_suffix_control(
-    input_path: &Path,
-    config: &CutoutConfig,
-    suffix: &str,
-    extension: &str,
-    force_suffix: bool,
-) -> Result<std::path::PathBuf> {
-    let input_stem = input_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("output");
-
-    // Add suffix if we're NOT using --output-dir OR if force_suffix is true
-    let output_filename = if config.base.output_dir.is_some() && !force_suffix {
-        format!("{input_stem}.{extension}")
-    } else {
-        format!("{input_stem}_{suffix}.{extension}")
-    };
-
-    let output_path = if let Some(output_dir) = &config.base.output_dir {
-        Path::new(output_dir).join(&output_filename)
-    } else {
-        input_path
-            .parent()
-            .unwrap_or(Path::new("."))
-            .join(&output_filename)
-    };
-
-    Ok(output_path)
-}
-
-/// Handle individual metadata output for each processed image
-fn handle_individual_metadata_output(
-    config: &CutoutConfig,
-    image_path: &Path,
-    cutout_result: &CutoutResult,
-) -> Result<()> {
-    let metadata_path = get_metadata_path(image_path, config.base.output_dir.as_deref())?;
-
-    // Load existing metadata or create new
-    let mut metadata = load_or_create_metadata(&metadata_path)?;
-
-    // Create cutout section with timestamp
-    let cutout_section = CutoutSection {
-        timestamp: Utc::now(),
-        model_version: "isnet-general-use".to_string(),
-        post_process_mask: config.post_process_mask,
-        alpha_matting: config.alpha_matting,
-        background_color: config.background_color,
-        input_path: cutout_result.input_path.clone(),
-        output_path: cutout_result.output_path.clone(),
-        processing_time_ms: cutout_result.processing_time_ms,
-        mask_path: cutout_result.mask_path.clone(),
-    };
-
-    // Update metadata with cutout section
-    metadata.cutout = Some(serde_json::to_value(cutout_section)?);
-
-    // Save updated metadata
-    save_metadata(&metadata, &metadata_path)?;
-
-    debug!("📋 Saved metadata to: {}", metadata_path.display());
-
-    Ok(())
 }
 
 /// Process multiple images sequentially
