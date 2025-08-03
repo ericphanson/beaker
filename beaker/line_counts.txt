@@ -3,10 +3,10 @@ File name: ./beaker/tests/integration_tests.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
 Main         | 0            | 0            | 0            | 0            | 0           
-Tests        | 1248         | 226          | 4            | 97           | 1575        
+Tests        | 1253         | 226          | 4            | 97           | 1580        
 Examples     | 0            | 0            | 0            | 0            | 0           
 -------------|--------------|--------------|--------------|--------------|-------------
-             | 1248         | 226          | 4            | 97           | 1575        
+             | 1253         | 226          | 4            | 97           | 1580        
 
 File name: ./beaker/build.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -47,11 +47,11 @@ Examples     | 0            | 0            | 0            | 0            | 0
 File name: ./beaker/src/image_input.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 118          | 17           | 9            | 9            | 153         
+Main         | 123          | 18           | 9            | 10           | 160         
 Tests        | 97           | 21           | 0            | 9            | 127         
 Examples     | 0            | 0            | 0            | 0            | 0           
 -------------|--------------|--------------|--------------|--------------|-------------
-             | 215          | 38           | 9            | 18           | 280         
+             | 220          | 39           | 9            | 19           | 287         
 
 File name: ./beaker/src/lib.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -65,20 +65,20 @@ Examples     | 0            | 0            | 0            | 0            | 0
 File name: ./beaker/src/onnx_session.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 165          | 16           | 5            | 9            | 195         
+Main         | 191          | 19           | 5            | 12           | 227         
 Tests        | 0            | 0            | 0            | 0            | 0           
 Examples     | 0            | 0            | 0            | 0            | 0           
 -------------|--------------|--------------|--------------|--------------|-------------
-             | 165          | 16           | 5            | 9            | 195         
+             | 191          | 19           | 5            | 12           | 227         
 
 File name: ./beaker/src/cutout_processing.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 229          | 46           | 7            | 24           | 306         
+Main         | 228          | 46           | 7            | 24           | 305         
 Tests        | 0            | 0            | 0            | 0            | 0           
 Examples     | 0            | 0            | 0            | 0            | 0           
 -------------|--------------|--------------|--------------|--------------|-------------
-             | 229          | 46           | 7            | 24           | 306         
+             | 228          | 46           | 7            | 24           | 305         
 
 File name: ./beaker/src/model_cache.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -101,11 +101,11 @@ Examples     | 0            | 0            | 0            | 0            | 0
 File name: ./beaker/src/main.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 158          | 15           | 3            | 12           | 188         
+Main         | 177          | 16           | 3            | 12           | 208         
 Tests        | 0            | 0            | 0            | 0            | 0           
 Examples     | 0            | 0            | 0            | 0            | 0           
 -------------|--------------|--------------|--------------|--------------|-------------
-             | 158          | 15           | 3            | 12           | 188         
+             | 177          | 16           | 3            | 12           | 208         
 
 File name: ./beaker/src/yolo_postprocessing.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -137,8 +137,8 @@ Examples     | 0            | 0            | 0            | 0            | 0
 File count: 15
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 1872         | 345          | 93           | 175          | 2485        
-Tests        | 1542         | 280          | 4            | 118          | 1944        
+Main         | 1921         | 350          | 93           | 179          | 2543        
+Tests        | 1547         | 280          | 4            | 118          | 1949        
 Examples     | 0            | 0            | 0            | 0            | 0           
 -------------|--------------|--------------|--------------|--------------|-------------
-             | 3414         | 625          | 97           | 293          | 4429        
+             | 3468         | 630          | 97           | 297          | 4492        

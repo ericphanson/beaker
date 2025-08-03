@@ -502,7 +502,7 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
     let image_files = collect_images_from_sources(&config.base.sources, &image_config)?;
 
     if image_files.is_empty() {
-        log::warn!("⚠️  No image files found in the provided sources");
+        info!("🎯 No images found to process");
         return Ok(0);
     }
 

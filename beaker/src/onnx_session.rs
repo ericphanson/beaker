@@ -1,4 +1,5 @@
 use anyhow::Result;
+use log::Level;
 use ort::{
     execution_providers::{CPUExecutionProvider, CoreMLExecutionProvider, ExecutionProvider},
     logging::LogLevel,
@@ -9,6 +10,27 @@ use std::time::Instant;
 
 // Import model cache function
 use crate::model_cache::get_coreml_cache_dir;
+
+fn log_level_from_ort(level: LogLevel) -> Level {
+    match level {
+        LogLevel::Verbose => Level::Trace,
+        LogLevel::Info => Level::Trace,
+        LogLevel::Warning => Level::Debug,
+        LogLevel::Error => Level::Info,
+        LogLevel::Fatal => Level::Error,
+    }
+}
+fn ort_level_from_log(level: Level) -> LogLevel {
+    match level {
+        // we skip mapping to info because ONNX's info is so verbose
+        // that it is more like debug or trace
+        Level::Trace => LogLevel::Verbose,
+        Level::Debug => LogLevel::Warning,
+        Level::Info => LogLevel::Error,
+        Level::Warn => LogLevel::Error,
+        Level::Error => LogLevel::Fatal,
+    }
+}
 
 /// Configuration for creating ONNX sessions
 pub struct SessionConfig<'a> {
@@ -141,35 +163,45 @@ pub fn create_onnx_session(
         .map(|ep| format!("{ep:?}"))
         .collect();
 
-    // Set log level to suppress CoreML warnings unless debug logging is enabled
-    let log_level = if log::log_enabled!(log::Level::Debug) {
-        LogLevel::Warning // Show warnings in debug mode
-    } else {
-        LogLevel::Error // Suppress warnings in normal mode
-    };
+    // Choose the ORT log level based on what is enabled for us
+    let ort_log_level = [
+        Level::Trace,
+        Level::Debug,
+        Level::Info,
+        Level::Warn,
+        Level::Error,
+    ]
+    .into_iter()
+    .find(|&lvl| log::log_enabled!(lvl))
+    .map(ort_level_from_log)
+    .unwrap_or(LogLevel::Fatal);
 
-    // Load the model using ORT v2 API
     let session_start = Instant::now();
-    let session = match model_source {
-        ModelSource::EmbeddedBytes(bytes) => Session::builder()
+
+    let build_session = |bytes: &[u8]| {
+        Session::builder()
             .map_err(|e| anyhow::anyhow!("Failed to create session builder: {}", e))?
-            .with_log_level(log_level)
+            .with_logger(Box::new(|level, _, _, _, msg| {
+                // we will just relog to our standard logger with `log!`
+                // after choosing the appropriate log level
+                let log_level = log_level_from_ort(level);
+                log::log!(log_level, "[onnx] {msg}")
+            }))
+            .map_err(|e| anyhow::anyhow!("Failed to set logger: {}", e))?
+            .with_log_level(ort_log_level)
             .map_err(|e| anyhow::anyhow!("Failed to set log level: {}", e))?
             .with_execution_providers(execution_providers)
             .map_err(|e| anyhow::anyhow!("Failed to set execution providers: {}", e))?
             .commit_from_memory(bytes)
-            .map_err(|e| anyhow::anyhow!("Failed to load model from memory: {}", e))?,
+            .map_err(|e| anyhow::anyhow!("Failed to load model from memory: {}", e))
+    };
+
+    let session = match model_source {
+        ModelSource::EmbeddedBytes(bytes) => build_session(bytes)?,
         ModelSource::FilePath(path) => {
             let model_bytes =
                 fs::read(path).map_err(|e| anyhow::anyhow!("Failed to read model file: {}", e))?;
-            Session::builder()
-                .map_err(|e| anyhow::anyhow!("Failed to create session builder: {}", e))?
-                .with_log_level(log_level)
-                .map_err(|e| anyhow::anyhow!("Failed to set log level: {}", e))?
-                .with_execution_providers(execution_providers)
-                .map_err(|e| anyhow::anyhow!("Failed to set execution providers: {}", e))?
-                .commit_from_memory(&model_bytes)
-                .map_err(|e| anyhow::anyhow!("Failed to load model from memory: {}", e))?
+            build_session(&model_bytes)?
         }
     };
     let session_load_time = session_start.elapsed();

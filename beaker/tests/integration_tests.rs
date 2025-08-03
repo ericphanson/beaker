@@ -1131,8 +1131,13 @@ fn test_empty_directory_handling() {
     let empty_dir = temp_dir.path().join("empty");
     fs::create_dir(&empty_dir).expect("Failed to create empty directory");
 
-    let (exit_code, _stdout, _stderr) =
-        run_beaker_command(&["head", empty_dir.to_str().unwrap(), "--confidence", "0.5"]);
+    let (exit_code, _stdout, _stderr) = run_beaker_command(&[
+        "head",
+        "--permissive",
+        empty_dir.to_str().unwrap(),
+        "--confidence",
+        "0.5",
+    ]);
 
     // Should exit with success but report no images found
     assert_eq!(exit_code, 0, "Empty directory should not cause failure");

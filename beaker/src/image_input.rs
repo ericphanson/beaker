@@ -148,6 +148,13 @@ pub fn collect_images_from_sources(
     // Remove duplicates (in case same file is specified multiple ways)
     all_image_files.dedup();
 
+    // Check if we found any images - fail in strict mode, succeed in permissive mode
+    if all_image_files.is_empty() && config.strict_mode {
+        return Err(anyhow::anyhow!(
+            "No image files found in the specified sources"
+        ));
+    }
+
     Ok(all_image_files)
 }
 

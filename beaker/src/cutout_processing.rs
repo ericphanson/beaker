@@ -247,9 +247,8 @@ pub fn run_cutout_processing(config: CutoutConfig) -> Result<usize> {
     let image_files = collect_images_from_sources(&config.base.sources, &image_config)?;
 
     if image_files.is_empty() {
-        return Err(anyhow::anyhow!(
-            "No image files found in the specified sources"
-        ));
+        info!("🎯 No images found to process");
+        return Ok(0);
     }
 
     info!("🎯 Found {} image(s) to process", image_files.len());

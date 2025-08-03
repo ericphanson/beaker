@@ -1,5 +1,5 @@
 use clap::Parser;
-use log::{error, info};
+use log::{error, info, Level};
 
 mod config;
 mod cutout_postprocessing;
@@ -13,9 +13,11 @@ mod shared_metadata;
 mod yolo_postprocessing;
 mod yolo_preprocessing;
 
+use colored::*;
 use config::{CutoutCommand, CutoutConfig, GlobalArgs, HeadCommand, HeadDetectionConfig};
 use cutout_processing::run_cutout_processing;
 use head_detection::{run_head_detection, MODEL_VERSION};
+use std::io::Write;
 
 #[derive(clap::Subcommand)]
 pub enum Commands {
@@ -40,13 +42,10 @@ struct Cli {
     command: Option<Commands>,
 }
 
-fn main() {
-    let cli = Cli::parse();
-
-    // Initialize env_logger with the verbosity level from CLI
-    // Adjust the verbosity mapping to match our desired levels:
-    // default: WARN, -v: INFO, -vv: DEBUG, -q: ERROR, -qq: OFF
-    let base_level = cli.global.verbosity.log_level_filter();
+fn get_log_level_from_verbosity(
+    verbosity: clap_verbosity_flag::Verbosity<clap_verbosity_flag::ErrorLevel>,
+) -> log::LevelFilter {
+    let base_level = verbosity.log_level_filter();
     let adjusted_level = match base_level {
         log::LevelFilter::Off => log::LevelFilter::Off, // -qq -> OFF
         log::LevelFilter::Error => log::LevelFilter::Warn, // default -> WARN
@@ -59,13 +58,34 @@ fn main() {
     // But we also need to handle -q -> ERROR
     // clap-verbosity-flag doesn't give us a way to distinguish between default and -q
     // So we need to check the quiet flag directly
-    let final_level = if cli.global.verbosity.is_silent() {
+    if verbosity.is_silent() {
         log::LevelFilter::Error // -q -> ERROR
     } else {
         adjusted_level
-    };
+    }
+}
 
-    env_logger::Builder::new().filter_level(final_level).init();
+fn main() {
+    let cli = Cli::parse();
+    let level_filter = get_log_level_from_verbosity(cli.global.verbosity.clone());
+
+    // Initialize env_logger with the verbosity level from CLI
+    // Adjust the verbosity mapping to match our desired levels:
+    // default: WARN, -v: INFO, -vv: DEBUG, -q: ERROR, -qq: OFF
+    env_logger::Builder::new()
+        .filter_level(level_filter)
+        .format(|buf, record| {
+            let level_str = match record.level() {
+                Level::Error => "ERROR".red().bold().to_string(),
+                Level::Warn => "WARN".yellow().to_string(),
+                Level::Info => "INFO".green().to_string(),
+                Level::Debug => "DEBUG".blue().to_string(),
+                Level::Trace => "TRACE".magenta().to_string(),
+            };
+            writeln!(buf, "[{}] {}", level_str, record.args())
+        })
+        .init();
+
     match &cli.command {
         Some(Commands::Head(head_cmd)) => {
             // Display what we're processing (use info! instead of verbose check)
