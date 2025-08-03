@@ -110,7 +110,7 @@ fn get_latest_release_tag() -> Result<String, Box<dyn std::error::Error>> {
     let client = ureq::Agent::new();
     let response = client
         .get(api_url)
-        .set("User-Agent", "beaker-rs-build-script/0.1.0")
+        .set("User-Agent", "beaker-build-script/0.1.0")
         .call()?;
 
     let releases: serde_json::Value = response.into_json()?;
@@ -140,7 +140,7 @@ fn download_latest_model(output_path: &Path) -> Result<String, Box<dyn std::erro
     let client = ureq::Agent::new();
     let response = client
         .get(api_url)
-        .set("User-Agent", "beaker-rs-build-script/0.1.0")
+        .set("User-Agent", "beaker-build-script/0.1.0")
         .call()?;
 
     let releases: serde_json::Value = response.into_json()?;
@@ -182,7 +182,7 @@ fn download_latest_model(output_path: &Path) -> Result<String, Box<dyn std::erro
             // Download the model
             let response = client
                 .get(download_url)
-                .set("User-Agent", "beaker-rs-build-script/0.1.0")
+                .set("User-Agent", "beaker-build-script/0.1.0")
                 .call()?;
 
             let mut reader = response.into_reader();

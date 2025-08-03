@@ -82,7 +82,7 @@ def run_command(cmd: List[str], timeout: int = 120) -> Tuple[bool, str, str, flo
             capture_output=True,
             text=True,
             timeout=timeout,
-            cwd="/Users/eph/bird-head-detector/beaker-rs",
+            cwd="/Users/eph/bird-head-detector/beaker",
         )
         end_time = time.time()
         return (

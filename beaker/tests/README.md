@@ -1,4 +1,4 @@
-# Beaker-rs Test Suite
+# Beaker Test Suite
 
 End-to-end integration tests for the beaker CLI tool.
 

@@ -1,16 +1,16 @@
-name: Rust CI
+name: Beaker CI
 
 on:
   push:
     branches: [ main ]
     paths:
-      - 'beaker-rs/**'
-      - '.github/workflows/rust-ci.yml'
+      - 'beaker/**'
+      - '.github/workflows/beaker-ci.yml'
   pull_request:
     branches: [ main ]
     paths:
-      - 'beaker-rs/**'
-      - '.github/workflows/rust-ci.yml'
+      - 'beaker/**'
+      - '.github/workflows/beaker-ci.yml'
   workflow_dispatch:  # Allow manual triggering
 
 env:
@@ -18,7 +18,7 @@ env:
 
 jobs:
   test:
-    name: Test Rust Implementation
+    name: Test Beaker
     strategy:
       fail-fast: false
       matrix:
@@ -49,15 +49,15 @@ jobs:
     - name: Cache Rust dependencies
       uses: Swatinem/rust-cache@v2
       with:
-        workspaces: "beaker-rs -> target"
+        workspaces: "beaker -> target"
         # Include ONNX Runtime downloads in cache key
-        key: ${{ matrix.target }}-${{ hashFiles('beaker-rs/Cargo.lock') }}-${{ hashFiles('beaker-rs/build.rs') }}
+        key: ${{ matrix.target }}-${{ hashFiles('beaker/Cargo.lock') }}-${{ hashFiles('beaker/build.rs') }}
 
     - name: Cache ONNX model
       uses: actions/cache@v4
       with:
         path: ~/.cache/onnx-models
-        key: onnx-model-${{ hashFiles('beaker-rs/build.rs') }}
+        key: onnx-model-${{ hashFiles('beaker/build.rs') }}
         restore-keys: |
           onnx-model-
         enableCrossOsArchive: true
@@ -67,19 +67,19 @@ jobs:
 
     - name: Check code formatting
       run: cargo fmt --check
-      working-directory: beaker-rs
+      working-directory: beaker
 
     - name: Run clippy
       run: cargo clippy --target ${{ matrix.target }} -- -D warnings
-      working-directory: beaker-rs
+      working-directory: beaker
 
     - name: Build (debug)
       run: cargo build --target ${{ matrix.target }}
-      working-directory: beaker-rs
+      working-directory: beaker
 
     - name: Build (release)
       run: cargo build --release --target ${{ matrix.target }}
-      working-directory: beaker-rs
+      working-directory: beaker
 
     - name: Show binary information (Unix)
       if: runner.os != 'Windows'
@@ -89,17 +89,17 @@ jobs:
         echo ""
         echo "🔍 Binary size: $(du -h target/${{ matrix.target }}/release/beaker | cut -f1)"
         echo "📏 Stripped size: $(strip target/${{ matrix.target }}/release/beaker -o /tmp/beaker-stripped && du -h /tmp/beaker-stripped | cut -f1)"
-      working-directory: beaker-rs
+      working-directory: beaker
 
     - name: Show binary information (Windows)
       if: runner.os == 'Windows'
       run: |
         echo "Binary information:"
         Get-ChildItem target/${{ matrix.target }}/release/beaker.exe | Format-Table Name, Length
-      working-directory: beaker-rs
+      working-directory: beaker
 
-    - name: Copy example image to beaker-rs directory
-      run: cp example.jpg beaker-rs/
+    - name: Copy example image to beaker directory
+      run: cp example.jpg beaker/
 
     - name: Test CLI help (Unix)
       if: runner.os != 'Windows'
@@ -107,7 +107,7 @@ jobs:
         echo "🧪 Testing CLI help command..."
         ./target/${{ matrix.target }}/release/beaker --help
         echo "✅ CLI help works"
-      working-directory: beaker-rs
+      working-directory: beaker
 
     - name: Test CLI help (Windows)
       if: runner.os == 'Windows'
@@ -115,7 +115,7 @@ jobs:
         echo "Testing CLI help command..."
         ./target/${{ matrix.target }}/release/beaker.exe --help
         echo "CLI help works"
-      working-directory: beaker-rs
+      working-directory: beaker
 
     - name: Test CLI head detection with ORT logging (Unix)
       if: runner.os != 'Windows'
@@ -126,7 +126,7 @@ jobs:
         echo "Device: ${{ matrix.device }}, Target: ${{ matrix.target }}"
         ./target/${{ matrix.target }}/release/beaker head example.jpg --confidence 0.5 --device ${{ matrix.device }}
         echo "✅ CLI head detection works"
-      working-directory: beaker-rs
+      working-directory: beaker
 
     - name: Test CLI head detection with ORT logging (Windows)
       if: runner.os == 'Windows'
@@ -137,7 +137,7 @@ jobs:
         echo "Device: ${{ matrix.device }}, Target: ${{ matrix.target }}"
         ./target/${{ matrix.target }}/release/beaker.exe head example.jpg --confidence 0.5 --device ${{ matrix.device }}
         echo "CLI head detection works"
-      working-directory: beaker-rs
+      working-directory: beaker
 
     - name: Test execution provider details with debug logging (Unix)
       if: runner.os != 'Windows'
@@ -161,7 +161,7 @@ jobs:
         echo "=== Running with --device cpu ==="
         ./target/${{ matrix.target }}/release/beaker head example.jpg --confidence 0.5 --device cpu
         echo "✅ Execution provider testing complete"
-      working-directory: beaker-rs
+      working-directory: beaker
 
     - name: Test execution provider details with debug logging (Windows)
       if: runner.os == 'Windows'
@@ -178,23 +178,23 @@ jobs:
         echo "=== Running with --device cpu ==="
         ./target/${{ matrix.target }}/release/beaker.exe head example.jpg --confidence 0.5 --device cpu
         echo "Execution provider testing complete"
-      working-directory: beaker-rs
+      working-directory: beaker
 
     - name: Copy second test image
-      run: cp example-2-birds.jpg beaker-rs/
+      run: cp example-2-birds.jpg beaker/
 
     - name: Run integration tests
       env:
         RUST_LOG: "warn"  # Reduce log noise for tests
       run: cargo test --test integration_tests --release --target ${{ matrix.target }}
-      working-directory: beaker-rs
+      working-directory: beaker
 
     - name: Upload binary artifact
       uses: actions/upload-artifact@v4
       with:
         name: beaker-${{ matrix.target }}
         path: |
-          beaker-rs/target/${{ matrix.target }}/release/beaker*
+          beaker/target/${{ matrix.target }}/release/beaker*
         retention-days: 7
 
 

@@ -23,7 +23,7 @@ repos:
     hooks:
       - id: clippy
         name: clippy-cpu
-        args: ['--manifest-path', 'beaker-rs/Cargo.toml', '--fix', '--allow-dirty', '--', '-D', 'warnings', '-D', 'clippy::uninlined_format_args']
+        args: ['--manifest-path', 'beaker/Cargo.toml', '--fix', '--allow-dirty', '--', '-D', 'warnings', '-D', 'clippy::uninlined_format_args']
       # Format Rust code automatically LAST (after clippy fixes)
       - id: fmt
-        args: ['--manifest-path', 'beaker-rs/Cargo.toml', '--']
+        args: ['--manifest-path', 'beaker/Cargo.toml', '--']

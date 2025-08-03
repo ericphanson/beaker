@@ -8,7 +8,7 @@ __pycache__
 onnxruntime-libs
 
 # Rust build artifacts
-beaker-rs/target/
-beaker-rs/Cargo.lock
+beaker/target/
+beaker/Cargo.lock
 example-raw.rw2
-beaker-rs/*-notes.md
+beaker/*-notes.md

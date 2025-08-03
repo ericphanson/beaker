@@ -26,7 +26,7 @@ fn run_beaker_command(args: &[&str]) -> (i32, String, String) {
     (exit_code, stdout, stderr)
 }
 
-/// Get the path to test images relative to the beaker-rs directory
+/// Get the path to test images relative to the beaker directory
 fn test_image_path(filename: &str) -> String {
     format!("../{filename}")
 }

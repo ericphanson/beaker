@@ -441,7 +441,7 @@ Download the model files and use with the Rust inference tool:
 
 **Using the Rust tool (recommended):**
 ```bash
-cd beaker-rs
+cd beaker
 cargo build --release
 ./target/release/beaker head your_image.jpg --confidence 0.25
 ```

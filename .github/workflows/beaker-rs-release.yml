@@ -1,9 +1,9 @@
-name: Beaker-rs Release
+name: Beaker Release
 
 on:
   push:
     tags:
-      - 'beaker-rs-v*'  # Matches beaker-rs-v1.0.0, beaker-rs-v1.0.0-alpha.1, etc.
+      - 'beaker-v*'  # Matches beaker-v1.0.0, beaker-v1.0.0-alpha.1, etc.
 
 permissions:
   contents: write
@@ -27,7 +27,7 @@ jobs:
       id: get_tag
       run: |
         TAG_NAME=${GITHUB_REF#refs/tags/}
-        VERSION=${TAG_NAME#beaker-rs-v}
+        VERSION=${TAG_NAME#beaker-v}
 
         echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
         echo "version=$VERSION" >> $GITHUB_OUTPUT
@@ -54,7 +54,7 @@ jobs:
         fi
 
         cat > release_notes.md << 'EOF'
-        # Beaker-rs ${{ steps.get_tag.outputs.version }}
+        # Beaker ${{ steps.get_tag.outputs.version }}
 
         Self-contained bird head detection CLI tool built with Rust and ONNX Runtime.
 
@@ -93,7 +93,7 @@ jobs:
         EOF
 
         gh release create "$TAG_NAME" \
-          --title "Beaker-rs $VERSION" \
+          --title "Beaker $VERSION" \
           --notes-file release_notes.md \
           $PRERELEASE_FLAG
       env:
@@ -132,14 +132,14 @@ jobs:
     - name: Cache Rust dependencies
       uses: Swatinem/rust-cache@v2
       with:
-        workspaces: "beaker-rs -> target"
-        key: release-${{ matrix.target }}-${{ hashFiles('beaker-rs/Cargo.lock') }}-${{ hashFiles('beaker-rs/build.rs') }}
+        workspaces: "beaker -> target"
+        key: release-${{ matrix.target }}-${{ hashFiles('beaker/Cargo.lock') }}-${{ hashFiles('beaker/build.rs') }}
 
     - name: Cache ONNX model
       uses: actions/cache@v4
       with:
         path: ~/.cache/onnx-models
-        key: onnx-model-${{ hashFiles('beaker-rs/build.rs') }}
+        key: onnx-model-${{ hashFiles('beaker/build.rs') }}
         restore-keys: |
           onnx-model-
         enableCrossOsArchive: true
@@ -149,12 +149,12 @@ jobs:
 
     - name: Build release binary
       run: cargo build --release --target ${{ matrix.target }}
-      working-directory: beaker-rs
+      working-directory: beaker
 
     - name: Prepare binary for upload
       shell: bash
       run: |
-        cd beaker-rs
+        cd beaker
         BINARY_PATH="target/${{ matrix.target }}/release/${{ matrix.binary_name }}"
         UPLOAD_NAME="beaker-${{ matrix.target }}${{ matrix.target == 'x86_64-pc-windows-msvc' && '.exe' || '' }}"
 
@@ -189,7 +189,7 @@ jobs:
     steps:
     - name: Celebrate
       run: |
-        echo "🎉 Beaker-rs ${{ needs.create-release.outputs.version }} released successfully!"
+        echo "🎉 Beaker ${{ needs.create-release.outputs.version }} released successfully!"
         echo "🔗 Release URL: https://github.com/${{ github.repository }}/releases/tag/${{ needs.create-release.outputs.tag_name }}"
         echo "📦 Binaries uploaded:"
         echo "  - beaker-x86_64-unknown-linux-gnu"
