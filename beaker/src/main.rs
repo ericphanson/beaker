@@ -120,6 +120,10 @@ struct Cli {
     #[arg(short, long, global = true)]
     verbose: bool,
 
+    /// Use strict mode for input validation (error on unsupported files, require glob matches)
+    #[arg(long, global = true)]
+    strict: bool,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -182,6 +186,7 @@ fn main() {
                 bounding_box: *bounding_box,
                 skip_metadata: cli.no_metadata,
                 verbose: cli.verbose,
+                strict: cli.strict,
             };
             match run_head_detection(config) {
                 Ok(detections) => {
@@ -259,6 +264,7 @@ fn main() {
                 save_mask: *save_mask,
                 skip_metadata: cli.no_metadata,
                 verbose: cli.verbose,
+                strict: cli.strict,
             };
             match run_cutout_processing(config) {
                 Ok(processed) => {

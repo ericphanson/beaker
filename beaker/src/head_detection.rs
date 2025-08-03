@@ -62,6 +62,7 @@ pub struct HeadDetectionConfig {
     pub bounding_box: bool,
     pub skip_metadata: bool,
     pub verbose: bool,
+    pub strict: bool,
 }
 
 impl VerboseOutput for HeadDetectionConfig {
@@ -533,8 +534,8 @@ fn handle_image_outputs(
 }
 
 pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
-    // Collect all image files from the provided sources using strict mode (like the original behavior)
-    let image_config = ImageInputConfig::strict();
+    // Collect all image files from the provided sources using the strict flag
+    let image_config = ImageInputConfig::from_strict_flag(config.strict);
     let image_files = collect_images_from_sources(&config.sources, &image_config)?;
 
     if image_files.is_empty() {

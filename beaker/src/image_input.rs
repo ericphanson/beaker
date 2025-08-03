@@ -41,6 +41,16 @@ impl ImageInputConfig {
             verbose_warnings: false,
         }
     }
+
+    /// Create a configuration based on strict flag
+    /// If strict=true, uses strict mode; if strict=false, uses permissive mode
+    pub fn from_strict_flag(strict: bool) -> Self {
+        if strict {
+            Self::strict()
+        } else {
+            Self::permissive()
+        }
+    }
 }
 
 /// Check if a file is a supported image format
@@ -264,5 +274,20 @@ mod tests {
         assert!(result
             .iter()
             .any(|p| p.file_name().unwrap() == "image2.png"));
+    }
+
+    #[test]
+    fn test_from_strict_flag() {
+        // Test strict=true creates strict config
+        let strict_config = ImageInputConfig::from_strict_flag(true);
+        assert!(strict_config.strict_mode);
+        assert!(strict_config.require_glob_matches);
+        assert!(strict_config.verbose_warnings);
+
+        // Test strict=false creates permissive config
+        let permissive_config = ImageInputConfig::from_strict_flag(false);
+        assert!(!permissive_config.strict_mode);
+        assert!(!permissive_config.require_glob_matches);
+        assert!(!permissive_config.verbose_warnings);
     }
 }
