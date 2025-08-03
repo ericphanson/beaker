@@ -7,6 +7,9 @@ use ort::{
 use std::fs;
 use std::time::Instant;
 
+// Import model cache function
+use crate::model_cache::get_coreml_cache_dir;
+
 /// Configuration for creating ONNX sessions
 pub struct SessionConfig<'a> {
     pub device: &'a str,
@@ -87,13 +90,56 @@ pub fn create_onnx_session(
     config: &SessionConfig,
     verbose_output: &dyn VerboseOutput,
 ) -> Result<(Session, f64)> {
+    // Set up CoreML cache directory if using CoreML
+    let coreml_cache_dir = if config.device == "coreml" {
+        match get_coreml_cache_dir() {
+            Ok(cache_dir) => {
+                // Create the cache directory if it doesn't exist
+                if let Err(e) = std::fs::create_dir_all(&cache_dir) {
+                    verbose_output.verbose_println(format!(
+                        "⚠️  Failed to create CoreML cache directory: {e}"
+                    ));
+                    None
+                } else {
+                    verbose_output.verbose_println(format!(
+                        "📂 Using CoreML cache directory: {}",
+                        cache_dir.display()
+                    ));
+                    Some(cache_dir)
+                }
+            }
+            Err(e) => {
+                verbose_output
+                    .verbose_println(format!("⚠️  Failed to get CoreML cache directory: {e}"));
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     // Create execution providers (simplified from cutout pattern)
     let execution_providers = match config.device {
         "coreml" => match CoreMLExecutionProvider::default().is_available() {
-            Ok(true) => vec![
-                CoreMLExecutionProvider::default().build(),
-                CPUExecutionProvider::default().build(),
-            ],
+            Ok(true) => {
+                let coreml_provider = if let Some(cache_dir) = &coreml_cache_dir {
+                    if let Some(cache_path_str) = cache_dir.to_str() {
+                        verbose_output.verbose_println(format!(
+                            "🗂️  Configuring CoreML model cache: {cache_path_str}"
+                        ));
+                        CoreMLExecutionProvider::default().with_model_cache_dir(cache_path_str)
+                    } else {
+                        CoreMLExecutionProvider::default()
+                    }
+                } else {
+                    CoreMLExecutionProvider::default()
+                };
+
+                vec![
+                    coreml_provider.build(),
+                    CPUExecutionProvider::default().build(),
+                ]
+            }
             _ => {
                 verbose_output
                     .verbose_println("⚠️  CoreML not available, falling back to CPU".to_string());

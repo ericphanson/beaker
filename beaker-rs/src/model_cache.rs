@@ -28,6 +28,13 @@ pub fn get_cache_dir() -> Result<PathBuf> {
         .ok_or_else(|| anyhow!("Unable to determine cache directory"))
 }
 
+/// Get the CoreML cache directory for storing compiled CoreML models
+pub fn get_coreml_cache_dir() -> Result<PathBuf> {
+    dirs::cache_dir()
+        .map(|dir| dir.join("beaker").join("coreml"))
+        .ok_or_else(|| anyhow!("Unable to determine CoreML cache directory"))
+}
+
 /// Calculate MD5 hash of a file
 fn calculate_md5(path: &Path) -> Result<String> {
     let contents = fs::read(path)?;
@@ -141,5 +148,12 @@ mod tests {
 
         let md5 = calculate_md5(&file_path).unwrap();
         assert_eq!(md5, "5eb63bbbe01eeed093cb22bb8f5acdc3");
+    }
+
+    #[test]
+    fn test_coreml_cache_dir() {
+        let cache_dir = get_coreml_cache_dir().unwrap();
+        assert!(cache_dir.to_string_lossy().contains("beaker"));
+        assert!(cache_dir.to_string_lossy().contains("coreml"));
     }
 }
