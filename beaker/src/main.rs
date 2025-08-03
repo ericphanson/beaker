@@ -120,9 +120,9 @@ struct Cli {
     #[arg(short, long, global = true)]
     verbose: bool,
 
-    /// Use strict mode for input validation (error on unsupported files, require glob matches)
+    /// Use permissive mode for input validation (silently skip unsupported files)
     #[arg(long, global = true)]
-    strict: bool,
+    permissive: bool,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -186,7 +186,7 @@ fn main() {
                 bounding_box: *bounding_box,
                 skip_metadata: cli.no_metadata,
                 verbose: cli.verbose,
-                strict: cli.strict,
+                strict: !cli.permissive,
             };
             match run_head_detection(config) {
                 Ok(detections) => {
@@ -264,7 +264,7 @@ fn main() {
                 save_mask: *save_mask,
                 skip_metadata: cli.no_metadata,
                 verbose: cli.verbose,
-                strict: cli.strict,
+                strict: !cli.permissive,
             };
             match run_cutout_processing(config) {
                 Ok(processed) => {

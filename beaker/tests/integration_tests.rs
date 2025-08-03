@@ -367,26 +367,9 @@ fn test_different_devices() {
 
 #[test]
 fn test_nonexistent_image() {
-    // Default (permissive) mode should not fail
-    let (exit_code, _stdout, _stderr) =
+    // Default (strict) mode should fail
+    let (exit_code, _stdout, stderr) =
         run_beaker_command(&["head", "nonexistent-image.jpg", "--confidence", "0.5"]);
-
-    assert_eq!(
-        exit_code, 0,
-        "Command should not fail in permissive mode for nonexistent image"
-    );
-}
-
-#[test]
-fn test_nonexistent_image_strict() {
-    // Strict mode should fail
-    let (exit_code, _stdout, stderr) = run_beaker_command(&[
-        "--strict",
-        "head",
-        "nonexistent-image.jpg",
-        "--confidence",
-        "0.5",
-    ]);
 
     assert_ne!(
         exit_code, 0,
@@ -396,6 +379,23 @@ fn test_nonexistent_image_strict() {
     assert!(
         stderr.contains("matching pattern"),
         "Should indicate pattern not found"
+    );
+}
+
+#[test]
+fn test_nonexistent_image_permissive() {
+    // Permissive mode should not fail
+    let (exit_code, _stdout, _stderr) = run_beaker_command(&[
+        "--permissive",
+        "head",
+        "nonexistent-image.jpg",
+        "--confidence",
+        "0.5",
+    ]);
+
+    assert_eq!(
+        exit_code, 0,
+        "Command should not fail in permissive mode for nonexistent image"
     );
 }
 
@@ -1147,28 +1147,9 @@ fn test_nonexistent_glob_pattern() {
     // Use a glob pattern that won't match anything
     let glob_pattern = format!("{}/*.nonexistent", test_data_dir.display());
 
-    // Default (permissive) mode should not fail
+    // Default (strict) mode should fail
     let (exit_code, _stdout, _stderr) =
         run_beaker_command(&["head", &glob_pattern, "--confidence", "0.5"]);
-
-    assert_eq!(
-        exit_code, 0,
-        "Should not fail in permissive mode when no files match glob pattern"
-    );
-}
-
-#[test]
-fn test_nonexistent_glob_pattern_strict() {
-    let temp_dir = TempDir::new().expect("Failed to create temp directory");
-    let test_data_dir = temp_dir.path().join("test_images");
-    fs::create_dir(&test_data_dir).expect("Failed to create test data directory");
-
-    // Use a glob pattern that won't match anything
-    let glob_pattern = format!("{}/*.nonexistent", test_data_dir.display());
-
-    // Strict mode should fail
-    let (exit_code, _stdout, _stderr) =
-        run_beaker_command(&["--strict", "head", &glob_pattern, "--confidence", "0.5"]);
 
     assert_ne!(
         exit_code, 0,
@@ -1177,6 +1158,25 @@ fn test_nonexistent_glob_pattern_strict() {
     assert!(
         _stderr.contains("No image files found") || _stderr.contains("matching pattern"),
         "Should indicate no matching files"
+    );
+}
+
+#[test]
+fn test_nonexistent_glob_pattern_permissive() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let test_data_dir = temp_dir.path().join("test_images");
+    fs::create_dir(&test_data_dir).expect("Failed to create test data directory");
+
+    // Use a glob pattern that won't match anything
+    let glob_pattern = format!("{}/*.nonexistent", test_data_dir.display());
+
+    // Permissive mode should not fail
+    let (exit_code, _stdout, _stderr) =
+        run_beaker_command(&["--permissive", "head", &glob_pattern, "--confidence", "0.5"]);
+
+    assert_eq!(
+        exit_code, 0,
+        "Should not fail in permissive mode when no files match glob pattern"
     );
 }
 
