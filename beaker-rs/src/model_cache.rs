@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 /// Model information for caching and verification
 #[derive(Debug)]
 pub struct ModelInfo {
+    #[allow(dead_code)]
     pub name: &'static str,
     pub url: &'static str,
     pub md5_checksum: &'static str,
@@ -139,6 +140,6 @@ mod tests {
         fs::write(&file_path, "hello world").unwrap();
 
         let md5 = calculate_md5(&file_path).unwrap();
-        assert_eq!(md5, "5d41402abc4b2a76b9719d911017c592");
+        assert_eq!(md5, "5eb63bbbe01eeed093cb22bb8f5acdc3");
     }
 }

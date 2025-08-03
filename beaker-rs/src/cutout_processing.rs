@@ -1,4 +1,5 @@
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use image::GenericImageView;
 use ort::{
     execution_providers::{CPUExecutionProvider, CoreMLExecutionProvider, ExecutionProvider},
@@ -16,6 +17,7 @@ use crate::cutout_postprocessing::{
 };
 use crate::cutout_preprocessing::preprocess_image_for_isnet_v2;
 use crate::model_cache::{get_or_download_model, ISNET_GENERAL_MODEL};
+use crate::shared_metadata::{get_metadata_path, load_or_create_metadata, save_metadata};
 
 /// Macro to print only when verbose mode is enabled
 macro_rules! verbose_println {
@@ -43,6 +45,7 @@ pub struct CutoutOutput {
 
 #[derive(Serialize)]
 pub struct CutoutSection {
+    pub timestamp: DateTime<Utc>,
     pub model_version: String,
     pub post_process_mask: bool,
     pub alpha_matting: bool,
@@ -299,15 +302,21 @@ fn process_single_image(
         output_path.display()
     );
 
-    Ok(CutoutResult {
+    let cutout_result = CutoutResult {
         input_path: image_path.to_string_lossy().to_string(),
         output_path: output_path.to_string_lossy().to_string(),
         model_version: "isnet-general-use".to_string(),
         processing_time_ms: processing_time,
         mask_path: mask_path.map(|p| p.to_string_lossy().to_string()),
-    })
-}
+    };
 
+    // Handle individual metadata output
+    if !config.skip_metadata {
+        handle_individual_metadata_output(config, image_path, &cutout_result)?;
+    }
+
+    Ok(cutout_result)
+}
 /// Generate output path for processed files
 fn generate_output_path(
     input_path: &Path,
@@ -334,45 +343,39 @@ fn generate_output_path(
     Ok(output_path)
 }
 
-/// Handle metadata output for processed images
-fn handle_metadata_output(config: &CutoutConfig, results: &[CutoutResult]) -> Result<()> {
-    if config.skip_metadata || results.is_empty() {
-        return Ok(());
-    }
+/// Handle individual metadata output for each processed image
+fn handle_individual_metadata_output(
+    config: &CutoutConfig,
+    image_path: &Path,
+    cutout_result: &CutoutResult,
+) -> Result<()> {
+    let metadata_path = get_metadata_path(image_path, config.output_dir.as_deref())?;
 
-    let output = CutoutOutput {
-        cutout: CutoutSection {
-            model_version: "isnet-general-use".to_string(),
-            post_process_mask: config.post_process_mask,
-            alpha_matting: config.alpha_matting,
-            background_color: config.background_color,
-            results: results.to_vec(),
-        },
+    // Load existing metadata or create new
+    let mut metadata = load_or_create_metadata(&metadata_path)?;
+
+    // Create cutout section with timestamp
+    let cutout_section = CutoutSection {
+        timestamp: Utc::now(),
+        model_version: "isnet-general-use".to_string(),
+        post_process_mask: config.post_process_mask,
+        alpha_matting: config.alpha_matting,
+        background_color: config.background_color,
+        results: vec![cutout_result.clone()],
     };
 
-    // For single image, save metadata next to the output
-    // For multiple images, save in output directory or first image's directory
-    let metadata_path = if results.len() == 1 {
-        let first_result = &results[0];
-        let output_path = Path::new(&first_result.output_path);
-        let stem = output_path
-            .file_stem()
-            .unwrap_or_default()
-            .to_string_lossy();
-        output_path.with_file_name(format!("{stem}-beaker.toml"))
-    } else if let Some(output_dir) = &config.output_dir {
-        Path::new(output_dir).join("cutout-batch-beaker.toml")
-    } else {
-        Path::new("cutout-batch-beaker.toml").to_path_buf()
-    };
+    // Update metadata with cutout section
+    metadata.cutout = Some(serde_json::to_value(cutout_section)?);
 
-    let toml_content = toml::to_string_pretty(&output)?;
-    fs::write(&metadata_path, toml_content)?;
+    // Save updated metadata
+    save_metadata(&metadata, &metadata_path)?;
 
     verbose_println!(config, "📋 Saved metadata to: {}", metadata_path.display());
 
     Ok(())
 }
+
+/// Process multiple images sequentially
 
 pub fn run_cutout_processing(config: CutoutConfig) -> Result<usize> {
     // Collect all image files to process
@@ -412,8 +415,8 @@ pub fn run_cutout_processing(config: CutoutConfig) -> Result<usize> {
 
     let total_time = total_start.elapsed().as_secs_f64() * 1000.0;
 
-    // Handle metadata output
-    handle_metadata_output(&config, &results)?;
+    // Individual metadata files are already created during processing
+    // No need for batch metadata output with the new shared system
 
     if config.verbose && results.len() > 1 {
         println!(

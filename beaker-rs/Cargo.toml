@@ -19,7 +19,9 @@ image  = { version = "0.25", default-features = false, features = ["png", "jpeg"
 ndarray = "0.16"
 anyhow  = "1.0"
 serde   = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 toml    = "0.8"
+chrono  = { version = "0.4", features = ["serde"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 glob    = "0.3"
 dirs    = "5.0"

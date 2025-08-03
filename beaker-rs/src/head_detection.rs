@@ -1,4 +1,5 @@
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use image::{DynamicImage, GenericImageView};
 use ndarray::Array;
 use ort::{
@@ -12,6 +13,7 @@ use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
+use crate::shared_metadata::{get_metadata_path, load_or_create_metadata, save_metadata};
 use crate::yolo_postprocessing::{postprocess_output, Detection};
 use crate::yolo_preprocessing::preprocess_image;
 
@@ -31,34 +33,9 @@ const MODEL_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/bird-head-d
 pub const MODEL_VERSION: &str =
     include_str!(concat!(env!("OUT_DIR"), "/bird-head-detector.version"));
 
-#[derive(Serialize, Clone)]
-pub struct HeadDetection {
-    pub x1: f32,
-    pub y1: f32,
-    pub x2: f32,
-    pub y2: f32,
-    pub confidence: f32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub crop_path: Option<String>,
-}
-
-#[derive(Serialize)]
-pub struct HeadSection {
-    pub model_version: String,
-    pub confidence_threshold: f32,
-    pub iou_threshold: f32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub bounding_box_path: Option<String>,
-    pub detections: Vec<HeadDetection>,
-}
-
-#[derive(Serialize)]
-pub struct HeadDetectionOutput {
-    pub head: HeadResult,
-}
-
 #[derive(Serialize)]
 pub struct HeadResult {
+    pub timestamp: DateTime<Utc>,
     pub model_version: String,
     pub confidence_threshold: f32,
     pub iou_threshold: f32,
@@ -73,11 +50,6 @@ pub struct DetectionWithPath {
     pub detection: Detection,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub crop_path: Option<String>,
-}
-
-#[derive(Serialize)]
-pub struct BeakerOutput {
-    pub head: HeadResult,
 }
 
 #[derive(Debug, Clone)]
@@ -666,16 +638,11 @@ fn handle_image_outputs(
     let output_ext = get_output_extension(source_path);
 
     // Determine the metadata file path early so we can make paths relative to it
-    let toml_filename = if !config.skip_metadata {
-        Some(if let Some(output_dir) = &config.output_dir {
-            let output_dir = Path::new(output_dir);
-            output_dir.join(format!("{input_stem}-beaker.toml"))
-        } else {
-            source_path
-                .parent()
-                .unwrap()
-                .join(format!("{input_stem}-beaker.toml"))
-        })
+    let metadata_path = if !config.skip_metadata {
+        Some(get_metadata_path(
+            source_path,
+            config.output_dir.as_deref(),
+        )?)
     } else {
         None
     };
@@ -719,7 +686,7 @@ fn handle_image_outputs(
             create_square_crop(img, detection, &crop_filename, 0.1)?;
 
             // Make path relative to metadata file if metadata will be created
-            let crop_path = if let Some(ref toml_path) = toml_filename {
+            let crop_path = if let Some(ref toml_path) = metadata_path {
                 make_path_relative_to_toml(&crop_filename, toml_path)?
             } else {
                 crop_filename.to_string_lossy().to_string()
@@ -757,7 +724,7 @@ fn handle_image_outputs(
         save_bounding_box_image(img, detections, &bbox_filename)?;
 
         // Make path relative to metadata file if metadata will be created
-        bounding_box_path = Some(if let Some(ref toml_path) = toml_filename {
+        bounding_box_path = Some(if let Some(ref toml_path) = metadata_path {
             make_path_relative_to_toml(&bbox_filename, toml_path)?
         } else {
             bbox_filename.to_string_lossy().to_string()
@@ -767,36 +734,27 @@ fn handle_image_outputs(
     // Create metadata output unless skipped
     if !config.skip_metadata {
         let source_path = image_path;
-        let input_stem = source_path.file_stem().unwrap().to_str().unwrap();
 
-        let toml_filename = if let Some(output_dir) = &config.output_dir {
-            let output_dir = Path::new(output_dir);
-            std::fs::create_dir_all(output_dir)?;
-            output_dir.join(format!("{input_stem}-beaker.toml"))
-        } else {
-            source_path
-                .parent()
-                .unwrap()
-                .join(format!("{input_stem}-beaker.toml"))
+        // Save using shared metadata system
+        let metadata_path = get_metadata_path(source_path, config.output_dir.as_deref())?;
+        let mut metadata = load_or_create_metadata(&metadata_path)?;
+
+        let head_result = HeadResult {
+            timestamp: Utc::now(),
+            model_version: MODEL_VERSION.trim().to_string(),
+            confidence_threshold: config.confidence,
+            iou_threshold: config.iou_threshold,
+            bounding_box_path,
+            detections: detections_with_paths,
         };
 
-        let output = HeadDetectionOutput {
-            head: HeadResult {
-                model_version: MODEL_VERSION.trim().to_string(),
-                confidence_threshold: config.confidence,
-                iou_threshold: config.iou_threshold,
-                bounding_box_path,
-                detections: detections_with_paths,
-            },
-        };
-
-        let toml_content = toml::to_string_pretty(&output)?;
-        std::fs::write(&toml_filename, toml_content)?;
+        metadata.head = Some(serde_json::to_value(head_result)?);
+        save_metadata(&metadata, &metadata_path)?;
 
         verbose_println!(
             config,
             "📝 Created TOML output: {}",
-            toml_filename.display()
+            metadata_path.display()
         );
     }
 
