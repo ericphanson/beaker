@@ -6,12 +6,13 @@ use tempfile::TempDir;
 /// Run a command and return (exit_code, stdout, stderr)
 fn run_beaker_command(args: &[&str]) -> (i32, String, String) {
     let mut full_args = vec!["run", "--"];
-    full_args.extend_from_slice(args);
 
-    // Add --verbose to see output in tests
-    if !args.contains(&"--verbose") && args.len() > 1 {
-        full_args.insert(2, "--verbose");
+    // Add -v to see output in tests (use INFO level)
+    if !args.contains(&"-v") && !args.contains(&"-vv") && !args.contains(&"-q") && args.len() > 1 {
+        full_args.push("-v");
     }
+
+    full_args.extend_from_slice(args);
 
     let output = Command::new("cargo")
         .args(&full_args)
@@ -75,8 +76,8 @@ fn test_basic_head_detection_single_bird() {
         exit_code, 0,
         "Command should exit successfully. Stderr: {stderr}"
     );
-    assert!(stdout.contains("Found"), "Should report found detections");
-    assert!(stdout.contains("detections"), "Should mention detections");
+    assert!(stderr.contains("Found"), "Should report found detections");
+    assert!(stderr.contains("detections"), "Should mention detections");
 
     // Check that TOML output was created
     let toml_path = temp_dir.path().join("example.beaker.toml");
@@ -112,7 +113,7 @@ fn test_basic_head_detection_two_birds() {
         exit_code, 0,
         "Command should exit successfully. Stderr: {stderr}"
     );
-    assert!(stdout.contains("Found"), "Should report found detections");
+    assert!(stderr.contains("Found"), "Should report found detections");
 
     // Check that TOML output was created
     let toml_path = temp_dir.path().join("example-2-birds.beaker.toml");
@@ -139,10 +140,10 @@ fn test_head_detection_with_crops() {
         "Command should exit successfully. Stderr: {stderr}"
     );
     assert!(
-        stdout.contains("Will create head crops"),
+        stderr.contains("Will create head crops"),
         "Should indicate crop creation"
     );
-    assert!(stdout.contains("Found"), "Should report found detections");
+    assert!(stderr.contains("Found"), "Should report found detections");
 
     // Check for TOML output
     let toml_path = temp_dir.path().join("example.beaker.toml");
@@ -192,10 +193,10 @@ fn test_head_detection_with_bounding_boxes() {
         "Command should exit successfully. Stderr: {stderr}"
     );
     assert!(
-        stdout.contains("Will save bounding box images"),
+        stderr.contains("Will save bounding box images"),
         "Should indicate bounding box creation"
     );
-    assert!(stdout.contains("Found"), "Should report found detections");
+    assert!(stderr.contains("Found"), "Should report found detections");
 
     // Check for TOML output
     let toml_path = temp_dir.path().join("example.beaker.toml");
@@ -227,14 +228,14 @@ fn test_head_detection_with_all_outputs() {
         "Command should exit successfully. Stderr: {stderr}"
     );
     assert!(
-        stdout.contains("Will create head crops"),
+        stderr.contains("Will create head crops"),
         "Should indicate crop creation"
     );
     assert!(
-        stdout.contains("Will save bounding box images"),
+        stderr.contains("Will save bounding box images"),
         "Should indicate bounding box creation"
     );
-    assert!(stdout.contains("Found"), "Should report found detections");
+    assert!(stderr.contains("Found"), "Should report found detections");
 
     // Check for TOML output
     let toml_path = temp_dir.path().join("example-2-birds.beaker.toml");
@@ -287,10 +288,10 @@ fn test_no_metadata_option() {
         "Command should exit successfully. Stderr: {stderr}"
     );
     assert!(
-        !stdout.contains("Will create metadata output"),
+        !stderr.contains("Will create metadata output"),
         "Should not mention metadata creation"
     );
-    assert!(stdout.contains("Found"), "Should report found detections");
+    assert!(stderr.contains("Found"), "Should report found detections");
 
     // Check that metadata output was NOT created
     let toml_path = temp_dir.path().join("example.beaker.toml");
@@ -320,10 +321,10 @@ fn test_different_confidence_thresholds() {
         "Command should exit successfully. Stderr: {stderr}"
     );
     assert!(
-        stdout.contains("Confidence threshold: 0.9"),
+        stderr.contains("Confidence threshold: 0.9"),
         "Should show correct confidence threshold"
     );
-    assert!(stdout.contains("Found"), "Should report found detections");
+    assert!(stderr.contains("Found"), "Should report found detections");
 }
 
 #[test]
@@ -344,8 +345,8 @@ fn test_different_devices() {
     ]);
 
     assert_eq!(exit_code, 0, "CPU device should work. Stderr: {stderr}");
-    assert!(stdout.contains("Device: cpu"), "Should show CPU device");
-    assert!(stdout.contains("Found"), "Should report found detections");
+    assert!(stderr.contains("Device: cpu"), "Should show CPU device");
+    assert!(stderr.contains("Found"), "Should report found detections");
 
     // Test auto device (default)
     let temp_dir2 = TempDir::new().expect("Failed to create temp directory");
@@ -361,8 +362,8 @@ fn test_different_devices() {
     ]);
 
     assert_eq!(exit_code, 0, "Auto device should work. Stderr: {stderr}");
-    assert!(stdout.contains("Device: auto"), "Should show auto device");
-    assert!(stdout.contains("Found"), "Should report found detections");
+    assert!(stderr.contains("Device: auto"), "Should show auto device");
+    assert!(stderr.contains("Found"), "Should report found detections");
 }
 
 #[test]
@@ -440,10 +441,10 @@ fn test_custom_iou_threshold() {
         "Command should exit successfully. Stderr: {stderr}"
     );
     assert!(
-        stdout.contains("IoU threshold: 0.3"),
+        stderr.contains("IoU threshold: 0.3"),
         "Should show correct IoU threshold"
     );
-    assert!(stdout.contains("Found"), "Should report found detections");
+    assert!(stderr.contains("Found"), "Should report found detections");
 }
 
 #[test]
@@ -473,7 +474,7 @@ fn test_output_file_naming() {
             "Command should exit successfully for {input_file}. Stderr: {stderr}"
         );
         assert!(
-            stdout.contains("Found"),
+            stderr.contains("Found"),
             "Should report found detections for {input_file}"
         );
 
@@ -512,7 +513,7 @@ fn test_png_transparency_preservation() {
         exit_code, 0,
         "PNG processing should exit successfully. Stderr: {stderr}"
     );
-    assert!(stdout.contains("Found"), "Should report found detections");
+    assert!(stderr.contains("Found"), "Should report found detections");
 
     // Check that PNG crop files were created (not JPEG)
     let png_crop_files: Vec<_> = fs::read_dir(&output_dir)
@@ -594,7 +595,7 @@ fn test_jpeg_format_preservation() {
         exit_code, 0,
         "JPEG processing should exit successfully. Stderr: {stderr}"
     );
-    assert!(stdout.contains("Found"), "Should report found detections");
+    assert!(stderr.contains("Found"), "Should report found detections");
 
     // Check that JPEG crop files were created (not PNG)
     let jpeg_crop_files: Vec<_> = fs::read_dir(&output_dir)
@@ -763,7 +764,7 @@ fn test_mixed_format_batch_processing() {
 
     // Should process multiple images
     assert!(
-        stdout.contains("Processing 2 images") || stdout.contains("Processing 2"),
+        stderr.contains("Processing 2 images") || stderr.contains("Processing 2"),
         "Should process 2 images"
     );
 
@@ -854,13 +855,13 @@ fn test_directory_batch_processing() {
 
     // Should indicate batch processing
     assert!(
-        stdout.contains("Processing") && stdout.contains("images"),
+        stderr.contains("Processing") && stderr.contains("images"),
         "Should indicate multiple image processing"
     );
 
     // Should show intelligent device selection for multiple images
     assert!(
-        stdout.contains("CoreML") || stdout.contains("CPU"),
+        stderr.contains("CoreML") || stderr.contains("CPU"),
         "Should show device selection based on batch size"
     );
 
@@ -926,7 +927,7 @@ fn test_glob_pattern_processing() {
 
     // Should process the matched file(s)
     assert!(
-        stdout.contains("Processing") && stdout.contains("image"),
+        stderr.contains("Processing") && stderr.contains("image"),
         "Should indicate image processing"
     );
 
@@ -980,7 +981,7 @@ fn test_multiple_explicit_files() {
 
     // Should indicate processing multiple images from multiple sources
     assert!(
-        stdout.contains("Processing") && stdout.contains("images from 2 sources"),
+        stderr.contains("Processing") && stderr.contains("images from 2 sources"),
         "Should indicate processing from multiple sources"
     );
 
@@ -1044,13 +1045,13 @@ fn test_mixed_sources_file_and_directory() {
 
     // Should indicate processing multiple images from multiple sources
     assert!(
-        stdout.contains("Processing") && stdout.contains("from 2 sources"),
+        stderr.contains("Processing") && stderr.contains("from 2 sources"),
         "Should indicate processing from 2 different source types"
     );
 
     // Should process at least 3 images (1 from file + 2 from subdir)
     assert!(
-        stdout.contains("3 images") || stdout.contains("Processing 3"),
+        stderr.contains("3 images") || stderr.contains("Processing 3"),
         "Should process 3 images total"
     );
 
@@ -1100,7 +1101,7 @@ fn test_device_selection_based_on_batch_size() {
 
     assert_eq!(exit_code, 0, "Single image should work. Stderr: {stderr}");
     assert!(
-        stdout.contains("CPU") || stdout.contains("using CPU for small batch"),
+        stderr.contains("CPU") || stderr.contains("using CPU for small batch"),
         "Single image should prefer CPU, got: {stdout}"
     );
 
@@ -1119,7 +1120,7 @@ fn test_device_selection_based_on_batch_size() {
     assert_eq!(exit_code, 0, "Directory should work. Stderr: {stderr}");
     // For multiple images, should either use CoreML (if available) or CPU
     assert!(
-        stdout.contains("CoreML") || stdout.contains("CPU"),
+        stderr.contains("CoreML") || stderr.contains("CPU"),
         "Should show device selection for batch processing"
     );
 }
@@ -1218,11 +1219,11 @@ fn test_basic_cutout_single_image() {
         "Command should exit successfully. Stderr: {stderr}"
     );
     assert!(
-        stdout.contains("Processed"),
+        stderr.contains("Processed"),
         "Should report processed images"
     );
     assert!(
-        stdout.contains("1 images"),
+        stderr.contains("1 images"),
         "Should mention processing 1 image"
     );
 
@@ -1268,7 +1269,7 @@ fn test_cutout_with_mask_saving() {
         "Command should exit successfully. Stderr: {stderr}"
     );
     assert!(
-        stdout.contains("Processed"),
+        stderr.contains("Processed"),
         "Should report processed images"
     );
 
@@ -1308,7 +1309,7 @@ fn test_cutout_with_background_color() {
         "Command should exit successfully. Stderr: {stderr}"
     );
     assert!(
-        stdout.contains("Processed"),
+        stderr.contains("Processed"),
         "Should report processed images"
     );
 
@@ -1353,7 +1354,7 @@ fn test_cutout_with_alpha_matting() {
         "Command should exit successfully. Stderr: {stderr}"
     );
     assert!(
-        stdout.contains("Processed"),
+        stderr.contains("Processed"),
         "Should report processed images"
     );
 
@@ -1387,11 +1388,11 @@ fn test_cutout_multiple_images() {
         "Command should exit successfully. Stderr: {stderr}"
     );
     assert!(
-        stdout.contains("Processed"),
+        stderr.contains("Processed"),
         "Should report processed images"
     );
     assert!(
-        stdout.contains("2 images"),
+        stderr.contains("2 images"),
         "Should mention processing 2 images"
     );
 
@@ -1429,11 +1430,11 @@ fn test_cutout_device_cpu() {
         "Command should exit successfully. Stderr: {stderr}"
     );
     assert!(
-        stdout.contains("Using device: cpu"),
+        stderr.contains("Using device: cpu"),
         "Should report using CPU device"
     );
     assert!(
-        stdout.contains("CPU execution provider"),
+        stderr.contains("CPU execution provider"),
         "Should mention CPU execution provider"
     );
 
@@ -1461,7 +1462,7 @@ fn test_cutout_device_coreml() {
         "Command should exit successfully. Stderr: {stderr}"
     );
     assert!(
-        stdout.contains("Using device: coreml"),
+        stderr.contains("Using device: coreml"),
         "Should report using CoreML device"
     );
 
@@ -1489,11 +1490,11 @@ fn test_cutout_device_auto_selection() {
         "Command should exit successfully. Stderr: {stderr}"
     );
     assert!(
-        stdout.contains("Using device: cpu"),
+        stderr.contains("Using device: cpu"),
         "Single image should select CPU with auto device"
     );
     assert!(
-        stdout.contains("using CPU for small batch"),
+        stderr.contains("using CPU for small batch"),
         "Should mention small batch reasoning"
     );
 }
@@ -1516,7 +1517,7 @@ fn test_cutout_no_metadata() {
         "Command should exit successfully. Stderr: {stderr}"
     );
     assert!(
-        stdout.contains("Processed"),
+        stderr.contains("Processed"),
         "Should report processed images"
     );
 

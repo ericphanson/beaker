@@ -9,6 +9,7 @@
 //! business logic (processing parameters, feature flags, internal state).
 
 use clap::Parser;
+use clap_verbosity_flag::Verbosity;
 
 /// Parse RGBA color from string like "255,255,255,255"
 pub fn parse_rgba_color(s: &str) -> Result<[u8; 4], String> {
@@ -39,9 +40,9 @@ pub struct GlobalArgs {
     #[arg(long, global = true)]
     pub no_metadata: bool,
 
-    /// Enable verbose output
-    #[arg(short, long, global = true)]
-    pub verbose: bool,
+    /// Verbosity level (-q/--quiet, -v/-vv/-vvv/-vvvv for info/debug/trace)
+    #[command(flatten)]
+    pub verbosity: Verbosity,
 
     /// Use permissive mode for input validation (silently skip unsupported files)
     #[arg(long, global = true)]
@@ -63,8 +64,6 @@ pub struct BaseModelConfig {
     pub output_dir: Option<String>,
     /// Whether to skip metadata generation
     pub skip_metadata: bool,
-    /// Enable verbose logging
-    pub verbose: bool,
     /// Use strict mode (fail on unsupported files vs skip them)
     pub strict: bool,
 }
@@ -161,7 +160,6 @@ impl From<GlobalArgs> for BaseModelConfig {
             device: global.device,
             output_dir: global.output_dir,
             skip_metadata: global.no_metadata,
-            verbose: global.verbose,
             strict: !global.permissive, // Note: CLI uses permissive, internal uses strict
         }
     }
@@ -212,7 +210,7 @@ mod tests {
             device: "cpu".to_string(),
             output_dir: Some("/tmp".to_string()),
             no_metadata: true,
-            verbose: true,
+            verbosity: Verbosity::new(2, 0), // -vv level (info level enables verbose)
             permissive: true,
         };
 
@@ -222,7 +220,7 @@ mod tests {
         assert_eq!(config.device, "cpu");
         assert_eq!(config.output_dir, Some("/tmp".to_string()));
         assert!(config.skip_metadata);
-        assert!(config.verbose);
+        // Note: verbosity is now handled directly by the logging system via env_logger
         assert!(!config.strict); // permissive=true -> strict=false
     }
 
@@ -232,7 +230,7 @@ mod tests {
             device: "auto".to_string(),
             output_dir: None,
             no_metadata: false,
-            verbose: false,
+            verbosity: Verbosity::new(0, 0), // Default level (warnings and errors only)
             permissive: false,
         };
 
@@ -260,7 +258,7 @@ mod tests {
             device: "coreml".to_string(),
             output_dir: Some("/output".to_string()),
             no_metadata: false,
-            verbose: true,
+            verbosity: Verbosity::new(1, 0), // -v level (info)
             permissive: false,
         };
 
@@ -293,7 +291,6 @@ mod tests {
                 device: "cpu".to_string(),
                 output_dir: Some("/tmp".to_string()),
                 skip_metadata: true,
-                verbose: false,
                 strict: true,
             },
             confidence: 0.25,
@@ -307,7 +304,6 @@ mod tests {
         assert_eq!(config.base.device, "cpu");
         assert_eq!(config.base.output_dir, Some("/tmp".to_string()));
         assert!(config.base.skip_metadata);
-        assert!(!config.base.verbose);
         assert!(config.base.strict);
     }
 

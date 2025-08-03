@@ -1,4 +1,5 @@
 use clap::Parser;
+use log::{error, info};
 
 mod config;
 mod cutout_postprocessing;
@@ -40,46 +41,64 @@ struct Cli {
 }
 
 fn main() {
-    // Initialize tracing subscriber for ORT logging
-    tracing_subscriber::fmt::init();
-
     let cli = Cli::parse();
 
+    // Initialize env_logger with the verbosity level from CLI
+    // Adjust the verbosity mapping to match our desired levels:
+    // default: WARN, -v: INFO, -vv: DEBUG, -q: ERROR, -qq: OFF
+    let base_level = cli.global.verbosity.log_level_filter();
+    let adjusted_level = match base_level {
+        log::LevelFilter::Off => log::LevelFilter::Off, // -qq -> OFF
+        log::LevelFilter::Error => log::LevelFilter::Warn, // default -> WARN
+        log::LevelFilter::Warn => log::LevelFilter::Info, // -v -> INFO
+        log::LevelFilter::Info => log::LevelFilter::Debug, // -vv -> DEBUG
+        log::LevelFilter::Debug => log::LevelFilter::Trace, // -vvv -> TRACE
+        log::LevelFilter::Trace => log::LevelFilter::Trace, // -vvvv -> TRACE (max)
+    };
+
+    // But we also need to handle -q -> ERROR
+    // clap-verbosity-flag doesn't give us a way to distinguish between default and -q
+    // So we need to check the quiet flag directly
+    let final_level = if cli.global.verbosity.is_silent() {
+        log::LevelFilter::Error // -q -> ERROR
+    } else {
+        adjusted_level
+    };
+
+    env_logger::Builder::new().filter_level(final_level).init();
     match &cli.command {
         Some(Commands::Head(head_cmd)) => {
-            // Display what we're processing (only if verbose)
-            if cli.global.verbose {
-                if head_cmd.sources.len() == 1 {
-                    println!("🔍 Running head detection on: {}", head_cmd.sources[0]);
-                } else {
-                    println!(
-                        "🔍 Running head detection on {} inputs:",
-                        head_cmd.sources.len()
-                    );
-                    for source in &head_cmd.sources {
-                        println!("   • {source}");
-                    }
-                }
-
-                println!(
-                    "   Model: embedded ONNX model (version: {})",
-                    MODEL_VERSION.trim()
+            // Display what we're processing (use info! instead of verbose check)
+            if head_cmd.sources.len() == 1 {
+                info!("🔍 Running head detection on: {}", head_cmd.sources[0]);
+            } else {
+                info!(
+                    "🔍 Running head detection on {} inputs:",
+                    head_cmd.sources.len()
                 );
-                println!("   Confidence threshold: {}", head_cmd.confidence);
-                println!("   IoU threshold: {}", head_cmd.iou_threshold);
-                println!("   Device: {}", cli.global.device);
-                if head_cmd.crop {
-                    println!("   Will create head crops");
+                for source in &head_cmd.sources {
+                    info!("   • {source}");
                 }
-                if head_cmd.bounding_box {
-                    println!("   Will save bounding box images");
-                }
-                if !cli.global.no_metadata {
-                    println!("   Will create metadata output");
-                }
-                if let Some(output_dir) = &cli.global.output_dir {
-                    println!("   Output directory: {output_dir}");
-                }
+            }
+
+            info!(
+                "   Model: embedded ONNX model (version: {})",
+                MODEL_VERSION.trim()
+            );
+            info!("   Confidence threshold: {}", head_cmd.confidence);
+            info!("   IoU threshold: {}", head_cmd.iou_threshold);
+            info!("   Device: {}", cli.global.device);
+            if head_cmd.crop {
+                info!("   Will create head crops");
+            }
+            if head_cmd.bounding_box {
+                info!("   Will save bounding box images");
+            }
+            if !cli.global.no_metadata {
+                info!("   Will create metadata output");
+            }
+            if let Some(output_dir) = &cli.global.output_dir {
+                info!("   Output directory: {output_dir}");
             }
 
             // Convert CLI command to internal config and run detection
@@ -87,74 +106,68 @@ fn main() {
                 HeadDetectionConfig::from_args(cli.global.clone(), head_cmd.clone());
             match run_head_detection(internal_config) {
                 Ok(detections) => {
-                    if cli.global.verbose {
-                        println!("✅ Found {detections} detections");
-                    }
+                    info!("✅ Found {detections} detections");
                 }
                 Err(e) => {
-                    eprintln!("❌ Detection failed: {e}");
+                    error!("❌ Detection failed: {e}");
                     std::process::exit(1);
                 }
             }
         }
         Some(Commands::Cutout(cutout_cmd)) => {
-            // Display what we're processing (only if verbose)
-            if cli.global.verbose {
-                if cutout_cmd.sources.len() == 1 {
-                    println!(
-                        "✂️  Running background removal on: {}",
-                        cutout_cmd.sources[0]
-                    );
-                } else {
-                    println!(
-                        "✂️  Running background removal on {} inputs:",
-                        cutout_cmd.sources.len()
-                    );
-                    for source in &cutout_cmd.sources {
-                        println!("   • {source}");
-                    }
+            // Display what we're processing (use info! instead of verbose check)
+            if cutout_cmd.sources.len() == 1 {
+                info!(
+                    "✂️  Running background removal on: {}",
+                    cutout_cmd.sources[0]
+                );
+            } else {
+                info!(
+                    "✂️  Running background removal on {} inputs:",
+                    cutout_cmd.sources.len()
+                );
+                for source in &cutout_cmd.sources {
+                    info!("   • {source}");
                 }
+            }
 
-                println!("   Model: ISNet General Use");
-                println!("   Device: {}", cli.global.device);
-                if cutout_cmd.post_process {
-                    println!("   Will apply mask post-processing");
-                }
-                if cutout_cmd.alpha_matting {
-                    println!(
-                        "   Will use alpha matting (fg: {}, bg: {}, erode: {})",
-                        cutout_cmd.alpha_matting_foreground_threshold,
-                        cutout_cmd.alpha_matting_background_threshold,
-                        cutout_cmd.alpha_matting_erode_size
-                    );
-                }
-                if let Some(bg_color) = &cutout_cmd.background_color {
-                    println!(
-                        "   Background color: RGBA({}, {}, {}, {})",
-                        bg_color[0], bg_color[1], bg_color[2], bg_color[3]
-                    );
-                }
-                if cutout_cmd.save_mask {
-                    println!("   Will save segmentation masks");
-                }
-                if !cli.global.no_metadata {
-                    println!("   Will create metadata output");
-                }
-                if let Some(output_dir) = &cli.global.output_dir {
-                    println!("   Output directory: {output_dir}");
-                }
+            info!("   Model: ISNet General Use");
+            info!("   Device: {}", cli.global.device);
+            if cutout_cmd.post_process {
+                info!("   Will apply mask post-processing");
+            }
+            if cutout_cmd.alpha_matting {
+                info!(
+                    "   Will use alpha matting (fg: {}, bg: {}, erode: {})",
+                    cutout_cmd.alpha_matting_foreground_threshold,
+                    cutout_cmd.alpha_matting_background_threshold,
+                    cutout_cmd.alpha_matting_erode_size
+                );
+            }
+            if let Some(bg_color) = &cutout_cmd.background_color {
+                info!(
+                    "   Background color: RGBA({}, {}, {}, {})",
+                    bg_color[0], bg_color[1], bg_color[2], bg_color[3]
+                );
+            }
+            if cutout_cmd.save_mask {
+                info!("   Will save segmentation masks");
+            }
+            if !cli.global.no_metadata {
+                info!("   Will create metadata output");
+            }
+            if let Some(output_dir) = &cli.global.output_dir {
+                info!("   Output directory: {output_dir}");
             }
 
             // Convert CLI command to internal config and run cutout processing
             let internal_config = CutoutConfig::from_args(cli.global.clone(), cutout_cmd.clone());
             match run_cutout_processing(internal_config) {
                 Ok(processed) => {
-                    if cli.global.verbose {
-                        println!("✅ Processed {processed} images");
-                    }
+                    info!("✅ Processed {processed} images");
                 }
                 Err(e) => {
-                    eprintln!("❌ Background removal failed: {e}");
+                    error!("❌ Background removal failed: {e}");
                     std::process::exit(1);
                 }
             }

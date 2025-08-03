@@ -10,20 +10,12 @@ use std::time::Instant;
 use crate::config::HeadDetectionConfig;
 use crate::image_input::{collect_images_from_sources, ImageInputConfig};
 use crate::onnx_session::{
-    create_onnx_session, determine_optimal_device, ModelSource, SessionConfig, VerboseOutput,
+    create_onnx_session, determine_optimal_device, ModelSource, SessionConfig,
 };
 use crate::shared_metadata::{get_metadata_path, load_or_create_metadata, save_metadata};
 use crate::yolo_postprocessing::{postprocess_output, Detection};
 use crate::yolo_preprocessing::preprocess_image;
-
-/// Macro to print only when verbose mode is enabled
-macro_rules! verbose_println {
-    ($config:expr, $($arg:tt)*) => {
-        if $config.base.verbose {
-            println!($($arg)*);
-        }
-    };
-}
+use log::{debug, info};
 
 // Embed the ONNX model at compile time
 const MODEL_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/bird-head-detector.onnx"));
@@ -50,14 +42,6 @@ pub struct DetectionWithPath {
     pub detection: Detection,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub crop_path: Option<String>,
-}
-
-impl VerboseOutput for crate::config::HeadDetectionConfig {
-    fn verbose_println(&self, msg: String) {
-        if self.base.verbose {
-            println!("{msg}");
-        }
-    }
 }
 
 /// Check if a file is a supported image format
@@ -310,8 +294,7 @@ fn process_single_image(
     let img = image::open(image_path)?;
     let (orig_width, orig_height) = img.dimensions();
 
-    verbose_println!(
-        config,
+    debug!(
         "📷 Processing {}: {}x{}",
         image_path.display(),
         orig_width,
@@ -348,13 +331,11 @@ fn process_single_image(
         model_size,
     )?;
 
-    verbose_println!(
-        config,
+    debug!(
         "⚡ Inference completed in {:.3}ms",
         inference_time.as_secs_f64() * 1000.0
     );
-    verbose_println!(
-        config,
+    info!(
         "🎯 Found {} detections after confidence filtering (>{}) and NMS (IoU>{})",
         detections.len(),
         config.confidence,
@@ -363,8 +344,7 @@ fn process_single_image(
 
     // Display detections
     for (i, detection) in detections.iter().enumerate() {
-        verbose_println!(
-            config,
+        debug!(
             "  Detection {}: bbox=({:.1}, {:.1}, {:.1}, {:.1}), confidence={:.3}",
             i + 1,
             detection.x1,
@@ -510,11 +490,7 @@ fn handle_image_outputs(
         metadata.head = Some(serde_json::to_value(head_result)?);
         save_metadata(&metadata, &metadata_path)?;
 
-        verbose_println!(
-            config,
-            "📝 Created TOML output: {}",
-            metadata_path.display()
-        );
+        debug!("📝 Created TOML output: {}", metadata_path.display());
     }
 
     Ok(())
@@ -526,55 +502,45 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
     let image_files = collect_images_from_sources(&config.base.sources, &image_config)?;
 
     if image_files.is_empty() {
-        if config.base.verbose {
-            println!("⚠️  No image files found in the provided sources");
-        }
+        log::warn!("⚠️  No image files found in the provided sources");
         return Ok(0);
     }
 
     // Log what we're processing
-    if config.base.verbose {
-        if image_files.len() == 1 {
-            println!("🔍 Processing single image: {}", image_files[0].display());
-        } else {
-            println!(
-                "📁 Processing {} images from {} source{}",
-                image_files.len(),
-                config.base.sources.len(),
-                if config.base.sources.len() == 1 {
-                    ""
-                } else {
-                    "s"
-                }
-            );
-        }
+    if image_files.len() == 1 {
+        log::info!("🔍 Processing single image: {}", image_files[0].display());
+    } else {
+        log::info!(
+            "📁 Processing {} images from {} source{}",
+            image_files.len(),
+            config.base.sources.len(),
+            if config.base.sources.len() == 1 {
+                ""
+            } else {
+                "s"
+            }
+        );
     }
 
     // Determine optimal device based on number of images
-    let device_selection =
-        determine_optimal_device(&config.base.device, image_files.len(), &config);
+    let device_selection = determine_optimal_device(&config.base.device, image_files.len());
 
     // Create session using unified ONNX session management
     let session_config = SessionConfig {
         device: &device_selection.device,
-        verbose: config.base.verbose,
-        suppress_warnings: true, // Suppress CoreML warnings for YOLO models
     };
 
-    let (mut session, load_time) = create_onnx_session(
-        ModelSource::EmbeddedBytes(MODEL_BYTES),
-        &session_config,
-        &config,
-    )?;
+    let (mut session, load_time) =
+        create_onnx_session(ModelSource::EmbeddedBytes(MODEL_BYTES), &session_config)?;
 
     // Process all images with the same session
     let total_start = Instant::now();
     let mut total_detections = 0;
 
     for (i, image_path) in image_files.iter().enumerate() {
-        if config.base.verbose && image_files.len() > 1 {
-            println!(
-                "\n📷 Processing image {}/{}: {}",
+        if image_files.len() > 1 {
+            log::debug!(
+                "📷 Processing image {}/{}: {}",
                 i + 1,
                 image_files.len(),
                 image_path.display()
@@ -590,7 +556,7 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
                 total_detections += detections;
             }
             Err(e) => {
-                eprintln!("❌ Error processing {}: {}", image_path.display(), e);
+                log::error!("❌ Error processing {}: {}", image_path.display(), e);
                 continue;
             }
         }
@@ -598,34 +564,32 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
 
     let total_time = total_start.elapsed();
 
-    // Print appropriate summary (only if verbose)
-    if config.base.verbose {
-        if image_files.len() == 1 {
-            println!("\n🎉 Processing complete!");
-            println!("🎯 Found {total_detections} bird head(s)");
-            println!(
-                "⚡ Total time: {:.1}ms (load: {:.1}ms, inference: {:.1}ms)",
-                total_time.as_secs_f64() * 1000.0,
-                load_time,
-                (total_time.as_secs_f64() * 1000.0) - load_time
-            );
-        } else {
-            let avg_time_per_image = total_time.as_secs_f64() / image_files.len() as f64;
+    // Print appropriate summary
+    if image_files.len() == 1 {
+        log::info!("🎉 Processing complete!");
+        log::info!("🎯 Found {total_detections} bird head(s)");
+        log::info!(
+            "⚡ Total time: {:.1}ms (load: {:.1}ms, inference: {:.1}ms)",
+            total_time.as_secs_f64() * 1000.0,
+            load_time,
+            (total_time.as_secs_f64() * 1000.0) - load_time
+        );
+    } else {
+        let avg_time_per_image = total_time.as_secs_f64() / image_files.len() as f64;
 
-            println!("\n🎉 Batch processing complete!");
-            println!("📊 Summary:");
-            println!("  • Images processed: {}", image_files.len());
-            println!("  • Total detections: {total_detections}");
-            println!("  • Model load time: {load_time:.1}ms");
-            println!(
-                "  • Total processing time: {:.3}s",
-                total_time.as_secs_f64()
-            );
-            println!(
-                "  • Average time per image: {:.1}ms",
-                avg_time_per_image * 1000.0
-            );
-        }
+        log::info!("🎉 Batch processing complete!");
+        log::info!("📊 Summary:");
+        log::info!("  • Images processed: {}", image_files.len());
+        log::info!("  • Total detections: {total_detections}");
+        log::info!("  • Model load time: {load_time:.1}ms");
+        log::info!(
+            "  • Total processing time: {:.3}s",
+            total_time.as_secs_f64()
+        );
+        log::info!(
+            "  • Average time per image: {:.1}ms",
+            avg_time_per_image * 1000.0
+        );
     }
 
     Ok(total_detections)

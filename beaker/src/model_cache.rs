@@ -51,10 +51,8 @@ fn verify_checksum(path: &Path, expected_md5: &str) -> Result<bool> {
 }
 
 /// Download a model from URL to the specified path
-fn download_model(url: &str, output_path: &Path, verbose: bool) -> Result<()> {
-    if verbose {
-        println!("📥 Downloading model from: {url}");
-    }
+fn download_model(url: &str, output_path: &Path) -> Result<()> {
+    log::info!("📥 Downloading model from: {url}");
 
     // Create parent directory if it doesn't exist
     if let Some(parent) = output_path.parent() {
@@ -69,48 +67,38 @@ fn download_model(url: &str, output_path: &Path, verbose: bool) -> Result<()> {
     let mut file = fs::File::create(output_path)?;
     file.write_all(&content)?;
 
-    if verbose {
-        println!("✅ Model downloaded to: {}", output_path.display());
-    }
+    log::info!("✅ Model downloaded to: {}", output_path.display());
 
     Ok(())
 }
 
 /// Get the cached model path, downloading if necessary
-pub fn get_or_download_model(model_info: &ModelInfo, verbose: bool) -> Result<PathBuf> {
+pub fn get_or_download_model(model_info: &ModelInfo) -> Result<PathBuf> {
     let cache_dir = get_cache_dir()?;
     let model_path = cache_dir.join(model_info.filename);
 
     // Check if model already exists and has correct checksum
     if model_path.exists() {
-        if verbose {
-            println!("🔍 Checking cached model: {}", model_path.display());
-        }
+        log::debug!("🔍 Checking cached model: {}", model_path.display());
 
         match verify_checksum(&model_path, model_info.md5_checksum) {
             Ok(true) => {
-                if verbose {
-                    println!("✅ Using cached model with valid checksum");
-                }
+                log::debug!("✅ Using cached model with valid checksum");
                 return Ok(model_path);
             }
             Ok(false) => {
-                if verbose {
-                    println!("⚠️  Cached model has invalid checksum, re-downloading");
-                }
+                log::warn!("⚠️  Cached model has invalid checksum, re-downloading");
                 fs::remove_file(&model_path)?;
             }
             Err(e) => {
-                if verbose {
-                    println!("⚠️  Error verifying checksum: {e}, re-downloading");
-                }
+                log::warn!("⚠️  Error verifying checksum: {e}, re-downloading");
                 fs::remove_file(&model_path)?;
             }
         }
     }
 
     // Download the model
-    download_model(model_info.url, &model_path, verbose)?;
+    download_model(model_info.url, &model_path)?;
 
     // Verify the downloaded model
     if !verify_checksum(&model_path, model_info.md5_checksum)? {
@@ -121,9 +109,7 @@ pub fn get_or_download_model(model_info: &ModelInfo, verbose: bool) -> Result<Pa
         ));
     }
 
-    if verbose {
-        println!("✅ Model downloaded and verified successfully");
-    }
+    log::info!("✅ Model downloaded and verified successfully");
 
     Ok(model_path)
 }

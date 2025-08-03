@@ -15,18 +15,10 @@ use crate::cutout_preprocessing::preprocess_image_for_isnet_v2;
 use crate::image_input::{collect_images_from_sources, ImageInputConfig};
 use crate::model_cache::{get_or_download_model, ISNET_GENERAL_MODEL};
 use crate::onnx_session::{
-    create_onnx_session, determine_optimal_device, ModelSource, SessionConfig, VerboseOutput,
+    create_onnx_session, determine_optimal_device, ModelSource, SessionConfig,
 };
 use crate::shared_metadata::{get_metadata_path, load_or_create_metadata, save_metadata};
-
-/// Macro to print only when verbose mode is enabled
-macro_rules! verbose_println {
-    ($config:expr, $($arg:tt)*) => {
-        if $config.base.verbose {
-            println!($($arg)*);
-        }
-    };
-}
+use log::{debug, info};
 
 #[derive(Serialize, Clone)]
 pub struct CutoutResult {
@@ -58,14 +50,6 @@ pub struct CutoutSection {
     pub mask_path: Option<String>,
 }
 
-impl VerboseOutput for crate::config::CutoutConfig {
-    fn verbose_println(&self, msg: String) {
-        if self.base.verbose {
-            println!("{msg}");
-        }
-    }
-}
-
 /// Check if a file is a supported image format
 /// Process a single image with an existing session
 fn process_single_image(
@@ -76,7 +60,7 @@ fn process_single_image(
 ) -> Result<CutoutResult> {
     let start_time = Instant::now();
 
-    verbose_println!(config, "🖼️  Processing: {}", image_path.display());
+    debug!("🖼️  Processing: {}", image_path.display());
 
     // Load and preprocess the image
     let img = image::open(image_path)?;
@@ -147,8 +131,7 @@ fn process_single_image(
 
     let processing_time = start_time.elapsed().as_secs_f64() * 1000.0;
 
-    verbose_println!(
-        config,
+    info!(
         "✅ Processed {} in {:.1}ms → {}",
         image_path.display(),
         processing_time,
@@ -252,7 +235,7 @@ fn handle_individual_metadata_output(
     // Save updated metadata
     save_metadata(&metadata, &metadata_path)?;
 
-    verbose_println!(config, "📋 Saved metadata to: {}", metadata_path.display());
+    debug!("📋 Saved metadata to: {}", metadata_path.display());
 
     Ok(())
 }
@@ -269,16 +252,14 @@ pub fn run_cutout_processing(config: CutoutConfig) -> Result<usize> {
         ));
     }
 
-    verbose_println!(config, "🎯 Found {} image(s) to process", image_files.len());
+    info!("🎯 Found {} image(s) to process", image_files.len());
 
     // Download model if needed
-    let model_path = get_or_download_model(&ISNET_GENERAL_MODEL, config.base.verbose)?;
+    let model_path = get_or_download_model(&ISNET_GENERAL_MODEL)?;
 
     // Determine optimal device
-    let device_selection =
-        determine_optimal_device(&config.base.device, image_files.len(), &config);
-    verbose_println!(
-        config,
+    let device_selection = determine_optimal_device(&config.base.device, image_files.len());
+    log::info!(
         "🔧 Using device: {} ({})",
         device_selection.device,
         device_selection.reason
@@ -287,13 +268,10 @@ pub fn run_cutout_processing(config: CutoutConfig) -> Result<usize> {
     // Create session using unified configuration
     let session_config = SessionConfig {
         device: &device_selection.device,
-        verbose: config.base.verbose,
-        suppress_warnings: false, // Allow warnings in cutout processing
     };
     let (mut session, session_creation_time) = create_onnx_session(
         ModelSource::FilePath(model_path.to_str().unwrap()),
         &session_config,
-        &config,
     )?;
 
     // Process all images
@@ -304,7 +282,7 @@ pub fn run_cutout_processing(config: CutoutConfig) -> Result<usize> {
         match process_single_image(&config, &mut session, image_path, session_creation_time) {
             Ok(result) => results.push(result),
             Err(e) => {
-                eprintln!("❌ Failed to process {}: {}", image_path.display(), e);
+                log::error!("❌ Failed to process {}: {}", image_path.display(), e);
                 // Continue with other images
             }
         }
@@ -315,8 +293,8 @@ pub fn run_cutout_processing(config: CutoutConfig) -> Result<usize> {
     // Individual metadata files are already created during processing
     // No need for batch metadata output with the new shared system
 
-    if config.base.verbose && results.len() > 1 {
-        println!(
+    if results.len() > 1 {
+        log::info!(
             "🏁 Processed {} images in {:.1}ms (avg: {:.1}ms per image)",
             results.len(),
             total_time,

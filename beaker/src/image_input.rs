@@ -2,15 +2,11 @@ use anyhow::Result;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Configuration for image input collection behavior
+/// Configuration for image collection behavior
 #[derive(Debug, Clone)]
 pub struct ImageInputConfig {
-    /// Error on unsupported files vs. skip silently
-    pub strict_mode: bool,
-    /// Error if glob patterns find no files
     pub require_glob_matches: bool,
-    /// Print warnings for glob errors
-    pub verbose_warnings: bool,
+    pub strict_mode: bool,
 }
 
 impl Default for ImageInputConfig {
@@ -18,7 +14,6 @@ impl Default for ImageInputConfig {
         Self {
             strict_mode: true,
             require_glob_matches: true,
-            verbose_warnings: true,
         }
     }
 }
@@ -29,7 +24,6 @@ impl ImageInputConfig {
         Self {
             strict_mode: true,
             require_glob_matches: true,
-            verbose_warnings: true,
         }
     }
 
@@ -38,7 +32,6 @@ impl ImageInputConfig {
         Self {
             strict_mode: false,
             require_glob_matches: false,
-            verbose_warnings: false,
         }
     }
 
@@ -124,11 +117,7 @@ pub fn collect_images_from_sources(
                                 }
                             }
                             Err(e) => {
-                                if config.verbose_warnings {
-                                    eprintln!(
-                                        "⚠️  Warning: Error reading path in glob {source}: {e}"
-                                    );
-                                }
+                                log::warn!("⚠️  Warning: Error reading path in glob {source}: {e}");
                             }
                         }
                     }
@@ -282,12 +271,10 @@ mod tests {
         let strict_config = ImageInputConfig::from_strict_flag(true);
         assert!(strict_config.strict_mode);
         assert!(strict_config.require_glob_matches);
-        assert!(strict_config.verbose_warnings);
 
         // Test strict=false creates permissive config
         let permissive_config = ImageInputConfig::from_strict_flag(false);
         assert!(!permissive_config.strict_mode);
         assert!(!permissive_config.require_glob_matches);
-        assert!(!permissive_config.verbose_warnings);
     }
 }

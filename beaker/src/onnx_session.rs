@@ -13,13 +13,6 @@ use crate::model_cache::get_coreml_cache_dir;
 /// Configuration for creating ONNX sessions
 pub struct SessionConfig<'a> {
     pub device: &'a str,
-    pub verbose: bool,
-    pub suppress_warnings: bool,
-}
-
-/// Trait for verbose output - allows different config types to provide verbose logging
-pub trait VerboseOutput {
-    fn verbose_println(&self, msg: String);
 }
 
 /// Model source for loading ONNX models
@@ -36,11 +29,7 @@ pub struct DeviceSelection {
 }
 
 /// Determine optimal device based on number of images and user preference
-pub fn determine_optimal_device(
-    requested_device: &str,
-    num_images: usize,
-    verbose_output: &dyn VerboseOutput,
-) -> DeviceSelection {
+pub fn determine_optimal_device(requested_device: &str, num_images: usize) -> DeviceSelection {
     const COREML_THRESHOLD: usize = 3; // Use CoreML for 3+ images
 
     match requested_device {
@@ -51,7 +40,7 @@ pub fn determine_optimal_device(
                 match coreml.is_available() {
                     Ok(true) => {
                         let reason = format!("Processing {num_images} images - using CoreML for better batch performance");
-                        verbose_output.verbose_println(format!("📊 {reason}"));
+                        log::info!("📊 {reason}");
                         DeviceSelection {
                             device: "coreml".to_string(),
                             reason,
@@ -61,7 +50,7 @@ pub fn determine_optimal_device(
                         let reason = format!(
                             "Processing {num_images} images - CoreML not available, using CPU"
                         );
-                        verbose_output.verbose_println(format!("📊 {reason}"));
+                        log::info!("📊 {reason}");
                         DeviceSelection {
                             device: "cpu".to_string(),
                             reason,
@@ -70,7 +59,7 @@ pub fn determine_optimal_device(
                 }
             } else {
                 let reason = format!("Processing {num_images} images - using CPU for small batch");
-                verbose_output.verbose_println(format!("📊 {reason}"));
+                log::info!("📊 {reason}");
                 DeviceSelection {
                     device: "cpu".to_string(),
                     reason,
@@ -88,7 +77,6 @@ pub fn determine_optimal_device(
 pub fn create_onnx_session(
     model_source: ModelSource,
     config: &SessionConfig,
-    verbose_output: &dyn VerboseOutput,
 ) -> Result<(Session, f64)> {
     // Set up CoreML cache directory if using CoreML
     let coreml_cache_dir = if config.device == "coreml" {
@@ -96,21 +84,15 @@ pub fn create_onnx_session(
             Ok(cache_dir) => {
                 // Create the cache directory if it doesn't exist
                 if let Err(e) = std::fs::create_dir_all(&cache_dir) {
-                    verbose_output.verbose_println(format!(
-                        "⚠️  Failed to create CoreML cache directory: {e}"
-                    ));
+                    log::warn!("⚠️  Failed to create CoreML cache directory: {e}");
                     None
                 } else {
-                    verbose_output.verbose_println(format!(
-                        "📂 Using CoreML cache directory: {}",
-                        cache_dir.display()
-                    ));
+                    log::debug!("📂 Using CoreML cache directory: {}", cache_dir.display());
                     Some(cache_dir)
                 }
             }
             Err(e) => {
-                verbose_output
-                    .verbose_println(format!("⚠️  Failed to get CoreML cache directory: {e}"));
+                log::warn!("⚠️  Failed to get CoreML cache directory: {e}");
                 None
             }
         }
@@ -124,9 +106,7 @@ pub fn create_onnx_session(
             Ok(true) => {
                 let coreml_provider = if let Some(cache_dir) = &coreml_cache_dir {
                     if let Some(cache_path_str) = cache_dir.to_str() {
-                        verbose_output.verbose_println(format!(
-                            "🗂️  Configuring CoreML model cache: {cache_path_str}"
-                        ));
+                        log::debug!("🗂️  Configuring CoreML model cache: {cache_path_str}");
                         CoreMLExecutionProvider::default().with_model_cache_dir(cache_path_str)
                     } else {
                         CoreMLExecutionProvider::default()
@@ -141,18 +121,16 @@ pub fn create_onnx_session(
                 ]
             }
             _ => {
-                verbose_output
-                    .verbose_println("⚠️  CoreML not available, falling back to CPU".to_string());
+                log::warn!("⚠️  CoreML not available, falling back to CPU");
                 vec![CPUExecutionProvider::default().build()]
             }
         },
         "cpu" => {
-            verbose_output.verbose_println("🖥️  Using CPU execution provider".to_string());
+            log::info!("🖥️  Using CPU execution provider");
             vec![CPUExecutionProvider::default().build()]
         }
         _ => {
-            verbose_output
-                .verbose_println(format!("⚠️  Unknown device '{}', using CPU", config.device));
+            log::warn!("⚠️  Unknown device '{}', using CPU", config.device);
             vec![CPUExecutionProvider::default().build()]
         }
     };
@@ -163,9 +141,9 @@ pub fn create_onnx_session(
         .map(|ep| format!("{ep:?}"))
         .collect();
 
-    // Set log level to suppress CoreML warnings unless verbose mode is enabled
-    let log_level = if config.verbose && !config.suppress_warnings {
-        LogLevel::Warning // Show warnings in verbose mode
+    // Set log level to suppress CoreML warnings unless debug logging is enabled
+    let log_level = if log::log_enabled!(log::Level::Debug) {
+        LogLevel::Warning // Show warnings in debug mode
     } else {
         LogLevel::Error // Suppress warnings in normal mode
     };
@@ -201,17 +179,17 @@ pub fn create_onnx_session(
         ModelSource::FilePath(path) => format!("ONNX model from {path}"),
     };
 
-    verbose_output.verbose_println(format!(
+    log::info!(
         "🤖 Loaded {} in {:.3}ms",
         model_info,
         session_load_time.as_secs_f64() * 1000.0
-    ));
+    );
 
     // Log execution provider information
-    verbose_output.verbose_println(format!(
+    log::debug!(
         "⚙️  Execution providers registered: {}",
         ep_names.join(" -> ")
-    ));
+    );
 
     Ok((session, session_load_time.as_secs_f64() * 1000.0))
 }
