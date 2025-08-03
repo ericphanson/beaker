@@ -1,4 +1,5 @@
 pub mod head_detection;
+pub mod image_input;
 pub mod model_cache;
 pub mod onnx_session;
 pub mod shared_metadata;

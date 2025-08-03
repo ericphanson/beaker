@@ -11,6 +11,7 @@ use crate::cutout_postprocessing::{
     apply_alpha_matting, create_cutout, create_cutout_with_background, postprocess_mask,
 };
 use crate::cutout_preprocessing::preprocess_image_for_isnet_v2;
+use crate::image_input::{collect_images_from_sources, ImageInputConfig};
 use crate::model_cache::{get_or_download_model, ISNET_GENERAL_MODEL};
 use crate::onnx_session::{
     create_onnx_session, determine_optimal_device, ModelSource, SessionConfig, VerboseOutput,
@@ -81,70 +82,6 @@ impl VerboseOutput for CutoutConfig {
 }
 
 /// Check if a file is a supported image format
-fn is_image_file(path: &Path) -> bool {
-    if let Some(ext) = path.extension() {
-        let ext_lower = ext.to_string_lossy().to_lowercase();
-        matches!(
-            ext_lower.as_str(),
-            "jpg" | "jpeg" | "png" | "webp" | "bmp" | "tiff" | "tif"
-        )
-    } else {
-        false
-    }
-}
-
-/// Find all image files in a directory (non-recursive)
-fn find_image_files(dir_path: &Path) -> Result<Vec<std::path::PathBuf>> {
-    let mut image_files = Vec::new();
-
-    for entry in fs::read_dir(dir_path)? {
-        let entry = entry?;
-        let path = entry.path();
-
-        if path.is_file() && is_image_file(&path) {
-            image_files.push(path);
-        }
-    }
-
-    // Sort for consistent ordering
-    image_files.sort();
-    Ok(image_files)
-}
-
-/// Collect all image files from multiple sources (files, directories, or glob patterns)
-fn collect_image_files_from_sources(sources: &[String]) -> Result<Vec<std::path::PathBuf>> {
-    let mut all_image_files = Vec::new();
-
-    for source in sources {
-        let source_path = Path::new(source);
-
-        if source_path.is_file() {
-            if is_image_file(source_path) {
-                all_image_files.push(source_path.to_path_buf());
-            }
-        } else if source_path.is_dir() {
-            let mut dir_files = find_image_files(source_path)?;
-            all_image_files.append(&mut dir_files);
-        } else if source.contains('*') || source.contains('?') {
-            // Handle glob patterns
-            for entry in glob::glob(source)? {
-                let path = entry?;
-                if path.is_file() && is_image_file(&path) {
-                    all_image_files.push(path);
-                }
-            }
-        }
-    }
-
-    // Sort all collected files for consistent ordering
-    all_image_files.sort();
-
-    // Remove duplicates (in case same file is specified multiple ways)
-    all_image_files.dedup();
-
-    Ok(all_image_files)
-}
-
 /// Process a single image with an existing session
 fn process_single_image(
     config: &CutoutConfig,
@@ -337,8 +274,9 @@ fn handle_individual_metadata_output(
 
 /// Process multiple images sequentially
 pub fn run_cutout_processing(config: CutoutConfig) -> Result<usize> {
-    // Collect all image files to process
-    let image_files = collect_image_files_from_sources(&config.sources)?;
+    // Collect all image files to process using permissive mode (like the original behavior)
+    let image_config = ImageInputConfig::permissive();
+    let image_files = collect_images_from_sources(&config.sources, &image_config)?;
 
     if image_files.is_empty() {
         return Err(anyhow::anyhow!(

@@ -4,10 +4,10 @@ use image::{DynamicImage, GenericImageView};
 use ndarray::Array;
 use ort::{session::Session, value::Value};
 use serde::Serialize;
-use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
+use crate::image_input::{collect_images_from_sources, ImageInputConfig};
 use crate::onnx_session::{
     create_onnx_session, determine_optimal_device, ModelSource, SessionConfig, VerboseOutput,
 };
@@ -73,18 +73,6 @@ impl VerboseOutput for HeadDetectionConfig {
 }
 
 /// Check if a file is a supported image format
-fn is_image_file(path: &Path) -> bool {
-    if let Some(ext) = path.extension() {
-        let ext = ext.to_string_lossy().to_lowercase();
-        matches!(
-            ext.as_str(),
-            "jpg" | "jpeg" | "png" | "bmp" | "tiff" | "tif" | "webp"
-        )
-    } else {
-        false
-    }
-}
-
 /// Get the appropriate output extension based on input file
 /// PNG files output PNG to preserve transparency, others output JPG
 fn get_output_extension(input_path: &Path) -> &'static str {
@@ -98,90 +86,6 @@ fn get_output_extension(input_path: &Path) -> &'static str {
     } else {
         "jpg"
     }
-}
-
-/// Find all image files in a directory (non-recursive)
-fn find_image_files(dir_path: &Path) -> Result<Vec<std::path::PathBuf>> {
-    let mut image_files = Vec::new();
-
-    for entry in fs::read_dir(dir_path)? {
-        let entry = entry?;
-        let path = entry.path();
-
-        if path.is_file() && is_image_file(&path) {
-            image_files.push(path);
-        }
-    }
-
-    // Sort for consistent ordering
-    image_files.sort();
-    Ok(image_files)
-}
-
-/// Collect all image files from multiple sources (files, directories, or glob patterns)
-fn collect_image_files_from_sources(sources: &[String]) -> Result<Vec<std::path::PathBuf>> {
-    let mut all_image_files = Vec::new();
-
-    for source in sources {
-        let source_path = Path::new(source);
-
-        if source_path.is_file() {
-            // Single file - check if it's an image
-            if is_image_file(source_path) {
-                all_image_files.push(source_path.to_path_buf());
-            } else {
-                return Err(anyhow::anyhow!(
-                    "File is not a supported image format: {}",
-                    source_path.display()
-                ));
-            }
-        } else if source_path.is_dir() {
-            // Directory - find all images inside
-            let dir_images = find_image_files(source_path)?;
-            all_image_files.extend(dir_images);
-        } else {
-            // Could be a glob pattern or non-existent path
-            match glob::glob(source) {
-                Ok(paths) => {
-                    let mut found_any = false;
-                    for path_result in paths {
-                        match path_result {
-                            Ok(path) => {
-                                if path.is_file() && is_image_file(&path) {
-                                    all_image_files.push(path);
-                                    found_any = true;
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!("⚠️  Warning: Error reading path in glob {source}: {e}");
-                            }
-                        }
-                    }
-                    if !found_any {
-                        return Err(anyhow::anyhow!(
-                            "No image files found matching pattern: {}",
-                            source
-                        ));
-                    }
-                }
-                Err(_) => {
-                    // Not a valid glob pattern, treat as non-existent path
-                    return Err(anyhow::anyhow!(
-                        "Source path does not exist and is not a valid glob pattern: {}",
-                        source
-                    ));
-                }
-            }
-        }
-    }
-
-    // Sort all collected files for consistent ordering
-    all_image_files.sort();
-
-    // Remove duplicates (in case same file is specified multiple ways)
-    all_image_files.dedup();
-
-    Ok(all_image_files)
 }
 
 pub fn make_path_relative_to_toml(file_path: &Path, toml_path: &Path) -> Result<String> {
@@ -629,8 +533,9 @@ fn handle_image_outputs(
 }
 
 pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
-    // Collect all image files from the provided sources
-    let image_files = collect_image_files_from_sources(&config.sources)?;
+    // Collect all image files from the provided sources using strict mode (like the original behavior)
+    let image_config = ImageInputConfig::strict();
+    let image_files = collect_images_from_sources(&config.sources, &image_config)?;
 
     if image_files.is_empty() {
         if config.verbose {

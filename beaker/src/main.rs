@@ -4,6 +4,7 @@ mod cutout_postprocessing;
 mod cutout_preprocessing;
 mod cutout_processing;
 mod head_detection;
+mod image_input;
 mod model_cache;
 mod onnx_session;
 mod shared_metadata;
