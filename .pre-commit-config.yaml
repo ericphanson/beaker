@@ -5,14 +5,16 @@ repos:
     hooks:
       # Run the linter.
       - id: ruff
-        args: [--fix]
+        args: [--fix, "--config=ruff.toml"]
       # Run the formatter.
       - id: ruff-format
+        args: ["--config=ruff.toml"]
+
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.4.0
     hooks:
-      - id: trailing-whitespace
+      # - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
       - id: check-added-large-files
@@ -27,3 +29,11 @@ repos:
       # Format Rust code automatically LAST (after clippy fixes)
       - id: fmt
         args: ['--manifest-path', 'beaker/Cargo.toml', '--']
+  # This goes last because formatting may change counts
+  - repo: local
+    hooks:
+      - id: cargo-warloc
+        name: Run cargo warloc
+        entry: bash scripts/run_warloc.sh
+        language: system
+        pass_filenames: false
