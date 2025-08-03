@@ -308,7 +308,6 @@ fn handle_individual_metadata_output(
 }
 
 /// Process multiple images sequentially
-
 pub fn run_cutout_processing(config: CutoutConfig) -> Result<usize> {
     // Collect all image files to process
     let image_files = collect_image_files_from_sources(&config.sources)?;
