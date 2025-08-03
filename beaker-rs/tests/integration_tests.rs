@@ -1120,3 +1120,376 @@ fn test_version_command() {
         "Version output should contain repository info"
     );
 }
+
+// ==================== CUTOUT TESTS ====================
+
+#[test]
+fn test_basic_cutout_single_image() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let image_path = test_image_path("example.jpg");
+
+    let (exit_code, stdout, stderr) = run_beaker_command(&[
+        "cutout",
+        &image_path,
+        "--output-dir",
+        temp_dir.path().to_str().unwrap(),
+    ]);
+
+    assert_eq!(
+        exit_code, 0,
+        "Command should exit successfully. Stderr: {stderr}"
+    );
+    assert!(
+        stdout.contains("Processed"),
+        "Should report processed images"
+    );
+    assert!(
+        stdout.contains("1 images"),
+        "Should mention processing 1 image"
+    );
+
+    // Check that cutout output was created
+    let cutout_path = temp_dir.path().join("example_cutout.png");
+    assert_file_exists_with_content(&cutout_path);
+
+    // Check that TOML metadata was created
+    let toml_path = temp_dir.path().join("example-beaker.toml");
+    assert_file_exists_with_content(&toml_path);
+
+    // Verify TOML content structure
+    let toml_content = fs::read_to_string(&toml_path).expect("Failed to read TOML file");
+    assert!(
+        toml_content.contains("[cutout]"),
+        "TOML should contain cutout section"
+    );
+    assert!(
+        toml_content.contains("model_version"),
+        "TOML should contain model version"
+    );
+    assert!(
+        toml_content.contains("processing_time_ms"),
+        "TOML should contain processing time"
+    );
+}
+
+#[test]
+fn test_cutout_with_mask_saving() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let image_path = test_image_path("example.jpg");
+
+    let (exit_code, stdout, stderr) = run_beaker_command(&[
+        "cutout",
+        &image_path,
+        "--save-mask",
+        "--output-dir",
+        temp_dir.path().to_str().unwrap(),
+    ]);
+
+    assert_eq!(
+        exit_code, 0,
+        "Command should exit successfully. Stderr: {stderr}"
+    );
+    assert!(
+        stdout.contains("Processed"),
+        "Should report processed images"
+    );
+
+    // Check that both cutout and mask outputs were created
+    let cutout_path = temp_dir.path().join("example_cutout.png");
+    let mask_path = temp_dir.path().join("example_mask.png");
+
+    assert_file_exists_with_content(&cutout_path);
+    assert_file_exists_with_content(&mask_path);
+
+    // Verify TOML contains mask path
+    let toml_path = temp_dir.path().join("example-beaker.toml");
+    let toml_content = fs::read_to_string(&toml_path).expect("Failed to read TOML file");
+    assert!(
+        toml_content.contains("mask_path"),
+        "TOML should contain mask path when --save-mask is used"
+    );
+}
+
+#[test]
+fn test_cutout_with_background_color() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let image_path = test_image_path("example.jpg");
+
+    let (exit_code, stdout, stderr) = run_beaker_command(&[
+        "cutout",
+        &image_path,
+        "--background-color",
+        "255,0,0,255", // Red background
+        "--output-dir",
+        temp_dir.path().to_str().unwrap(),
+    ]);
+
+    assert_eq!(
+        exit_code, 0,
+        "Command should exit successfully. Stderr: {stderr}"
+    );
+    assert!(
+        stdout.contains("Processed"),
+        "Should report processed images"
+    );
+
+    // Check that cutout output was created
+    let cutout_path = temp_dir.path().join("example_cutout.png");
+    assert_file_exists_with_content(&cutout_path);
+
+    // Verify TOML contains background color info
+    let toml_path = temp_dir.path().join("example-beaker.toml");
+    let toml_content = fs::read_to_string(&toml_path).expect("Failed to read TOML file");
+    assert!(
+        toml_content.contains("background_color"),
+        "TOML should contain background color info"
+    );
+    assert!(
+        toml_content.contains("255") && toml_content.contains("0"),
+        "TOML should contain the specified background color values"
+    );
+}
+
+#[test]
+fn test_cutout_with_alpha_matting() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let image_path = test_image_path("example.jpg");
+
+    let (exit_code, stdout, stderr) = run_beaker_command(&[
+        "cutout",
+        &image_path,
+        "--alpha-matting",
+        "--alpha-matting-foreground-threshold",
+        "200",
+        "--alpha-matting-background-threshold",
+        "50",
+        "--alpha-matting-erode-size",
+        "10",
+        "--output-dir",
+        temp_dir.path().to_str().unwrap(),
+    ]);
+
+    assert_eq!(
+        exit_code, 0,
+        "Command should exit successfully. Stderr: {stderr}"
+    );
+    assert!(
+        stdout.contains("Processed"),
+        "Should report processed images"
+    );
+
+    // Check that cutout output was created
+    let cutout_path = temp_dir.path().join("example_cutout.png");
+    assert_file_exists_with_content(&cutout_path);
+
+    // Verify TOML contains alpha matting settings
+    let toml_path = temp_dir.path().join("example-beaker.toml");
+    let toml_content = fs::read_to_string(&toml_path).expect("Failed to read TOML file");
+    assert!(
+        toml_content.contains("alpha_matting = true"),
+        "TOML should indicate alpha matting was enabled"
+    );
+}
+
+#[test]
+fn test_cutout_multiple_images() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+
+    let (exit_code, stdout, stderr) = run_beaker_command(&[
+        "cutout",
+        &test_image_path("example.jpg"),
+        &test_image_path("example-2-birds.jpg"),
+        "--output-dir",
+        temp_dir.path().to_str().unwrap(),
+    ]);
+
+    assert_eq!(
+        exit_code, 0,
+        "Command should exit successfully. Stderr: {stderr}"
+    );
+    assert!(
+        stdout.contains("Processed"),
+        "Should report processed images"
+    );
+    assert!(
+        stdout.contains("2 images"),
+        "Should mention processing 2 images"
+    );
+
+    // Check that both cutout outputs were created
+    let cutout1_path = temp_dir.path().join("example_cutout.png");
+    let cutout2_path = temp_dir.path().join("example-2-birds_cutout.png");
+
+    assert_file_exists_with_content(&cutout1_path);
+    assert_file_exists_with_content(&cutout2_path);
+
+    // Check that both TOML metadata files were created
+    let toml1_path = temp_dir.path().join("example-beaker.toml");
+    let toml2_path = temp_dir.path().join("example-2-birds-beaker.toml");
+
+    assert_file_exists_with_content(&toml1_path);
+    assert_file_exists_with_content(&toml2_path);
+}
+
+#[test]
+fn test_cutout_device_cpu() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let image_path = test_image_path("example.jpg");
+
+    let (exit_code, stdout, stderr) = run_beaker_command(&[
+        "cutout",
+        &image_path,
+        "--device",
+        "cpu",
+        "--output-dir",
+        temp_dir.path().to_str().unwrap(),
+    ]);
+
+    assert_eq!(
+        exit_code, 0,
+        "Command should exit successfully. Stderr: {stderr}"
+    );
+    assert!(
+        stdout.contains("Using device: cpu"),
+        "Should report using CPU device"
+    );
+    assert!(
+        stdout.contains("CPU execution provider"),
+        "Should mention CPU execution provider"
+    );
+
+    // Check that cutout output was created
+    let cutout_path = temp_dir.path().join("example_cutout.png");
+    assert_file_exists_with_content(&cutout_path);
+}
+
+#[test]
+fn test_cutout_device_coreml() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let image_path = test_image_path("example.jpg");
+
+    let (exit_code, stdout, stderr) = run_beaker_command(&[
+        "cutout",
+        &image_path,
+        "--device",
+        "coreml",
+        "--output-dir",
+        temp_dir.path().to_str().unwrap(),
+    ]);
+
+    assert_eq!(
+        exit_code, 0,
+        "Command should exit successfully. Stderr: {stderr}"
+    );
+    assert!(
+        stdout.contains("Using device: coreml"),
+        "Should report using CoreML device"
+    );
+
+    // Check that cutout output was created
+    let cutout_path = temp_dir.path().join("example_cutout.png");
+    assert_file_exists_with_content(&cutout_path);
+}
+
+#[test]
+fn test_cutout_device_auto_selection() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+
+    // Test with single image (should select CPU)
+    let (exit_code, stdout, stderr) = run_beaker_command(&[
+        "cutout",
+        &test_image_path("example.jpg"),
+        "--device",
+        "auto",
+        "--output-dir",
+        temp_dir.path().to_str().unwrap(),
+    ]);
+
+    assert_eq!(
+        exit_code, 0,
+        "Command should exit successfully. Stderr: {stderr}"
+    );
+    assert!(
+        stdout.contains("Using device: cpu"),
+        "Single image should select CPU with auto device"
+    );
+    assert!(
+        stdout.contains("using CPU for small batch"),
+        "Should mention small batch reasoning"
+    );
+}
+
+#[test]
+fn test_cutout_no_metadata() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let image_path = test_image_path("example.jpg");
+
+    let (exit_code, stdout, stderr) = run_beaker_command(&[
+        "cutout",
+        &image_path,
+        "--no-metadata",
+        "--output-dir",
+        temp_dir.path().to_str().unwrap(),
+    ]);
+
+    assert_eq!(
+        exit_code, 0,
+        "Command should exit successfully. Stderr: {stderr}"
+    );
+    assert!(
+        stdout.contains("Processed"),
+        "Should report processed images"
+    );
+
+    // Check that cutout output was created
+    let cutout_path = temp_dir.path().join("example_cutout.png");
+    assert_file_exists_with_content(&cutout_path);
+
+    // Check that NO TOML metadata was created
+    let toml_path = temp_dir.path().join("example-beaker.toml");
+    assert!(
+        !toml_path.exists(),
+        "TOML metadata should not be created with --no-metadata"
+    );
+}
+
+#[test]
+fn test_cutout_help_command() {
+    let (exit_code, stdout, _stderr) = run_beaker_command(&["cutout", "--help"]);
+
+    assert_eq!(exit_code, 0, "Cutout help command should exit successfully");
+    assert!(
+        stdout.contains("Remove backgrounds from images"),
+        "Help should contain cutout description"
+    );
+    assert!(
+        stdout.contains("--alpha-matting"),
+        "Help should contain alpha matting option"
+    );
+    assert!(
+        stdout.contains("--background-color"),
+        "Help should contain background color option"
+    );
+    assert!(
+        stdout.contains("--save-mask"),
+        "Help should contain save mask option"
+    );
+}
+
+#[test]
+fn test_cutout_invalid_image() {
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+
+    let (exit_code, _stdout, stderr) = run_beaker_command(&[
+        "cutout",
+        "nonexistent.jpg",
+        "--output-dir",
+        temp_dir.path().to_str().unwrap(),
+    ]);
+
+    assert_ne!(exit_code, 0, "Command should fail with nonexistent image");
+    assert!(
+        stderr.contains("No image files found") || stderr.contains("error"),
+        "Should indicate error with nonexistent file"
+    );
+}

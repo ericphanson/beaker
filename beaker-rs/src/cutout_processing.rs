@@ -336,7 +336,6 @@ pub fn run_cutout_processing(config: CutoutConfig) -> Result<usize> {
     // Create session using unified configuration
     let session_config = SessionConfig {
         device: &device_selection.device,
-        num_images: image_files.len(),
         verbose: config.verbose,
         suppress_warnings: false, // Allow warnings in cutout processing
     };

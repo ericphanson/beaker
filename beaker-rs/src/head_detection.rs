@@ -659,7 +659,6 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
     // Create session using unified ONNX session management
     let session_config = SessionConfig {
         device: &device_selection.device,
-        num_images: image_files.len(),
         verbose: config.verbose,
         suppress_warnings: true, // Suppress CoreML warnings for YOLO models
     };

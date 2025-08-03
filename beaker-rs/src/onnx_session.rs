@@ -10,7 +10,6 @@ use std::time::Instant;
 /// Configuration for creating ONNX sessions
 pub struct SessionConfig<'a> {
     pub device: &'a str,
-    pub num_images: usize,
     pub verbose: bool,
     pub suppress_warnings: bool,
 }
