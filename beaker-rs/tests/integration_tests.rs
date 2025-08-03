@@ -202,7 +202,7 @@ fn test_head_detection_with_bounding_boxes() {
     assert_file_exists_with_content(&toml_path);
 
     // Check for bounding box image
-    let bbox_path = temp_dir.path().join("example-bounding-box.jpg");
+    let bbox_path = temp_dir.path().join("example_bounding-box.jpg");
     assert_file_exists_with_content(&bbox_path);
 }
 
@@ -241,7 +241,7 @@ fn test_head_detection_with_all_outputs() {
     assert_file_exists_with_content(&toml_path);
 
     // Check for bounding box image
-    let bbox_path = temp_dir.path().join("example-2-birds-bounding-box.jpg");
+    let bbox_path = temp_dir.path().join("example-2-birds_bounding-box.jpg");
     assert_file_exists_with_content(&bbox_path);
 
     // Check for crop images (numbered files when using --output-dir with multiple detections)
@@ -653,7 +653,7 @@ fn test_bounding_box_format_consistency() {
     );
 
     // Check that PNG bounding box file was created
-    let png_bbox_path = output_dir.join("test-transparent-bounding-box.png");
+    let png_bbox_path = output_dir.join("test-transparent_bounding-box.png");
     assert_file_exists_with_content(&png_bbox_path);
 
     // Verify it's a valid PNG
@@ -687,7 +687,7 @@ fn test_bounding_box_format_consistency() {
     );
 
     // Check that JPEG bounding box file was created
-    let jpg_bbox_path = output_dir.join("test-image-bounding-box.jpg");
+    let jpg_bbox_path = output_dir.join("test-image_bounding-box.jpg");
     assert_file_exists_with_content(&jpg_bbox_path);
 
     // Verify it's a valid JPEG
@@ -746,8 +746,8 @@ fn test_mixed_format_batch_processing() {
     // No "_crop" suffix when using --output-dir
     let jpg_crop = output_dir.join("test1.jpg");
     let png_crop = output_dir.join("test2.png");
-    let jpg_bbox = output_dir.join("test1-bounding-box.jpg");
-    let png_bbox = output_dir.join("test2-bounding-box.png");
+    let jpg_bbox = output_dir.join("test1_bounding-box.jpg");
+    let png_bbox = output_dir.join("test2_bounding-box.png");
 
     assert_file_exists_with_content(&jpg_crop);
     assert_file_exists_with_content(&png_crop);

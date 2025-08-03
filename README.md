@@ -56,7 +56,7 @@ can be processed with
 beaker head --crop example.jpg
 ```
 
-yielding the output crop saved as `example-crop.jpg` (with 25% padding around the detected head)
+yielding the output crop saved as `example_crop.jpg` (with 25% padding around the detected head)
 
 ![](./example-crop.jpg)
 

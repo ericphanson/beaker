@@ -579,12 +579,12 @@ fn handle_image_outputs(
         let bbox_filename = if let Some(output_dir) = &config.output_dir {
             let output_dir = Path::new(output_dir);
             std::fs::create_dir_all(output_dir)?;
-            output_dir.join(format!("{input_stem}-bounding-box.{output_ext}"))
+            output_dir.join(format!("{input_stem}_bounding-box.{output_ext}"))
         } else {
             source_path
                 .parent()
                 .unwrap()
-                .join(format!("{input_stem}-bounding-box.{output_ext}"))
+                .join(format!("{input_stem}_bounding-box.{output_ext}"))
         };
 
         save_bounding_box_image(img, detections, &bbox_filename)?;
