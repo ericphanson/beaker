@@ -77,9 +77,9 @@ Here we describe the model used by `beaker head`, which has been finetuned to de
 
 Here are the validation metrics from the [v1](https://github.com/ericphanson/beaker/releases/tag/bird-head-detector-v1.0.0) model currently used by `beaker`:
 
-| **Epoch** | **Precision** | **Recall** | **mAP@0.5** | **mAP@0.5:0.95** | **Val Box Loss** | **Val CLS Loss** | **Val DFL Loss** |
-|----------:|--------------:|-----------:|------------:|-----------------:|-----------------:|-----------------:|-----------------:|
-| 17        | 0.9771        | 0.9646     | 0.9851      | 0.6779           | 1.1704           | 0.4518           | 1.2195           |
+| **Precision** | **Recall** | **mAP@0.5** | **mAP@0.5:0.95** | **Val Box Loss** | **Val CLS Loss** | **Val DFL Loss** |
+|--------------:|-----------:|------------:|-----------------:|-----------------:|-----------------:|-----------------:|
+| 0.9771        | 0.9646     | 0.9851      | 0.6779           | 1.1704           | 0.4518           | 1.2195           |
 
 - **Precision**: Proportion of predicted bird heads that are correct (≈ 97.7%).
 - **Recall**: Proportion of actual bird heads detected (≈ 96.5%).
