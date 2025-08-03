@@ -4,7 +4,7 @@ Benchmark script for comparing beaker vs rembg performance.
 
 Tests:
 1. Single image processing (head detection, cutout)
-2. Batch processing (20x copies of each image)
+2. Batch processing (10x copies of each image)
 3. End-to-end time comparison
 4. Loading time vs inference time breakdown
 """
@@ -18,6 +18,9 @@ import json
 import statistics
 from pathlib import Path
 from typing import Dict, List, Tuple
+
+# Global constants
+BATCH_SIZE = 10
 
 
 class BenchmarkResult:
@@ -224,7 +227,7 @@ def benchmark_rembg(image_path: str, runs: int = 3) -> BenchmarkResult:
     return result
 
 
-def create_batch_images(image_path: str, count: int = 20) -> str:
+def create_batch_images(image_path: str, count: int = BATCH_SIZE) -> str:
     """Create a temporary directory with multiple copies of the image."""
     temp_dir = tempfile.mkdtemp(prefix="beaker_batch_")
     image_name = Path(image_path).stem
@@ -237,33 +240,59 @@ def create_batch_images(image_path: str, count: int = 20) -> str:
     return temp_dir
 
 
+def count_images_in_dir(directory: str) -> int:
+    """Count the number of image files in a directory."""
+    image_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif"}
+    count = 0
+    for file_path in Path(directory).iterdir():
+        if file_path.is_file() and file_path.suffix.lower() in image_extensions:
+            count += 1
+    return count
+
+
 def benchmark_beaker_batch(
-    temp_dir: str, command: str, device: str = "auto", runs: int = 3
+    temp_dir: str, command: str, device: str = "cpu", runs: int = 3
 ) -> BenchmarkResult:
     """Benchmark beaker batch processing."""
     result = BenchmarkResult(f"beaker_{command}_batch_{device}")
 
-    for run in range(runs):
-        cmd = [
-            "./target/release/beaker",
-            command,
-            temp_dir,
-            "--device",
-            device,
-            "--verbose",
-            "--no-metadata",
-        ]
-        success, stdout, stderr, total_time = run_command(
-            cmd, timeout=300
-        )  # 5 min timeout for batch
+    # Create output directory to ensure beaker doesn't modify input directory
+    output_dir = tempfile.mkdtemp(prefix="beaker_batch_output_")
 
-        if not success:
-            result.success = False
-            result.error_message = f"Run {run+1} failed: {stderr}"
-            break
+    try:
+        for run in range(runs):
+            cmd = [
+                "./target/release/beaker",
+                command,
+                temp_dir,
+                "--device",
+                device,
+                "--verbose",
+                "--no-metadata",
+                "--output-dir",
+                output_dir,
+            ]
+            success, stdout, stderr, total_time = run_command(
+                cmd, timeout=300
+            )  # 5 min timeout for batch
 
-        load_time, inference_time = parse_beaker_output(stdout)
-        result.add_run(load_time, inference_time, total_time * 1000)  # Convert to ms
+            if not success:
+                result.success = False
+                result.error_message = f"Run {run+1} failed: {stderr}"
+                break
+
+            load_time, inference_time = parse_beaker_output(stdout)
+            result.add_run(
+                load_time, inference_time, total_time * 1000
+            )  # Convert to ms
+
+            # Clean output directory for next run
+            shutil.rmtree(output_dir, ignore_errors=True)
+            output_dir = tempfile.mkdtemp(prefix="beaker_batch_output_")
+
+    finally:
+        # Clean up output directory
+        shutil.rmtree(output_dir, ignore_errors=True)
 
     return result
 
@@ -384,7 +413,7 @@ def main():
     print("\n📸 Single Image Benchmarks")
     print("-" * 30)
 
-    devices = ["cpu", "coreml", "auto"]
+    devices = ["cpu", "coreml"]
     images = [("example", example1), ("example-2-birds", example2)]
 
     for img_name, img_path in images:
@@ -422,13 +451,20 @@ def main():
         else:
             print("❌")
 
-    # Batch benchmarks (20x copies)
-    print("\n📦 Batch Processing Benchmarks (20x images)")
+    # Batch benchmarks (10x copies)
+    print(f"\n📦 Batch Processing Benchmarks ({BATCH_SIZE}x images)")
     print("-" * 45)
 
     for img_name, img_path in images:
         print(f"\nCreating batch for {img_name}...")
-        batch_dir = create_batch_images(img_path, 20)
+        batch_dir = create_batch_images(img_path, BATCH_SIZE)
+
+        # Verify image count
+        actual_count = count_images_in_dir(batch_dir)
+        if actual_count != BATCH_SIZE:
+            print(f"❌ Expected {BATCH_SIZE} images, found {actual_count}")
+            shutil.rmtree(batch_dir, ignore_errors=True)
+            continue
 
         try:
             # Beaker head batch
@@ -438,11 +474,18 @@ def main():
                 results[key] = benchmark_beaker_batch(batch_dir, "head", device)
                 if results[key].success:
                     mean_time = (
-                        results[key].get_stats()["total_time"]["mean"] / 20
+                        results[key].get_stats()["total_time"]["mean"] / BATCH_SIZE
                     )  # Per image
                     print(f"✅ ({mean_time:.0f}ms/img)")
                 else:
                     print("❌")
+
+                # Verify input directory wasn't modified
+                post_count = count_images_in_dir(batch_dir)
+                if post_count != BATCH_SIZE:
+                    print(
+                        f"  ⚠️  Warning: Input directory modified! {BATCH_SIZE} → {post_count} images"
+                    )
 
             # Beaker cutout batch
             for device in devices:
@@ -451,11 +494,18 @@ def main():
                 results[key] = benchmark_beaker_batch(batch_dir, "cutout", device)
                 if results[key].success:
                     mean_time = (
-                        results[key].get_stats()["total_time"]["mean"] / 20
+                        results[key].get_stats()["total_time"]["mean"] / BATCH_SIZE
                     )  # Per image
                     print(f"✅ ({mean_time:.0f}ms/img)")
                 else:
                     print("❌")
+
+                # Verify input directory wasn't modified
+                post_count = count_images_in_dir(batch_dir)
+                if post_count != BATCH_SIZE:
+                    print(
+                        f"  ⚠️  Warning: Input directory modified! {BATCH_SIZE} → {post_count} images"
+                    )
 
             # rembg batch
             print("  rembg batch...", end=" ", flush=True)
@@ -463,7 +513,7 @@ def main():
             results[key] = benchmark_rembg_batch(batch_dir)
             if results[key].success:
                 mean_time = (
-                    results[key].get_stats()["total_time"]["mean"] / 20
+                    results[key].get_stats()["total_time"]["mean"] / BATCH_SIZE
                 )  # Per image
                 print(f"✅ ({mean_time:.0f}ms/img)")
             else:
