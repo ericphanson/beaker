@@ -222,7 +222,7 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
         beaker_version: Some(env!("CARGO_PKG_VERSION").to_string()),
         command_line: Some(command_line.to_vec()),
         exit_code: Some(0),
-        total_processing_time_ms: Some(result.processing_time_ms()),
+        model_processing_time_ms: Some(result.processing_time_ms()),
     };
 
     // Get core results and config

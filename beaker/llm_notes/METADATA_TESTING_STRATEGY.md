@@ -64,7 +64,7 @@ timestamp = "2025-08-04T12:34:56.789Z"
 beaker_version = "0.1.1"
 command_line = ["head", "../example.jpg", "--confidence", "0.25"]
 exit_code = 0
-total_processing_time_ms = 1425.3
+model_processing_time_ms = 1425.3
 
 # System info for this head invocation
 [head.system]
@@ -121,7 +121,7 @@ timestamp = "2025-08-04T12:35:30.123Z"
 beaker_version = "0.1.1"
 command_line = ["cutout", "../example.jpg", "--alpha-matting", "--device", "cpu"]
 exit_code = 0
-total_processing_time_ms = 6100.0
+model_processing_time_ms = 6100.0
 
 # System info for this cutout invocation
 [cutout.system]
@@ -218,7 +218,7 @@ assert_eq!(metadata.cutout.config.alpha_matting_foreground_threshold, 200);
 **Metadata Approach:**
 ```rust
 let metadata = parse_toml(&toml_path)?;
-assert!(metadata.head.execution.total_processing_time_ms > 0.0);
+assert!(metadata.head.execution.model_processing_time_ms > 0.0);
 assert!(metadata.head.system.model_load_time_ms > 0.0);
 ```
 
@@ -416,7 +416,7 @@ fn test_scenario_matrix() {
                 MetadataCheck::FilesProcessed("head", 1),
                 MetadataCheck::ConfigValue("head", "config.confidence", json!(0.25)),
                 MetadataCheck::ConfigValue("head", "config.device", json!("cpu")),
-                MetadataCheck::TimingBound("head", "execution.total_processing_time_ms", 10.0, 500.0), // Head model: very fast
+                MetadataCheck::TimingBound("head", "execution.model_processing_time_ms", 10.0, 500.0), // Head model: very fast
                 MetadataCheck::CommandLine("head", vec!["head", "../example.jpg", "--device", "cpu", "--confidence", "0.25"]),
             ],
         },
@@ -430,7 +430,7 @@ fn test_scenario_matrix() {
                 MetadataCheck::ConfigValue("head", "config.iou_threshold", json!(0.3)),
                 MetadataCheck::ConfigValue("head", "config.crop", json!(true)),
                 MetadataCheck::ConfigValue("head", "config.bounding_box", json!(true)),
-                MetadataCheck::TimingBound("head", "execution.total_processing_time_ms", 10.0, 500.0),
+                MetadataCheck::TimingBound("head", "execution.model_processing_time_ms", 10.0, 500.0),
                 MetadataCheck::OutputCreated("head", "example_crop_1.jpg"),
                 MetadataCheck::OutputCreated("head", "example_bounding-box.jpg"),
             ],
@@ -446,7 +446,7 @@ fn test_scenario_matrix() {
                 MetadataCheck::OutputCreated("cutout", "example_cutout.png"),
                 MetadataCheck::OutputCreated("cutout", "example_mask.png"),
                 MetadataCheck::FilesProcessed("cutout", 1),
-                MetadataCheck::TimingBound("cutout", "execution.total_processing_time_ms", 1000.0, 15000.0), // Cutout model: slow
+                MetadataCheck::TimingBound("cutout", "execution.model_processing_time_ms", 1000.0, 15000.0), // Cutout model: slow
             ],
         },
         TestScenario {
@@ -458,7 +458,7 @@ fn test_scenario_matrix() {
                 MetadataCheck::ConfigValue("cutout", "config.background_color", json!([255, 0, 0, 255])),
                 MetadataCheck::ConfigValue("cutout", "config.alpha_matting", json!(false)),
                 MetadataCheck::FilesProcessed("cutout", 1),
-                MetadataCheck::TimingBound("cutout", "execution.total_processing_time_ms", 1000.0, 15000.0),
+                MetadataCheck::TimingBound("cutout", "execution.model_processing_time_ms", 1000.0, 15000.0),
             ],
         },
         TestScenario {
@@ -471,8 +471,8 @@ fn test_scenario_matrix() {
                 MetadataCheck::FilesProcessed("cutout", 1),
                 MetadataCheck::ConfigValue("head", "config.crop", json!(true)),
                 MetadataCheck::ConfigValue("cutout", "config.save_mask", json!(true)),
-                MetadataCheck::TimingBound("head", "execution.total_processing_time_ms", 10.0, 500.0), // Fast head
-                MetadataCheck::TimingBound("cutout", "execution.total_processing_time_ms", 1000.0, 15000.0), // Slow cutout
+                MetadataCheck::TimingBound("head", "execution.model_processing_time_ms", 10.0, 500.0), // Fast head
+                MetadataCheck::TimingBound("cutout", "execution.model_processing_time_ms", 1000.0, 15000.0), // Slow cutout
             ],
         },
         // Add more head detection scenarios here (comprehensive testing)

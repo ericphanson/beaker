@@ -220,10 +220,10 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
                         panic!("Head sections should exist for test {test_name}")
                     });
                     match *field {
-                        "execution.total_processing_time_ms" => head_sections
+                        "execution.model_processing_time_ms" => head_sections
                             .execution
                             .as_ref()
-                            .and_then(|e| e.total_processing_time_ms),
+                            .and_then(|e| e.model_processing_time_ms),
                         "system.model_load_time_ms" => head_sections
                             .system
                             .as_ref()
@@ -236,10 +236,10 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
                         panic!("Cutout sections should exist for test {test_name}")
                     });
                     match *field {
-                        "execution.total_processing_time_ms" => cutout_sections
+                        "execution.model_processing_time_ms" => cutout_sections
                             .execution
                             .as_ref()
-                            .and_then(|e| e.total_processing_time_ms),
+                            .and_then(|e| e.model_processing_time_ms),
                         "system.model_load_time_ms" => cutout_sections
                             .system
                             .as_ref()

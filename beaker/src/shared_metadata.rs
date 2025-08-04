@@ -61,7 +61,7 @@ pub struct ExecutionContext {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub total_processing_time_ms: Option<f64>,
+    pub model_processing_time_ms: Option<f64>,
 }
 
 /// System information for a tool invocation
@@ -210,7 +210,7 @@ mod tests {
                 beaker_version: Some("0.1.1".to_string()),
                 command_line: Some(vec!["head".to_string(), "test.jpg".to_string()]),
                 exit_code: Some(0),
-                total_processing_time_ms: Some(150.5),
+                model_processing_time_ms: Some(150.5),
             }),
             system: Some(SystemInfo {
                 device_requested: Some("auto".to_string()),

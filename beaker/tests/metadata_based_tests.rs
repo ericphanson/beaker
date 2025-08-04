@@ -20,7 +20,7 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 MetadataCheck::ConfigValue("head", "device", toml::Value::from("cpu")),
                 MetadataCheck::TimingBound(
                     "head",
-                    "execution.total_processing_time_ms",
+                    "execution.model_processing_time_ms",
                     10.0,
                     5000.0,
                 ),
@@ -40,7 +40,7 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 MetadataCheck::ConfigValue("head", "device", toml::Value::from("auto")),
                 MetadataCheck::TimingBound(
                     "head",
-                    "execution.total_processing_time_ms",
+                    "execution.model_processing_time_ms",
                     10.0,
                     5000.0,
                 ),
@@ -97,7 +97,7 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 MetadataCheck::CoreResultsField("head", "detections"),
                 MetadataCheck::TimingBound(
                     "head",
-                    "execution.total_processing_time_ms",
+                    "execution.model_processing_time_ms",
                     10.0,
                     5000.0,
                 ),
@@ -117,7 +117,7 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 MetadataCheck::ConfigValue("head", "confidence", toml::Value::from(0.25)),
                 MetadataCheck::TimingBound(
                     "head",
-                    "execution.total_processing_time_ms",
+                    "execution.model_processing_time_ms",
                     10.0,
                     5000.0,
                 ),
@@ -136,7 +136,7 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 MetadataCheck::OutputCreated("example.png"),
                 MetadataCheck::TimingBound(
                     "cutout",
-                    "execution.total_processing_time_ms",
+                    "execution.model_processing_time_ms",
                     1000.0,
                     15000.0,
                 ),
@@ -156,7 +156,7 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 MetadataCheck::OutputCreated("example_mask.png"),
                 MetadataCheck::TimingBound(
                     "cutout",
-                    "execution.total_processing_time_ms",
+                    "execution.model_processing_time_ms",
                     1000.0,
                     15000.0,
                 ),
@@ -176,13 +176,13 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 MetadataCheck::ExitCode("cutout", 0),
                 MetadataCheck::TimingBound(
                     "head",
-                    "execution.total_processing_time_ms",
+                    "execution.model_processing_time_ms",
                     10.0,
                     5000.0,
                 ),
                 MetadataCheck::TimingBound(
                     "cutout",
-                    "execution.total_processing_time_ms",
+                    "execution.model_processing_time_ms",
                     1000.0,
                     15000.0,
                 ),
