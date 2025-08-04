@@ -25,7 +25,7 @@ use std::io::Write;
 
 #[derive(clap::Subcommand)]
 pub enum Commands {
-    /// Detect bird heads in images
+    /// Detect & crop bird heads in bird images
     Head(HeadCommand),
 
     /// Remove backgrounds from images
