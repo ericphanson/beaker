@@ -1,4 +1,6 @@
 use clap::Parser;
+use env_logger::Builder;
+use env_logger::Env;
 use log::{error, info, Level};
 
 mod config;
@@ -69,13 +71,21 @@ fn get_log_level_from_verbosity(
 
 fn main() {
     let cli = Cli::parse();
-    let level_filter = get_log_level_from_verbosity(cli.global.verbosity.clone());
 
-    // Initialize env_logger with the verbosity level from CLI
-    // Adjust the verbosity mapping to match our desired levels:
-    // default: WARN, -v: INFO, -vv: DEBUG, -q: ERROR, -qq: OFF
-    env_logger::Builder::new()
-        .filter_level(level_filter)
+    // If user didn't pass -v/-q and RUST_LOG is set, honor the env var.
+    let use_env = !cli.global.verbosity.is_present() && std::env::var_os("RUST_LOG").is_some();
+
+    let mut logger = if use_env {
+        Builder::from_env(Env::default())
+    } else {
+        let level_filter = get_log_level_from_verbosity(cli.global.verbosity.clone());
+
+        let mut b = Builder::new();
+        b.filter_level(level_filter);
+        b
+    };
+
+    logger
         .format(|buf, record| {
             let level_str = match record.level() {
                 Level::Error => "ERROR".red().bold().to_string(),
