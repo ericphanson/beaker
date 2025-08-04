@@ -16,20 +16,11 @@ use crate::onnx_session::ModelSource;
 use crate::output_manager::OutputManager;
 use log::debug;
 
-#[derive(Serialize, Clone)]
-pub struct CutoutResult {
-    pub input_path: String,
-    pub output_path: String,
-    pub model_version: String,
-    pub processing_time_ms: f64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mask_path: Option<String>,
-}
-
 /// Core results for enhanced metadata (without config duplication)
 #[derive(Serialize)]
 pub struct CutoutCoreResult {
     pub model_version: String,
+    #[serde(skip_serializing)]
     pub processing_time_ms: f64,
     pub output_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -42,7 +33,7 @@ fn process_single_image(
     config: &CutoutConfig,
     session: &mut Session,
     image_path: &Path,
-) -> Result<CutoutResult> {
+) -> Result<CutoutCoreResult> {
     let start_time = Instant::now();
 
     debug!("🖼️  Processing: {}", image_path.display());
@@ -117,8 +108,7 @@ fn process_single_image(
 
     // Create result with timing information
 
-    let cutout_result = CutoutResult {
-        input_path: image_path.to_string_lossy().to_string(),
+    let cutout_result = CutoutCoreResult {
         output_path: output_path.to_string_lossy().to_string(),
         model_version: "isnet-general-use".to_string(),
         processing_time_ms: processing_time,
@@ -137,7 +127,7 @@ pub fn run_cutout_processing(config: CutoutConfig) -> Result<usize> {
 // Implementation of ModelProcessor trait for cutout processing
 use crate::model_processing::{ModelProcessor, ModelResult};
 
-impl ModelResult for CutoutResult {
+impl ModelResult for CutoutCoreResult {
     fn result_summary(&self) -> String {
         if self.mask_path.is_some() {
             "Generated cutout and mask".to_string()
@@ -178,7 +168,7 @@ pub struct CutoutProcessor;
 
 impl ModelProcessor for CutoutProcessor {
     type Config = CutoutConfig;
-    type Result = CutoutResult;
+    type Result = CutoutCoreResult;
 
     fn get_model_source<'a>() -> Result<ModelSource<'a>> {
         let model_path: PathBuf = get_or_download_model(&ISNET_GENERAL_MODEL)?;

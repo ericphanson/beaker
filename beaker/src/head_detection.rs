@@ -1,5 +1,4 @@
 use anyhow::Result;
-use chrono::{DateTime, Utc};
 use image::{DynamicImage, GenericImageView};
 use ndarray::Array;
 use ort::{session::Session, value::Value};
@@ -21,18 +20,6 @@ const MODEL_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/bird-head-d
 // Get model version from build script
 pub const MODEL_VERSION: &str =
     include_str!(concat!(env!("OUT_DIR"), "/bird-head-detector.version"));
-
-#[derive(Serialize)]
-pub struct HeadResult {
-    pub timestamp: DateTime<Utc>,
-    pub model_version: String,
-    pub confidence_threshold: f32,
-    pub iou_threshold: f32,
-    pub processing_time_ms: f64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub bounding_box_path: Option<String>,
-    pub detections: Vec<DetectionWithPath>,
-}
 
 /// Core results for enhanced metadata (without config duplication)
 #[derive(Serialize)]
