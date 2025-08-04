@@ -186,7 +186,7 @@ jobs:
     - name: Run integration tests
       env:
         RUST_LOG: "warn"  # Reduce log noise for tests
-      run: cargo test --test integration_tests --release --target ${{ matrix.target }}
+      run: cargo test --release --target ${{ matrix.target }}
       working-directory: beaker
 
     - name: Upload binary artifact

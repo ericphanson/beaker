@@ -3,7 +3,7 @@ use image::GenericImageView;
 use ort::{session::Session, value::Value};
 use serde::Serialize;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use crate::config::CutoutConfig;
@@ -12,6 +12,7 @@ use crate::cutout_postprocessing::{
 };
 use crate::cutout_preprocessing::preprocess_image_for_isnet_v2;
 use crate::model_cache::{get_or_download_model, ISNET_GENERAL_MODEL};
+use crate::onnx_session::ModelSource;
 use crate::output_manager::OutputManager;
 use log::debug;
 
@@ -179,14 +180,14 @@ impl ModelProcessor for CutoutProcessor {
     type Config = CutoutConfig;
     type Result = CutoutResult;
 
-    fn create_session_with_device(device: &str) -> Result<Session> {
-        use crate::model_processing::create_session_with_device;
-        use crate::onnx_session::ModelSource;
+    fn get_model_source<'a>() -> Result<ModelSource<'a>> {
+        let model_path: PathBuf = get_or_download_model(&ISNET_GENERAL_MODEL)?;
+        let path_str = model_path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Model path is not valid UTF-8"))?;
 
-        // Download model if needed
-        let model_path = get_or_download_model(&ISNET_GENERAL_MODEL)?;
-
-        create_session_with_device(ModelSource::FilePath(model_path.to_str().unwrap()), device)
+        let model_source = ModelSource::FilePath(path_str.to_string());
+        Ok(model_source)
     }
 
     fn process_single_image(

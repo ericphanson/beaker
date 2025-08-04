@@ -5,8 +5,8 @@ use ort::{
     logging::LogLevel,
     session::Session,
 };
+use serde::Serialize;
 use std::fs;
-use std::time::Instant;
 
 // Import model cache function
 use crate::model_cache::get_coreml_cache_dir;
@@ -40,7 +40,17 @@ pub struct SessionConfig<'a> {
 /// Model source for loading ONNX models
 pub enum ModelSource<'a> {
     EmbeddedBytes(&'a [u8]),
-    FilePath(&'a str),
+    FilePath(String),
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ModelInfo {
+    pub model_source: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_path: Option<String>,
+    pub model_size_bytes: usize,
+    pub description: String,
+    pub execution_providers: Vec<String>,
 }
 
 /// Device selection result
@@ -85,7 +95,7 @@ pub fn determine_optimal_device(requested_device: &str) -> DeviceSelection {
 pub fn create_onnx_session(
     model_source: ModelSource,
     config: &SessionConfig,
-) -> Result<(Session, f64)> {
+) -> Result<(Session, ModelInfo)> {
     // Set up CoreML cache directory if using CoreML
     let coreml_cache_dir = if config.device == "coreml" {
         match get_coreml_cache_dir() {
@@ -162,8 +172,6 @@ pub fn create_onnx_session(
     .map(ort_level_from_log)
     .unwrap_or(LogLevel::Fatal);
 
-    let session_start = Instant::now();
-
     let build_session = |bytes: &[u8]| {
         Session::builder()
             .map_err(|e| anyhow::anyhow!("Failed to create session builder: {}", e))?
@@ -182,32 +190,38 @@ pub fn create_onnx_session(
             .map_err(|e| anyhow::anyhow!("Failed to load model from memory: {}", e))
     };
 
-    let session = match model_source {
-        ModelSource::EmbeddedBytes(bytes) => build_session(bytes)?,
+    let (session, model_info) = match model_source {
+        ModelSource::EmbeddedBytes(bytes) => {
+            let session = build_session(bytes)?;
+            let info: ModelInfo = ModelInfo {
+                model_source: "embedded".to_string(),
+                model_path: None,
+                model_size_bytes: bytes.len(),
+                description: format!("embedded ONNX model ({} bytes)", bytes.len()),
+                execution_providers: ep_names,
+            };
+            (session, info)
+        }
         ModelSource::FilePath(path) => {
             let model_bytes =
-                fs::read(path).map_err(|e| anyhow::anyhow!("Failed to read model file: {}", e))?;
-            build_session(&model_bytes)?
+                fs::read(&path).map_err(|e| anyhow::anyhow!("Failed to read model file: {}", e))?;
+            let session = build_session(&model_bytes)?;
+            let info = ModelInfo {
+                model_source: "file".to_string(),
+                model_path: Some(path.clone()),
+                model_size_bytes: model_bytes.len(),
+                description: format!("ONNX model from {path}"),
+                execution_providers: ep_names,
+            };
+            (session, info)
         }
     };
-    let session_load_time = session_start.elapsed();
-
-    let model_info = match model_source {
-        ModelSource::EmbeddedBytes(bytes) => format!("embedded ONNX model ({} bytes)", bytes.len()),
-        ModelSource::FilePath(path) => format!("ONNX model from {path}"),
-    };
-
-    log::info!(
-        "🤖 Loaded {} in {:.3}ms",
-        model_info,
-        session_load_time.as_secs_f64() * 1000.0
-    );
 
     // Log execution provider information
     log::debug!(
         "⚙️  Execution providers registered: {}",
-        ep_names.join(" -> ")
+        model_info.execution_providers.join(" -> ")
     );
 
-    Ok((session, session_load_time.as_secs_f64() * 1000.0))
+    Ok((session, model_info))
 }

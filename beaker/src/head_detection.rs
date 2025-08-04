@@ -9,6 +9,7 @@ use std::time::Instant;
 
 use crate::config::HeadDetectionConfig;
 use crate::model_processing::{ModelProcessor, ModelResult};
+use crate::onnx_session::ModelSource;
 use crate::output_manager::OutputManager;
 use crate::yolo_postprocessing::{postprocess_output, Detection};
 use crate::yolo_preprocessing::preprocess_image;
@@ -400,11 +401,8 @@ impl ModelProcessor for HeadProcessor {
     type Config = HeadDetectionConfig;
     type Result = HeadDetectionResult;
 
-    fn create_session_with_device(device: &str) -> Result<Session> {
-        use crate::model_processing::create_session_with_device;
-        use crate::onnx_session::ModelSource;
-
-        create_session_with_device(ModelSource::EmbeddedBytes(MODEL_BYTES), device)
+    fn get_model_source<'a>() -> Result<ModelSource<'a>> {
+        Ok(ModelSource::EmbeddedBytes(MODEL_BYTES))
     }
 
     fn process_single_image(

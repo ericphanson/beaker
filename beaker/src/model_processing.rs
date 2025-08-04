@@ -12,6 +12,7 @@ use crate::config::BaseModelConfig;
 use crate::image_input::{collect_images_from_sources, ImageInputConfig};
 use crate::onnx_session::{create_onnx_session, ModelSource, SessionConfig};
 
+use crate::shared_metadata::{InputProcessing, SystemInfo};
 /// Configuration trait for models that can be processed generically
 pub trait ModelConfig {
     fn base(&self) -> &BaseModelConfig;
@@ -43,8 +44,8 @@ pub trait ModelProcessor {
     /// Result type returned by this model
     type Result: ModelResult;
 
-    /// Create an ONNX session for this model with a pre-determined device
-    fn create_session_with_device(device: &str) -> Result<Session>;
+    /// Get the model source for loading the ONNX model
+    fn get_model_source<'a>() -> Result<ModelSource<'a>>;
 
     /// Process a single image through the complete pipeline
     fn process_single_image(
@@ -55,16 +56,6 @@ pub trait ModelProcessor {
 
     /// Get serializable configuration for metadata
     fn serialize_config(config: &Self::Config) -> Result<toml::Value>;
-}
-
-/// Helper function to create session with pre-determined device
-pub fn create_session_with_device(model_source: ModelSource, device: &str) -> Result<Session> {
-    // Create session using unified ONNX session management
-    let session_config = SessionConfig { device };
-
-    let (session, _load_time) = create_onnx_session(model_source, &session_config)?;
-
-    Ok(session)
 }
 
 /// Generic batch processing function that works with any model
@@ -98,14 +89,31 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
 
     // Create session with timing
     let session_start = Instant::now();
-    let mut session = P::create_session_with_device(&device_selected)?;
-    let session_load_time = session_start.elapsed().as_secs_f64() * 1000.0;
+    let model_source = P::get_model_source();
 
-    // Get execution provider info
-    let execution_provider = if device_selected == "coreml" {
-        "CoreMLExecutionProvider"
-    } else {
-        "CPUExecutionProvider"
+    let session_config = SessionConfig {
+        device: &device_selected,
+    };
+
+    let (mut session, model_info) = create_onnx_session(model_source.unwrap(), &session_config)?;
+
+    let model_load_time_ms = session_start.elapsed().as_secs_f64() * 1000.0;
+
+    log::info!(
+        "🤖 Loaded {} in {:.3}ms",
+        model_info.description,
+        model_load_time_ms
+    );
+
+    let system = SystemInfo {
+        device_requested: Some(config.base().device.clone()),
+        device_selected: Some(device_selected.to_string()),
+        device_selection_reason: Some(device_selection_reason.to_string()),
+        execution_providers: model_info.execution_providers,
+        model_source: Some(model_info.model_source),
+        model_path: model_info.model_path,
+        model_size_bytes: Some(model_info.model_size_bytes.try_into().unwrap()),
+        model_load_time_ms: Some(model_load_time_ms),
     };
 
     // Collect source type information
@@ -129,6 +137,13 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
     let mut successful_count = 0;
     let mut failed_count = 0;
 
+    // Create input processing info
+    let input = InputProcessing {
+        sources: config.base().sources.to_vec(),
+        source_types: source_types.to_vec(),
+        strict_mode: config.base().strict,
+    };
+
     for (index, image_path) in image_files.iter().enumerate() {
         match P::process_single_image(&mut session, image_path, &config) {
             Ok(result) => {
@@ -150,13 +165,8 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
                         &config,
                         image_path,
                         &command_line,
-                        &device_selected,
-                        &device_selection_reason,
-                        execution_provider,
-                        session_load_time,
-                        &config.base().sources,
-                        &source_types,
-                        config.base().strict,
+                        system.clone(),
+                        input.clone(),
                         start_timestamp,
                     )?;
                 }
@@ -197,19 +207,12 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
     config: &P::Config,
     image_path: &std::path::Path,
     command_line: &[String],
-    device_selected: &str,
-    device_selection_reason: &str,
-    execution_provider: &str,
-    model_load_time_ms: f64,
-    sources: &[String],
-    source_types: &[String],
-    strict_mode: bool,
+    system: SystemInfo,
+    input: InputProcessing,
     start_timestamp: chrono::DateTime<chrono::Utc>,
 ) -> Result<()> {
     use crate::output_manager::OutputManager;
-    use crate::shared_metadata::{
-        CutoutSections, ExecutionContext, HeadSections, InputProcessing, SystemInfo,
-    };
+    use crate::shared_metadata::{CutoutSections, ExecutionContext, HeadSections};
 
     let output_manager = OutputManager::new(config, image_path);
 
@@ -220,29 +223,6 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
         command_line: Some(command_line.to_vec()),
         exit_code: Some(0),
         total_processing_time_ms: Some(result.processing_time_ms()),
-    };
-
-    // Create system info
-    let system = SystemInfo {
-        device_requested: Some(config.base().device.clone()),
-        device_selected: Some(device_selected.to_string()),
-        device_selection_reason: Some(device_selection_reason.to_string()),
-        execution_provider_used: Some(execution_provider.to_string()),
-        model_source: Some("embedded".to_string()), // TODO: Get from actual model source
-        model_path: None,          // TODO: Get from actual model path if downloaded
-        model_size_bytes: Some(0), // TODO: Get actual model size
-        model_load_time_ms: Some(model_load_time_ms),
-    };
-
-    // Create input processing info
-    let input = InputProcessing {
-        sources: Some(sources.to_vec()),
-        source_types: Some(source_types.to_vec()),
-        total_files_found: Some(1), // This is for a single file
-        successful_files: Some(1),
-        failed_files: Some(0),
-        strict_mode: Some(strict_mode),
-        output_files: Some(vec![]), // TODO: Collect actual output files
     };
 
     // Get core results and config

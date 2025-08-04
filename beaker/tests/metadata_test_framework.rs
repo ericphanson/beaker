@@ -23,8 +23,6 @@ pub struct TestScenario {
 pub enum MetadataCheck {
     /// Verify device was used for a specific tool
     DeviceUsed(&'static str, &'static str), // tool, device
-    /// Verify number of files processed
-    FilesProcessed(&'static str, usize), // tool, count
     /// Verify configuration value
     ConfigValue(&'static str, &'static str, Value), // tool, field_path, expected_value
     /// Verify timing is within bounds
@@ -154,24 +152,6 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
             );
         }
 
-        MetadataCheck::FilesProcessed(tool, expected_count) => {
-            let input = match *tool {
-                "head" => metadata.head.as_ref().and_then(|h| h.input.as_ref()),
-                "cutout" => metadata.cutout.as_ref().and_then(|c| c.input.as_ref()),
-                _ => panic!("Unknown tool: {tool}"),
-            };
-
-            assert!(
-                input.is_some(),
-                "Input info should exist for {tool} in test {test_name}"
-            );
-            let successful = input.unwrap().successful_files.unwrap_or_else(|| {
-                panic!("Successful files should be set for {tool} in test {test_name}")
-            });
-            assert_eq!(successful, *expected_count,
-                "Should have processed {expected_count} files for {tool} in test {test_name}, got {successful}");
-        }
-
         MetadataCheck::ConfigValue(tool, field_path, expected_value) => {
             let config = match *tool {
                 "head" => metadata.head.as_ref().and_then(|h| h.config.as_ref()),
@@ -295,15 +275,15 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
                 system.is_some(),
                 "System info should exist for {tool} in test {test_name}"
             );
-            let provider = system
-                .unwrap()
-                .execution_provider_used
-                .as_ref()
-                .unwrap_or_else(|| {
-                    panic!("Execution provider should be set for {tool} in test {test_name}")
-                });
-            assert_eq!(provider, expected_provider,
-                "Execution provider should be {expected_provider} for {tool} in test {test_name}, got {provider}");
+            let providers = &system.unwrap().execution_providers;
+
+            // Check that expected_provider name is contained in any of the provider strings
+            let provider_found = providers
+                .iter()
+                .any(|provider| provider.contains(expected_provider));
+
+            assert!(provider_found,
+        "Execution provider should contain {expected_provider} for {tool} in test {test_name}, got {providers:?}",);
         }
 
         MetadataCheck::ExitCode(tool, expected_code) => {

@@ -73,8 +73,7 @@ pub struct SystemInfo {
     pub device_selected: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub device_selection_reason: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub execution_provider_used: Option<String>,
+    pub execution_providers: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_source: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -88,20 +87,9 @@ pub struct SystemInfo {
 /// Input processing statistics for a tool invocation
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct InputProcessing {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sources: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source_types: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub total_files_found: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub successful_files: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub failed_files: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub strict_mode: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub output_files: Option<Vec<String>>,
+    pub sources: Vec<String>,
+    pub source_types: Vec<String>,
+    pub strict_mode: bool,
 }
 
 /// Load existing metadata from a file, or create new empty metadata
@@ -228,7 +216,7 @@ mod tests {
                 device_requested: Some("auto".to_string()),
                 device_selected: Some("cpu".to_string()),
                 device_selection_reason: Some("Auto-selected CPU".to_string()),
-                execution_provider_used: Some("CPUExecutionProvider".to_string()),
+                execution_providers: vec!["CPUExecutionProvider".to_string()],
                 model_source: Some("embedded".to_string()),
                 model_path: None,
                 model_size_bytes: Some(12345678),

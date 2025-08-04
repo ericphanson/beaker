@@ -16,7 +16,6 @@ fn get_test_scenarios() -> Vec<TestScenario> {
             expected_files: vec!["example.beaker.toml"],
             metadata_checks: vec![
                 MetadataCheck::DeviceUsed("head", "cpu"),
-                MetadataCheck::FilesProcessed("head", 1),
                 MetadataCheck::ConfigValue("head", "confidence", toml::Value::from(0.25)),
                 MetadataCheck::ConfigValue("head", "device", toml::Value::from("cpu")),
                 MetadataCheck::TimingBound(
@@ -37,7 +36,6 @@ fn get_test_scenarios() -> Vec<TestScenario> {
             args: vec!["../example.jpg", "--device", "auto", "--confidence", "0.5"],
             expected_files: vec!["example.beaker.toml"],
             metadata_checks: vec![
-                MetadataCheck::FilesProcessed("head", 1),
                 MetadataCheck::ConfigValue("head", "confidence", toml::Value::from(0.5)),
                 MetadataCheck::ConfigValue("head", "device", toml::Value::from("auto")),
                 MetadataCheck::TimingBound(
@@ -70,7 +68,6 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 MetadataCheck::ConfigValue("head", "confidence", toml::Value::from(0.5)),
                 MetadataCheck::ConfigValue("head", "crop", toml::Value::from(true)),
                 MetadataCheck::ConfigValue("head", "bounding_box", toml::Value::from(true)),
-                MetadataCheck::FilesProcessed("head", 1),
                 MetadataCheck::OutputCreated("example.jpg"),
                 MetadataCheck::OutputCreated("example_bounding-box.jpg"),
                 MetadataCheck::ExitCode("head", 0),
@@ -84,7 +81,6 @@ fn get_test_scenarios() -> Vec<TestScenario> {
             expected_files: vec!["example.beaker.toml"],
             metadata_checks: vec![
                 MetadataCheck::ConfigValue("head", "confidence", toml::Value::from(0.9)),
-                MetadataCheck::FilesProcessed("head", 1),
                 MetadataCheck::ExitCode("head", 0),
                 MetadataCheck::CoreResultsField("head", "model_version"),
                 // Note: May or may not have detections depending on the image
@@ -97,7 +93,6 @@ fn get_test_scenarios() -> Vec<TestScenario> {
             expected_files: vec!["example-2-birds.beaker.toml"],
             metadata_checks: vec![
                 MetadataCheck::ConfigValue("head", "confidence", toml::Value::from(0.3)),
-                MetadataCheck::FilesProcessed("head", 1),
                 MetadataCheck::ExitCode("head", 0),
                 MetadataCheck::CoreResultsField("head", "detections"),
                 MetadataCheck::TimingBound(
@@ -136,7 +131,6 @@ fn get_test_scenarios() -> Vec<TestScenario> {
             args: vec!["../example.jpg"],
             expected_files: vec!["example.beaker.toml", "example.png"],
             metadata_checks: vec![
-                MetadataCheck::FilesProcessed("cutout", 1),
                 MetadataCheck::ConfigValue("cutout", "alpha_matting", toml::Value::from(false)),
                 MetadataCheck::ConfigValue("cutout", "save_mask", toml::Value::from(false)),
                 MetadataCheck::OutputCreated("example.png"),
@@ -158,7 +152,6 @@ fn get_test_scenarios() -> Vec<TestScenario> {
             metadata_checks: vec![
                 MetadataCheck::ConfigValue("cutout", "alpha_matting", toml::Value::from(true)),
                 MetadataCheck::ConfigValue("cutout", "save_mask", toml::Value::from(true)),
-                MetadataCheck::FilesProcessed("cutout", 1),
                 MetadataCheck::OutputCreated("example.png"),
                 MetadataCheck::OutputCreated("example_mask.png"),
                 MetadataCheck::TimingBound(
@@ -177,8 +170,6 @@ fn get_test_scenarios() -> Vec<TestScenario> {
             args: vec![], // Handled specially
             expected_files: vec!["example.beaker.toml"],
             metadata_checks: vec![
-                MetadataCheck::FilesProcessed("head", 1),
-                MetadataCheck::FilesProcessed("cutout", 1),
                 MetadataCheck::ConfigValue("head", "crop", toml::Value::from(true)),
                 MetadataCheck::ConfigValue("cutout", "save_mask", toml::Value::from(true)),
                 MetadataCheck::ExitCode("head", 0),
