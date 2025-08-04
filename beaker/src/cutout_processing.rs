@@ -11,10 +11,18 @@ use crate::cutout_postprocessing::{
     apply_alpha_matting, create_cutout, create_cutout_with_background, postprocess_mask,
 };
 use crate::cutout_preprocessing::preprocess_image_for_isnet_v2;
-use crate::model_cache::{get_or_download_model, ISNET_GENERAL_MODEL};
+use crate::model_cache::{get_or_download_model, ModelInfo};
 use crate::onnx_session::ModelSource;
 use crate::output_manager::OutputManager;
 use log::debug;
+
+/// ISNet General Use model information
+pub const CUTOUT_MODEL_INFO: ModelInfo = ModelInfo {
+    name: "isnet-general-use-v1",
+    url: "https://github.com/ericphanson/beaker/releases/download/beaker-cutout-model-v1/isnet-general-use.onnx",
+    md5_checksum: "fc16ebd8b0c10d971d3513d564d01e29",
+    filename: "isnet-general-use.onnx",
+};
 
 /// Core results for enhanced metadata (without config duplication)
 #[derive(Serialize)]
@@ -110,7 +118,7 @@ fn process_single_image(
 
     let cutout_result = CutoutCoreResult {
         output_path: output_path.to_string_lossy().to_string(),
-        model_version: "isnet-general-use".to_string(),
+        model_version: CUTOUT_MODEL_INFO.name.to_string(),
         processing_time_ms: processing_time,
         mask_path: mask_path.map(|p| p.to_string_lossy().to_string()),
     };
@@ -171,7 +179,7 @@ impl ModelProcessor for CutoutProcessor {
     type Result = CutoutCoreResult;
 
     fn get_model_source<'a>() -> Result<ModelSource<'a>> {
-        let model_path: PathBuf = get_or_download_model(&ISNET_GENERAL_MODEL)?;
+        let model_path: PathBuf = get_or_download_model(&CUTOUT_MODEL_INFO)?;
         let path_str = model_path
             .to_str()
             .ok_or_else(|| anyhow::anyhow!("Model path is not valid UTF-8"))?;

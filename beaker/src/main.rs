@@ -19,7 +19,7 @@ mod yolo_preprocessing;
 
 use colored::*;
 use config::{CutoutCommand, CutoutConfig, GlobalArgs, HeadCommand, HeadDetectionConfig};
-use cutout_processing::run_cutout_processing;
+use cutout_processing::{run_cutout_processing, CUTOUT_MODEL_INFO};
 use head_detection::{run_head_detection, MODEL_VERSION};
 use std::io::Write;
 
@@ -206,8 +206,9 @@ fn main() {
         }
         Some(Commands::Version) => {
             // Print version information
-            println!("beaker {}", env!("CARGO_PKG_VERSION"));
+            println!("beaker v{}", env!("CARGO_PKG_VERSION"));
             println!("Head model version: {}", MODEL_VERSION.trim());
+            println!("Cutout model version: {}", CUTOUT_MODEL_INFO.name.trim());
             println!("Repository: {}", env!("CARGO_PKG_REPOSITORY"));
         }
         None => {

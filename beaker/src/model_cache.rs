@@ -6,20 +6,11 @@ use std::path::{Path, PathBuf};
 /// Model information for caching and verification
 #[derive(Debug)]
 pub struct ModelInfo {
-    #[allow(dead_code)]
     pub name: &'static str,
     pub url: &'static str,
     pub md5_checksum: &'static str,
     pub filename: &'static str,
 }
-
-/// ISNet General Use model information
-pub const ISNET_GENERAL_MODEL: ModelInfo = ModelInfo {
-    name: "isnet-general-use",
-    url: "https://github.com/ericphanson/beaker/releases/download/beaker-cutout-model-v1/isnet-general-use.onnx",
-    md5_checksum: "fc16ebd8b0c10d971d3513d564d01e29",
-    filename: "isnet-general-use.onnx",
-};
 
 /// Get the cache directory for storing downloaded models
 pub fn get_cache_dir() -> Result<PathBuf> {
