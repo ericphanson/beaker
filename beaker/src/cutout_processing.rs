@@ -26,22 +26,13 @@ pub struct CutoutResult {
     pub mask_path: Option<String>,
 }
 
+/// Core results for enhanced metadata (without config duplication)
 #[derive(Serialize)]
-pub struct CutoutOutput {
-    pub cutout: CutoutSection,
-}
-
-#[derive(Serialize)]
-pub struct CutoutSection {
+pub struct CutoutCoreResult {
     pub timestamp: DateTime<Utc>,
     pub model_version: String,
-    pub post_process_mask: bool,
-    pub alpha_matting: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub background_color: Option<[u8; 4]>,
     pub input_path: String,
     pub output_path: String,
-    pub processing_time_ms: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mask_path: Option<String>,
 }
@@ -140,23 +131,6 @@ fn process_single_image(
         mask_path: mask_path.map(|p| p.to_string_lossy().to_string()),
     };
 
-    // Handle individual metadata output
-    if !config.base.skip_metadata {
-        let cutout_section = CutoutSection {
-            timestamp: Utc::now(),
-            model_version: "isnet-general-use".to_string(),
-            post_process_mask: config.post_process_mask,
-            alpha_matting: config.alpha_matting,
-            background_color: config.background_color,
-            input_path: cutout_result.input_path.clone(),
-            output_path: cutout_result.output_path.clone(),
-            processing_time_ms: cutout_result.processing_time_ms,
-            mask_path: cutout_result.mask_path.clone(),
-        };
-
-        output_manager.save_metadata(cutout_section, "cutout")?;
-    }
-
     Ok(cutout_result)
 }
 
@@ -181,6 +155,22 @@ impl ModelResult for CutoutResult {
     fn processing_time_ms(&self) -> f64 {
         self.processing_time_ms
     }
+
+    fn tool_name(&self) -> &'static str {
+        "cutout"
+    }
+
+    fn core_results(&self) -> Result<serde_json::Value> {
+        let cutout_core_result = CutoutCoreResult {
+            timestamp: chrono::Utc::now(),
+            model_version: self.model_version.clone(),
+            input_path: self.input_path.clone(),
+            output_path: self.output_path.clone(),
+            mask_path: self.mask_path.clone(),
+        };
+
+        Ok(serde_json::to_value(cutout_core_result)?)
+    }
 }
 
 /// Cutout processor implementing the generic ModelProcessor trait
@@ -190,14 +180,14 @@ impl ModelProcessor for CutoutProcessor {
     type Config = CutoutConfig;
     type Result = CutoutResult;
 
-    fn create_session(config: &Self::Config) -> Result<Session> {
-        use crate::model_processing::create_session_with_source;
+    fn create_session_with_device(device: &str) -> Result<Session> {
+        use crate::model_processing::create_session_with_device;
         use crate::onnx_session::ModelSource;
 
         // Download model if needed
         let model_path = get_or_download_model(&ISNET_GENERAL_MODEL)?;
 
-        create_session_with_source(config, ModelSource::FilePath(model_path.to_str().unwrap()))
+        create_session_with_device(ModelSource::FilePath(model_path.to_str().unwrap()), device)
     }
 
     fn process_single_image(
@@ -207,5 +197,9 @@ impl ModelProcessor for CutoutProcessor {
     ) -> Result<Self::Result> {
         // Use the existing process_single_image function
         process_single_image(config, session, image_path)
+    }
+
+    fn serialize_config(config: &Self::Config) -> Result<serde_json::Value> {
+        Ok(serde_json::to_value(config)?)
     }
 }

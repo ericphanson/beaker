@@ -10,6 +10,7 @@
 
 use clap::Parser;
 use clap_verbosity_flag::Verbosity;
+use serde::Serialize;
 
 /// Parse RGBA color from string like "255,255,255,255"
 pub fn parse_rgba_color(s: &str) -> Result<[u8; 4], String> {
@@ -53,14 +54,15 @@ pub struct GlobalArgs {
     pub device: String,
 }
 
-/// Base model configuration containing common settings used by all models
-#[derive(Debug, Clone)]
+/// Base configuration common to all models
+#[derive(Debug, Clone, Serialize)]
 pub struct BaseModelConfig {
     /// Input sources (images or directories)
     pub sources: Vec<String>,
     /// Device for inference
     pub device: String,
     /// Optional output directory override
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub output_dir: Option<String>,
     /// Whether to skip metadata generation
     pub skip_metadata: bool,
@@ -93,8 +95,9 @@ pub struct HeadCommand {
 }
 
 /// Internal configuration for head detection processing
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HeadDetectionConfig {
+    #[serde(skip)]
     pub base: BaseModelConfig,
     pub confidence: f32,
     pub iou_threshold: f32,
@@ -139,14 +142,16 @@ pub struct CutoutCommand {
 }
 
 /// Internal configuration for cutout processing
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct CutoutConfig {
+    #[serde(skip)]
     pub base: BaseModelConfig,
     pub post_process_mask: bool,
     pub alpha_matting: bool,
     pub alpha_matting_foreground_threshold: u8,
     pub alpha_matting_background_threshold: u8,
     pub alpha_matting_erode_size: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub background_color: Option<[u8; 4]>,
     pub save_mask: bool,
 }
@@ -197,19 +202,6 @@ impl CutoutConfig {
             background_color: cmd.background_color,
             save_mask: cmd.save_mask,
         }
-    }
-}
-
-// Implement OutputManager's ModelConfig trait
-impl crate::output_manager::ModelConfig for HeadDetectionConfig {
-    fn base(&self) -> &BaseModelConfig {
-        &self.base
-    }
-}
-
-impl crate::output_manager::ModelConfig for CutoutConfig {
-    fn base(&self) -> &BaseModelConfig {
-        &self.base
     }
 }
 

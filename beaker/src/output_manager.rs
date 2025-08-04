@@ -9,16 +9,12 @@
 //! - Metadata path utilities
 
 use anyhow::Result;
-use serde::Serialize;
 use std::path::{Path, PathBuf};
 
-use crate::config::BaseModelConfig;
-use crate::shared_metadata::{get_metadata_path, load_or_create_metadata, save_metadata};
-
-/// Configuration trait for models that can be used with OutputManager
-pub trait ModelConfig {
-    fn base(&self) -> &BaseModelConfig;
-}
+use crate::model_processing::ModelConfig;
+use crate::shared_metadata::{
+    get_metadata_path, load_or_create_metadata, save_metadata, CutoutSections, HeadSections,
+};
 
 /// Unified output path management for all models
 pub struct OutputManager<'a> {
@@ -154,8 +150,12 @@ impl<'a> OutputManager<'a> {
         make_path_relative_to_toml(path, &metadata_path)
     }
 
-    /// Save metadata for this input file
-    pub fn save_metadata<T: Serialize>(&self, data: T, section_name: &str) -> Result<()> {
+    /// Save complete metadata sections (core + enhanced sections)
+    pub fn save_complete_metadata(
+        &self,
+        head_sections: Option<HeadSections>,
+        cutout_sections: Option<CutoutSections>,
+    ) -> Result<()> {
         if self.config.base().skip_metadata {
             return Ok(());
         }
@@ -165,21 +165,16 @@ impl<'a> OutputManager<'a> {
 
         let mut metadata = load_or_create_metadata(&metadata_path)?;
 
-        // Insert the data into the appropriate section
-        let json_value = serde_json::to_value(data)?;
-        match section_name {
-            "head" => metadata.head = Some(json_value),
-            "cutout" => metadata.cutout = Some(json_value),
-            _ => {
-                return Err(anyhow::anyhow!(
-                    "Unknown metadata section: {}",
-                    section_name
-                ))
-            }
+        // Update the sections that were provided
+        if let Some(head) = head_sections {
+            metadata.head = Some(head);
+        }
+        if let Some(cutout) = cutout_sections {
+            metadata.cutout = Some(cutout);
         }
 
         save_metadata(&metadata, &metadata_path)?;
-        log::debug!("📋 Saved metadata to: {}", metadata_path.display());
+        log::debug!("📋 Saved complete metadata to: {}", metadata_path.display());
 
         Ok(())
     }

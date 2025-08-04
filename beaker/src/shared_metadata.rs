@@ -1,15 +1,107 @@
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
 /// Shared metadata structure that can contain both head and cutout results
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Debug)]
 pub struct BeakerMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub head: Option<serde_json::Value>,
+    pub head: Option<HeadSections>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cutout: Option<serde_json::Value>,
+    pub cutout: Option<CutoutSections>,
+}
+
+/// All sections for head detection tool
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct HeadSections {
+    // Core results (backwards compatibility - flatten the existing head results)
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub core: Option<serde_json::Value>,
+
+    // New subsections
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution: Option<ExecutionContext>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system: Option<SystemInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input: Option<InputProcessing>,
+}
+
+/// All sections for cutout processing tool
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct CutoutSections {
+    // Core results (backwards compatibility - flatten the existing cutout results)
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub core: Option<serde_json::Value>,
+
+    // New subsections
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution: Option<ExecutionContext>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system: Option<SystemInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input: Option<InputProcessing>,
+}
+
+/// Execution context for a tool invocation
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct ExecutionContext {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub beaker_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command_line: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_processing_time_ms: Option<f64>,
+}
+
+/// System information for a tool invocation
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct SystemInfo {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_requested: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_selected: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_selection_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution_provider_used: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_size_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_load_time_ms: Option<f64>,
+}
+
+/// Input processing statistics for a tool invocation
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct InputProcessing {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sources: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_types: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_files_found: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub successful_files: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failed_files: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strict_mode: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_files: Option<Vec<String>>,
 }
 
 /// Load existing metadata from a file, or create new empty metadata
@@ -77,6 +169,57 @@ mod tests {
         let loaded = load_or_create_metadata(&metadata_path).unwrap();
         assert!(loaded.head.is_none());
         assert!(loaded.cutout.is_none());
+    }
+
+    #[test]
+    fn test_toml_structure() {
+        use serde_json::json;
+
+        // Create test metadata with tool sections
+        let mut metadata = BeakerMetadata::default();
+
+        // Add head sections with some test data
+        metadata.head = Some(HeadSections {
+            core: Some(json!({
+                "model_version": "test-v1.0.0",
+                "confidence_threshold": 0.25,
+                "processing_time_ms": 150.5
+            })),
+            config: Some(json!({
+                "confidence": 0.25,
+                "iou_threshold": 0.45,
+                "crop": true
+            })),
+            execution: Some(ExecutionContext {
+                timestamp: Some(chrono::Utc::now()),
+                beaker_version: Some("0.1.1".to_string()),
+                command_line: Some(vec!["head".to_string(), "test.jpg".to_string()]),
+                exit_code: Some(0),
+                total_processing_time_ms: Some(150.5),
+            }),
+            system: Some(SystemInfo {
+                device_requested: Some("auto".to_string()),
+                device_selected: Some("cpu".to_string()),
+                device_selection_reason: Some("Auto-selected CPU".to_string()),
+                execution_provider_used: Some("CPUExecutionProvider".to_string()),
+                model_source: Some("embedded".to_string()),
+                model_path: None,
+                model_size_bytes: Some(12345678),
+                model_load_time_ms: Some(25.3),
+            }),
+            ..Default::default()
+        });
+
+        // Serialize to TOML and print to see structure
+        let toml_output = toml::to_string_pretty(&metadata).unwrap();
+        println!("Generated TOML structure:\n{toml_output}");
+
+        // Verify it can be parsed back
+        let parsed: BeakerMetadata = toml::from_str(&toml_output).unwrap();
+        assert!(parsed.head.is_some());
+        assert!(parsed.head.as_ref().unwrap().config.is_some());
+        assert!(parsed.head.as_ref().unwrap().execution.is_some());
+        assert!(parsed.head.as_ref().unwrap().system.is_some());
     }
 
     #[test]

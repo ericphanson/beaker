@@ -33,7 +33,17 @@ pub struct HeadResult {
     pub detections: Vec<DetectionWithPath>,
 }
 
+/// Core results for enhanced metadata (without config duplication)
 #[derive(Serialize)]
+pub struct HeadCoreResult {
+    pub timestamp: DateTime<Utc>,
+    pub model_version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bounding_box_path: Option<String>,
+    pub detections: Vec<DetectionWithPath>,
+}
+
+#[derive(Serialize, Clone)]
 pub struct DetectionWithPath {
     #[serde(flatten)]
     pub detection: Detection,
@@ -271,8 +281,7 @@ fn handle_image_outputs(
     detections: &[Detection],
     image_path: &Path,
     config: &HeadDetectionConfig,
-    processing_time_ms: f64,
-) -> Result<()> {
+) -> Result<(Option<String>, Vec<DetectionWithPath>)> {
     let source_path = image_path;
     let output_ext = get_output_extension(source_path);
     let output_manager = OutputManager::new(config, source_path);
@@ -319,22 +328,7 @@ fn handle_image_outputs(
         bounding_box_path = Some(output_manager.make_relative_to_metadata(&bbox_filename)?);
     }
 
-    // Create metadata output unless skipped
-    if !config.base.skip_metadata {
-        let head_result = HeadResult {
-            timestamp: Utc::now(),
-            model_version: MODEL_VERSION.trim().to_string(),
-            confidence_threshold: config.confidence,
-            iou_threshold: config.iou_threshold,
-            processing_time_ms,
-            bounding_box_path,
-            detections: detections_with_paths,
-        };
-
-        output_manager.save_metadata(head_result, "head")?;
-    }
-
-    Ok(())
+    Ok((bounding_box_path, detections_with_paths))
 }
 
 pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
@@ -347,6 +341,8 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
 pub struct HeadDetectionResult {
     pub detections: Vec<Detection>,
     pub processing_time_ms: f64,
+    pub bounding_box_path: Option<String>,
+    pub detections_with_paths: Vec<DetectionWithPath>,
 }
 
 impl ModelResult for HeadDetectionResult {
@@ -357,6 +353,21 @@ impl ModelResult for HeadDetectionResult {
     fn processing_time_ms(&self) -> f64 {
         self.processing_time_ms
     }
+
+    fn tool_name(&self) -> &'static str {
+        "head"
+    }
+
+    fn core_results(&self) -> Result<serde_json::Value> {
+        let head_core_result = HeadCoreResult {
+            timestamp: chrono::Utc::now(),
+            model_version: MODEL_VERSION.to_string(),
+            bounding_box_path: self.bounding_box_path.clone(),
+            detections: self.detections_with_paths.clone(),
+        };
+
+        Ok(serde_json::to_value(head_core_result)?)
+    }
 }
 
 /// Head detection processor implementing the generic ModelProcessor trait
@@ -366,11 +377,11 @@ impl ModelProcessor for HeadProcessor {
     type Config = HeadDetectionConfig;
     type Result = HeadDetectionResult;
 
-    fn create_session(config: &Self::Config) -> Result<Session> {
-        use crate::model_processing::create_session_with_source;
+    fn create_session_with_device(device: &str) -> Result<Session> {
+        use crate::model_processing::create_session_with_device;
         use crate::onnx_session::ModelSource;
 
-        create_session_with_source(config, ModelSource::EmbeddedBytes(MODEL_BYTES))
+        create_session_with_device(ModelSource::EmbeddedBytes(MODEL_BYTES), device)
     }
 
     fn process_single_image(
@@ -435,11 +446,18 @@ impl ModelProcessor for HeadProcessor {
         let total_processing_time = processing_start.elapsed().as_secs_f64() * 1000.0;
 
         // Handle outputs for this specific image
-        handle_image_outputs(&img, &detections, image_path, config, total_processing_time)?;
+        let (bounding_box_path, detections_with_paths) =
+            handle_image_outputs(&img, &detections, image_path, config)?;
 
         Ok(HeadDetectionResult {
             detections,
             processing_time_ms: total_processing_time,
+            bounding_box_path,
+            detections_with_paths,
         })
+    }
+
+    fn serialize_config(config: &Self::Config) -> Result<serde_json::Value> {
+        Ok(serde_json::to_value(config)?)
     }
 }
