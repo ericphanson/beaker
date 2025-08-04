@@ -1,4 +1,7 @@
+use std::path::Path;
+
 use anyhow::Result;
+use image::{DynamicImage, GenericImageView};
 use ndarray::Array;
 use serde::Serialize;
 
@@ -122,4 +125,212 @@ pub fn postprocess_output(
     let nms_detections = nms(detections, iou_threshold);
 
     Ok(nms_detections)
+}
+
+pub fn create_square_crop(
+    img: &DynamicImage,
+    bbox: &Detection,
+    output_path: &Path,
+    padding: f32,
+) -> Result<()> {
+    let (img_width, img_height) = img.dimensions();
+
+    // Extract bounding box coordinates
+    let x1 = bbox.x1.max(0.0) as u32;
+    let y1 = bbox.y1.max(0.0) as u32;
+    let x2 = bbox.x2.min(img_width as f32) as u32;
+    let y2 = bbox.y2.min(img_height as f32) as u32;
+
+    // Calculate center and dimensions with padding
+    let bbox_width = x2 - x1;
+    let bbox_height = y2 - y1;
+    let expand_w = (bbox_width as f32 * padding) as u32;
+    let expand_h = (bbox_height as f32 * padding) as u32;
+
+    let expanded_x1 = x1.saturating_sub(expand_w);
+    let expanded_y1 = y1.saturating_sub(expand_h);
+    let expanded_x2 = (x2 + expand_w).min(img_width);
+    let expanded_y2 = (y2 + expand_h).min(img_height);
+
+    // Calculate center and make square
+    let center_x = (expanded_x1 + expanded_x2) / 2;
+    let center_y = (expanded_y1 + expanded_y2) / 2;
+    let new_width = expanded_x2 - expanded_x1;
+    let new_height = expanded_y2 - expanded_y1;
+    let size = new_width.max(new_height);
+    let half_size = size / 2;
+
+    // Calculate square crop bounds
+    let crop_x1 = center_x.saturating_sub(half_size);
+    let crop_y1 = center_y.saturating_sub(half_size);
+    let crop_x2 = (center_x + half_size).min(img_width);
+    let crop_y2 = (center_y + half_size).min(img_height);
+
+    // Adjust if we hit image boundaries to maintain square
+    let actual_width = crop_x2 - crop_x1;
+    let actual_height = crop_y2 - crop_y1;
+
+    let (final_x1, final_y1, final_x2, final_y2) = if actual_width < actual_height {
+        let diff = actual_height - actual_width;
+        (
+            crop_x1.saturating_sub(diff / 2),
+            crop_y1,
+            (crop_x2 + diff / 2).min(img_width),
+            crop_y2,
+        )
+    } else if actual_height < actual_width {
+        let diff = actual_width - actual_height;
+        (
+            crop_x1,
+            crop_y1.saturating_sub(diff / 2),
+            crop_x2,
+            (crop_y2 + diff / 2).min(img_height),
+        )
+    } else {
+        (crop_x1, crop_y1, crop_x2, crop_y2)
+    };
+
+    // Crop the image
+    let cropped = image::imageops::crop_imm(
+        img,
+        final_x1,
+        final_y1,
+        final_x2 - final_x1,
+        final_y2 - final_y1,
+    );
+
+    // Create output directory if it doesn't exist
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    // Convert to appropriate format based on output file extension
+    let cropped_dynamic = DynamicImage::ImageRgba8(cropped.to_image());
+    let output_img = if let Some(ext) = output_path.extension() {
+        let ext_lower = ext.to_string_lossy().to_lowercase();
+        if ext_lower == "png" {
+            // For PNG, preserve alpha channel if present
+            cropped_dynamic
+        } else {
+            // For JPEG and other formats, convert to RGB
+            DynamicImage::ImageRgb8(cropped_dynamic.to_rgb8())
+        }
+    } else {
+        // Default to RGB if no extension
+        DynamicImage::ImageRgb8(cropped_dynamic.to_rgb8())
+    };
+
+    // Save the cropped image
+    output_img.save(output_path)?;
+
+    Ok(())
+}
+
+pub fn save_bounding_box_image(
+    img: &DynamicImage,
+    detections: &[Detection],
+    output_path: &Path,
+) -> Result<()> {
+    // Create a copy of the image for drawing bounding boxes
+    let mut output_img = img.clone();
+
+    // Determine if we should preserve alpha channel based on output format
+    let preserve_alpha = if let Some(ext) = output_path.extension() {
+        ext.to_string_lossy().to_lowercase() == "png"
+    } else {
+        false
+    };
+
+    // Convert to appropriate format for drawing
+    if preserve_alpha {
+        // For PNG output, work with RGBA to preserve transparency
+        let mut rgba_img = output_img.to_rgba8();
+
+        // Draw bounding boxes on the image
+        for detection in detections {
+            let x1 = detection.x1.max(0.0) as u32;
+            let y1 = detection.y1.max(0.0) as u32;
+            let x2 = detection.x2.min(rgba_img.width() as f32) as u32;
+            let y2 = detection.y2.min(rgba_img.height() as f32) as u32;
+
+            // Draw bounding box - bright green with full opacity
+            let green = image::Rgba([0, 255, 0, 255]);
+
+            // Draw horizontal lines
+            for x in x1..=x2 {
+                if x < rgba_img.width() {
+                    if y1 < rgba_img.height() {
+                        rgba_img.put_pixel(x, y1, green);
+                    }
+                    if y2 < rgba_img.height() {
+                        rgba_img.put_pixel(x, y2, green);
+                    }
+                }
+            }
+
+            // Draw vertical lines
+            for y in y1..=y2 {
+                if y < rgba_img.height() {
+                    if x1 < rgba_img.width() {
+                        rgba_img.put_pixel(x1, y, green);
+                    }
+                    if x2 < rgba_img.width() {
+                        rgba_img.put_pixel(x2, y, green);
+                    }
+                }
+            }
+        }
+
+        output_img = DynamicImage::ImageRgba8(rgba_img);
+    } else {
+        // For JPEG output, work with RGB
+        let mut rgb_img = output_img.to_rgb8();
+
+        // Draw bounding boxes on the image
+        for detection in detections {
+            let x1 = detection.x1.max(0.0) as u32;
+            let y1 = detection.y1.max(0.0) as u32;
+            let x2 = detection.x2.min(rgb_img.width() as f32) as u32;
+            let y2 = detection.y2.min(rgb_img.height() as f32) as u32;
+
+            // Draw bounding box - bright green
+            let green = image::Rgb([0, 255, 0]);
+
+            // Draw horizontal lines
+            for x in x1..=x2 {
+                if x < rgb_img.width() {
+                    if y1 < rgb_img.height() {
+                        rgb_img.put_pixel(x, y1, green);
+                    }
+                    if y2 < rgb_img.height() {
+                        rgb_img.put_pixel(x, y2, green);
+                    }
+                }
+            }
+
+            // Draw vertical lines
+            for y in y1..=y2 {
+                if y < rgb_img.height() {
+                    if x1 < rgb_img.width() {
+                        rgb_img.put_pixel(x1, y, green);
+                    }
+                    if x2 < rgb_img.width() {
+                        rgb_img.put_pixel(x2, y, green);
+                    }
+                }
+            }
+        }
+
+        output_img = DynamicImage::ImageRgb8(rgb_img);
+    }
+
+    // Create output directory if it doesn't exist
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    // Save the image with bounding boxes
+    output_img.save(output_path)?;
+
+    Ok(())
 }

@@ -1,10 +1,10 @@
 ## Summary
 
 - **Cutout Main Code**: 324 (Tests: 44)  
-- **Head Main Code**: 496 (Tests: 0)  
+- **Head Main Code**: 500 (Tests: 0)  
 - **Common Main Code**: 1198 (Tests: 1186)  
-- **Total Main Code (excluding build.rs)**: 2018  
-- **Total Main Code (including build.rs)**: 2168 (Reported: 2168)  
+- **Total Main Code (excluding build.rs)**: 2022  
+- **Total Main Code (including build.rs)**: 2172 (Reported: 2172)  
 ✅ Totals match.
 
 ## Raw Counts
@@ -52,10 +52,10 @@ Total| 51           | 10           | 0            | 9            | 70
 File name: ./beaker/src/head_detection.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 350          | 70           | 7            | 44           | 471         
+Main         | 200          | 41           | 7            | 17           | 265         
 Tests        | 0            | 0            | 0            | 0            | 0           
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 350          | 70           | 7            | 44           | 471         
+Total| 200          | 41           | 7            | 17           | 265         
 
 File name: ./beaker/src/config.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -132,10 +132,10 @@ Total| 186          | 19           | 3            | 12           | 220
 File name: ./beaker/src/yolo_postprocessing.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 95           | 22           | 0            | 8            | 125         
+Main         | 249          | 52           | 0            | 35           | 336         
 Tests        | 0            | 0            | 0            | 0            | 0           
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 95           | 22           | 0            | 8            | 125         
+Total| 249          | 52           | 0            | 35           | 336         
 
 File name: ./beaker/src/model_processing.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -164,7 +164,7 @@ Total| 50           | 13           | 1            | 9            | 73
 File count: 19
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 2168         | 407          | 143          | 183          | 2901        
+Main         | 2172         | 408          | 143          | 183          | 2906        
 Tests        | 1230         | 178          | 23           | 73           | 1504        
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 3398         | 585          | 166          | 256          | 4405        
+Total| 3402         | 586          | 166          | 256          | 4410        
