@@ -103,13 +103,14 @@ fn process_single_image(
         fs::create_dir_all(parent)?;
     }
     cutout_result.save(&output_path)?;
-
+    debug!("✅ Cutout saved to: {}", output_path.display());
     // Save mask if requested
     if let Some(mask_path_val) = &mask_path {
         if let Some(parent) = Path::new(mask_path_val).parent() {
             fs::create_dir_all(parent)?;
         }
         mask.save(mask_path_val)?;
+        debug!("✅ Mask saved to: {}", mask_path_val.display());
     }
 
     let processing_time = start_time.elapsed().as_secs_f64() * 1000.0;
@@ -136,14 +137,6 @@ pub fn run_cutout_processing(config: CutoutConfig) -> Result<usize> {
 use crate::model_processing::{ModelProcessor, ModelResult};
 
 impl ModelResult for CutoutCoreResult {
-    fn result_summary(&self) -> String {
-        if self.mask_path.is_some() {
-            "Generated cutout and mask".to_string()
-        } else {
-            "Generated cutout".to_string()
-        }
-    }
-
     fn processing_time_ms(&self) -> f64 {
         self.processing_time_ms
     }

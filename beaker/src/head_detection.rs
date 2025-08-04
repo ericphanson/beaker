@@ -14,7 +14,7 @@ use crate::yolo_postprocessing::{
     create_square_crop, postprocess_output, save_bounding_box_image, Detection,
 };
 use crate::yolo_preprocessing::preprocess_image;
-use log::{debug, info};
+use log::debug;
 
 // Embed the ONNX model at compile time
 const MODEL_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/bird-head-detector.onnx"));
@@ -80,6 +80,7 @@ fn handle_image_outputs(
             )?;
 
             create_square_crop(img, detection, &crop_filename, 0.1)?;
+            debug!("✅ Crop saved to: {}", crop_filename.display());
 
             // Make path relative to metadata file if metadata will be created
             let crop_path = output_manager.make_relative_to_metadata(&crop_filename)?;
@@ -104,6 +105,10 @@ fn handle_image_outputs(
     if config.bounding_box && !detections.is_empty() {
         let bbox_filename = output_manager.generate_auxiliary_output("bounding-box", output_ext)?;
         save_bounding_box_image(img, detections, &bbox_filename)?;
+        debug!(
+            "✅ Bounding box image saved to: {}",
+            bbox_filename.display()
+        );
 
         // Make path relative to metadata file if metadata will be created
         bounding_box_path = Some(output_manager.make_relative_to_metadata(&bbox_filename)?);
@@ -120,17 +125,12 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
 // Implementation of ModelProcessor trait for head detection
 /// Implementation of ModelResult for HeadDetectionResult
 pub struct HeadDetectionResult {
-    pub detections: Vec<Detection>,
     pub processing_time_ms: f64,
     pub bounding_box_path: Option<String>,
     pub detections_with_paths: Vec<DetectionWithPath>,
 }
 
 impl ModelResult for HeadDetectionResult {
-    fn result_summary(&self) -> String {
-        format!("Found {} bird head(s)", self.detections.len())
-    }
-
     fn processing_time_ms(&self) -> f64 {
         self.processing_time_ms
     }
@@ -166,9 +166,8 @@ impl ModelResult for HeadDetectionResult {
         if self.bounding_box_path.is_some() {
             outputs.push("bounding box".to_string());
         }
-
         if outputs.is_empty() {
-            "metadata only".to_string()
+            "".to_string()
         } else {
             format!("→ {}", outputs.join(" + "))
         }
@@ -238,12 +237,6 @@ impl ModelProcessor for HeadProcessor {
             "⚡ Inference completed in {:.3}ms",
             inference_time.as_secs_f64() * 1000.0
         );
-        info!(
-            "   Found {} detection(s) after confidence filtering (>{}) and NMS (IoU>{})",
-            detections.len(),
-            config.confidence,
-            config.iou_threshold
-        );
 
         let total_processing_time = processing_start.elapsed().as_secs_f64() * 1000.0;
 
@@ -252,7 +245,6 @@ impl ModelProcessor for HeadProcessor {
             handle_image_outputs(&img, &detections, image_path, config)?;
 
         Ok(HeadDetectionResult {
-            detections,
             processing_time_ms: total_processing_time,
             bounding_box_path,
             detections_with_paths,

@@ -1,7 +1,7 @@
 use clap::Parser;
 use env_logger::Builder;
 use env_logger::Env;
-use log::{error, info, Level};
+use log::{error, info, warn, Level};
 
 mod color_utils;
 mod config;
@@ -98,27 +98,18 @@ fn main() {
                 Level::Debug => colors::debug_level("DEBUG"),
                 Level::Trace => colors::trace_level("TRACE"),
             };
-            writeln!(buf, "[{}] {}", level_str, record.args())
+            if record.level() == Level::Info {
+                // We skip printing [INFO] for info level to reduce noise
+                writeln!(buf, "{}", record.args())
+            } else {
+                // For other levels, include the level in the output
+                writeln!(buf, "[{}] {}", level_str, record.args())
+            }
         })
         .init();
 
     match &cli.command {
         Some(Commands::Head(head_cmd)) => {
-            let sources_desc = if head_cmd.sources.len() == 1 {
-                head_cmd.sources[0].clone()
-            } else {
-                format!("{} inputs", head_cmd.sources.len())
-            };
-
-            info!(
-                "{} Head detection: {} | conf: {} | IoU: {} | device: {}",
-                symbols::head_detection_start(),
-                sources_desc,
-                head_cmd.confidence,
-                head_cmd.iou_threshold,
-                cli.global.device
-            );
-
             // Build outputs list
             let mut outputs = Vec::new();
             if head_cmd.crop {
@@ -131,10 +122,23 @@ fn main() {
                 outputs.push("metadata");
             }
 
-            if outputs.is_empty() {
-                info!("   Outputs: none");
+            let output_str = if outputs.is_empty() {
+                "".to_string()
             } else {
-                info!("   Outputs: {}", outputs.join(", "));
+                format!(" | outputs: {}", outputs.join(", "))
+            };
+
+            info!(
+                "{} Head detection | conf: {} | IoU: {} | device: {}{}",
+                symbols::head_detection_start(),
+                head_cmd.confidence,
+                head_cmd.iou_threshold,
+                cli.global.device,
+                output_str
+            );
+
+            if outputs.is_empty() {
+                warn!("No outputs requested! Remove `--no-metadata` or pass `--crop` or `--bounding-box` to enable a file output.");
             }
 
             let internal_config =
@@ -148,19 +152,6 @@ fn main() {
             }
         }
         Some(Commands::Cutout(cutout_cmd)) => {
-            let sources_desc = if cutout_cmd.sources.len() == 1 {
-                cutout_cmd.sources[0].clone()
-            } else {
-                format!("{} inputs", cutout_cmd.sources.len())
-            };
-
-            info!(
-                "{} Background removal: {} | device: {}",
-                symbols::background_removal_start(),
-                sources_desc,
-                cli.global.device
-            );
-
             // Build features list
             let mut features = Vec::new();
             if cutout_cmd.post_process {
@@ -169,13 +160,12 @@ fn main() {
             if cutout_cmd.alpha_matting {
                 features.push("alpha-matting");
             }
-            if cutout_cmd.save_mask {
-                features.push("save-mask");
-            }
-            if !features.is_empty() {
-                info!("   Features: {}", features.join(", "));
-            }
 
+            let feature_str = if features.is_empty() {
+                "".to_string()
+            } else {
+                format!(" | features: {}", features.join(", "))
+            };
             // Build outputs list
             let mut outputs = Vec::new();
             outputs.push("cutout"); // Always produces cutout
@@ -185,7 +175,20 @@ fn main() {
             if !cli.global.no_metadata {
                 outputs.push("metadata");
             }
-            info!("   Outputs: {}", outputs.join(", "));
+
+            let output_str = if outputs.is_empty() {
+                "".to_string()
+            } else {
+                format!(" | outputs: {}", outputs.join(", "))
+            };
+
+            info!(
+                "{} Background removal | device: {}{}{}",
+                symbols::background_removal_start(),
+                cli.global.device,
+                feature_str,
+                output_str
+            );
 
             let internal_config = CutoutConfig::from_args(cli.global.clone(), cutout_cmd.clone());
             match run_cutout_processing(internal_config) {

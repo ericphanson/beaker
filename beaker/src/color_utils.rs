@@ -108,6 +108,13 @@ pub mod colors {
 pub mod symbols {
     use super::colors_enabled;
 
+    pub fn model_loaded() -> &'static str {
+        if colors_enabled() {
+            "📦"
+        } else {
+            "  "
+        }
+    }
     /// Symbol for starting a head detection operation
     pub fn head_detection_start() -> &'static str {
         if colors_enabled() {

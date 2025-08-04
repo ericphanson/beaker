@@ -20,9 +20,6 @@ pub trait ModelConfig {
 
 /// Result trait for model outputs that can be handled generically
 pub trait ModelResult {
-    /// Get a human-readable summary of the results for logging
-    fn result_summary(&self) -> String;
-
     /// Get the processing time in milliseconds
     fn processing_time_ms(&self) -> f64;
 
@@ -80,11 +77,13 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
         return Ok(0);
     }
 
-    log::info!(
-        "{} Found {} image(s) to process",
-        crate::color_utils::symbols::resources_found(),
-        image_files.len()
-    );
+    if image_files.len() > 1 {
+        log::info!(
+            "{} Found {} images to process",
+            crate::color_utils::symbols::resources_found(),
+            image_files.len()
+        );
+    }
 
     // Collect device information for metadata
     let device_selection = determine_optimal_device(&config.base().device);
@@ -103,9 +102,19 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
 
     let model_load_time_ms = session_start.elapsed().as_secs_f64() * 1000.0;
 
+    let megabytes_str = format!("{} MB", model_info.model_size_bytes / 1_048_576);
+
+    let pretty_device_name = if device_selected == "coreml" {
+        "CoreML".to_string()
+    } else {
+        "CPU".to_string()
+    };
+
     log::info!(
-        "   Loaded {} in {:.3}ms",
-        model_info.description,
+        "{} Model loaded ({}, {}) in {:.3}ms",
+        crate::color_utils::symbols::model_loaded(),
+        megabytes_str,
+        pretty_device_name,
         model_load_time_ms
     );
 
@@ -153,17 +162,6 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
             Ok(result) => {
                 successful_count += 1;
 
-                // Log comprehensive processing result
-                log::info!(
-                    "{} Processed {} ({}/{}) in {:.1}ms {}",
-                    crate::color_utils::symbols::completed_successfully(),
-                    image_path.display(),
-                    index + 1,
-                    image_files.len(),
-                    result.processing_time_ms(),
-                    result.output_summary()
-                );
-                log::debug!("📊 {}", result.result_summary()); // Save enhanced metadata for this file
                 if !config.base().skip_metadata {
                     save_enhanced_metadata_for_file::<P>(
                         &result,
@@ -175,6 +173,16 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
                         start_timestamp,
                     )?;
                 }
+                // Log comprehensive processing result
+                log::info!(
+                    "{} Processed {} ({}/{}) in {:.1}ms {}",
+                    crate::color_utils::symbols::completed_successfully(),
+                    image_path.display(),
+                    index + 1,
+                    image_files.len(),
+                    result.processing_time_ms(),
+                    result.output_summary()
+                );
             }
             Err(e) => {
                 failed_count += 1;

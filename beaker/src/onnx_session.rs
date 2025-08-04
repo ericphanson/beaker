@@ -68,20 +68,14 @@ pub fn determine_optimal_device(requested_device: &str) -> DeviceSelection {
             // For auto, prefer CoreML if available, otherwise CPU
             let coreml = CoreMLExecutionProvider::default();
             match coreml.is_available() {
-                Ok(true) => {
-                    log::info!("   Using CoreML execution provider");
-                    DeviceSelection {
-                        device: "coreml".to_string(),
-                        reason: "Auto-selected CoreML (available)".to_string(),
-                    }
-                }
-                _ => {
-                    log::info!("   Using CPU execution provider");
-                    DeviceSelection {
-                        device: "cpu".to_string(),
-                        reason: "Auto-selected CPU (CoreML not available)".to_string(),
-                    }
-                }
+                Ok(true) => DeviceSelection {
+                    device: "coreml".to_string(),
+                    reason: "Auto-selected CoreML (available)".to_string(),
+                },
+                _ => DeviceSelection {
+                    device: "cpu".to_string(),
+                    reason: "Auto-selected CPU (CoreML not available)".to_string(),
+                },
             }
         }
         other => DeviceSelection {
