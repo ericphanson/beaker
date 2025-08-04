@@ -11,6 +11,17 @@ End-to-end integration tests for the beaker CLI focusing on metadata validation 
 
 ## Test Architecture
 
+The test framework is split across three files for clarity and maintainability:
+
+### `metadata_based_tests.rs` - Test Scenarios
+Contains the actual test definitions in `get_test_scenarios()` and the macro call to generate tests. Start here when adding new test cases or understanding what scenarios are covered.
+
+### `metadata_test_framework.rs` - Framework Code
+Houses the testing infrastructure: validation logic, metadata parsing, command execution, and test generation macro. Edit this when adding new validation types or framework features.
+
+### `test_performance_tracker.rs` - Performance Monitoring
+Handles timing collection and reporting. Modify this to adjust performance thresholds or add new metrics.
+
 ### Metadata-Based Testing
 Tests use scenario definitions with expected metadata validation checks. Each scenario exercises specific combinations of tools, devices, and configurations while verifying the generated `.beaker.toml` metadata.
 
@@ -37,7 +48,7 @@ After running metadata tests with `--nocapture`, you'll see:
 
 ## Adding Test Scenarios
 
-1. Define scenario in `get_test_scenarios()` function:
+1. Define scenario in `get_test_scenarios()` function in `metadata_based_tests.rs`:
 
 ```rust
 TestScenario {
@@ -53,7 +64,7 @@ TestScenario {
 }
 ```
 
-2. Add scenario name to `generate_metadata_tests!` macro
+2. Add scenario name to `generate_metadata_tests!` macro in the same file
 3. Automatic validation ensures no scenarios are missed
 
 ## Metadata Validation Checks
@@ -74,16 +85,16 @@ The framework provides several validation checks for `.beaker.toml` metadata:
 
 ### Adding New Checks
 
-1. Add a new variant to the `MetadataCheck` enum in `metadata_based_tests.rs`
-2. Implement validation logic in the `validate_metadata()` function's match statement
-3. Use the new check in test scenarios as needed
+1. Add a new variant to the `MetadataCheck` enum in `metadata_test_framework.rs`
+2. Implement validation logic in the `validate_metadata_check()` function's match statement
+3. Use the new check in test scenarios in `metadata_based_tests.rs`
 
 Example:
 ```rust
-// In MetadataCheck enum
+// In MetadataCheck enum (metadata_test_framework.rs)
 NewValidation(&'static str, &'static str), // tool, expected_value
 
-// In validate_metadata() function
+// In validate_metadata_check() function (metadata_test_framework.rs)
 MetadataCheck::NewValidation(tool, expected) => {
     // Add validation logic here
 }
