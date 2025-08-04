@@ -2,7 +2,7 @@
 
 - **Cutout Main Code**: 332 (Tests: 44)  
 - **Head Main Code**: 492 (Tests: 0)  
-- **Common Main Code**: 1197 (Tests: 1109)  
+- **Common Main Code**: 1197 (Tests: 1115)  
 - **Total Main Code (excluding build.rs)**: 2021  
 - **Total Main Code (including build.rs)**: 2171 (Reported: 2171)  
 ✅ Totals match.
@@ -13,9 +13,9 @@ File name: ./beaker/tests/metadata_based_tests.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
 Main         | 0            | 0            | 0            | 0            | 0           
-Tests        | 705          | 70           | 22           | 30           | 827         
+Tests        | 711          | 72           | 23           | 32           | 838         
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 705          | 70           | 22           | 30           | 827         
+Total| 711          | 72           | 23           | 32           | 838         
 
 File name: ./beaker/build.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -149,6 +149,6 @@ File count: 17
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
 Main         | 2171         | 409          | 143          | 181          | 2904        
-Tests        | 1153         | 155          | 22           | 55           | 1385        
+Tests        | 1159         | 157          | 23           | 57           | 1396        
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 3324         | 564          | 165          | 236          | 4289        
+Total| 3330         | 566          | 166          | 238          | 4300        

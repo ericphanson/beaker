@@ -19,15 +19,6 @@ struct TestPerformanceTracker {
 }
 
 impl TestPerformanceTracker {
-    fn new() -> Self {
-        Self {
-            head_invocations: 0,
-            cutout_invocations: 0,
-            total_test_time: Duration::ZERO,
-            slowest_tests: Vec::new(),
-        }
-    }
-
     fn record_test(&mut self, test_name: &str, tool: &str, duration: Duration) {
         // Track per-tool invocations
         match tool {
@@ -411,7 +402,7 @@ fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck, tes
 }
 
 /// Record test performance metrics
-fn record_test_performance(test_name: &str, _tool: &str, duration: Duration) {
+fn record_test_performance(test_name: &str, tool: &str, duration: Duration) {
     // Warn if any single test takes > 5 seconds
     if duration.as_secs() > 5 {
         eprintln!(
@@ -419,6 +410,18 @@ fn record_test_performance(test_name: &str, _tool: &str, duration: Duration) {
             test_name,
             duration.as_secs_f64()
         );
+    }
+
+    // Record in global tracker
+    if let Ok(mut tracker) = PERFORMANCE_TRACKER.lock() {
+        tracker.record_test(test_name, tool, duration);
+    }
+}
+
+/// Print performance summary from global tracker
+fn print_performance_summary() {
+    if let Ok(tracker) = PERFORMANCE_TRACKER.lock() {
+        tracker.print_summary();
     }
 }
 
@@ -760,6 +763,9 @@ fn test_comprehensive_metadata_validation() {
     println!("\n📊 Test Performance Summary:");
     println!("  Total test time: {:.2}s", total_duration.as_secs_f64());
 
+    // Print detailed performance summary from tracker
+    print_performance_summary();
+
     // Fail if total test suite exceeds 60 seconds (allowing some buffer)
     assert!(
         total_duration.as_secs() < 60,
@@ -780,6 +786,7 @@ fn test_head_detection_cpu_device() {
         .find(|s| s.name == "head_detection_cpu_single_image")
         .expect("Should find CPU test scenario");
     run_and_validate_scenario(scenario, &temp_dir);
+    print_performance_summary();
 }
 
 #[test]
@@ -791,6 +798,7 @@ fn test_head_detection_auto_device() {
         .find(|s| s.name == "head_detection_auto_device")
         .expect("Should find auto device test scenario");
     run_and_validate_scenario(scenario, &temp_dir);
+    print_performance_summary();
 }
 
 #[test]
@@ -802,6 +810,7 @@ fn test_head_detection_with_output_files() {
         .find(|s| s.name == "head_detection_with_crops_and_bbox")
         .expect("Should find crops and bbox test scenario");
     run_and_validate_scenario(scenario, &temp_dir);
+    print_performance_summary();
 }
 
 #[test]
@@ -813,6 +822,7 @@ fn test_cutout_basic() {
         .find(|s| s.name == "cutout_basic_processing")
         .expect("Should find basic cutout test scenario");
     run_and_validate_scenario(scenario, &temp_dir);
+    print_performance_summary();
 }
 
 #[test]
@@ -824,4 +834,5 @@ fn test_multi_tool_workflow() {
         .find(|s| s.name == "multi_tool_sequential_processing")
         .expect("Should find multi-tool test scenario");
     run_and_validate_scenario(scenario, &temp_dir);
+    print_performance_summary();
 }
