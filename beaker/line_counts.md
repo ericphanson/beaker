@@ -2,9 +2,9 @@
 
 - **Cutout Main Code**: 325 (Tests: 44)  
 - **Head Main Code**: 494 (Tests: 0)  
-- **Common Main Code**: 1340 (Tests: 1240)  
-- **Total Main Code (excluding build.rs)**: 2159  
-- **Total Main Code (including build.rs)**: 2309 (Reported: 2309)  
+- **Common Main Code**: 1450 (Tests: 1230)  
+- **Total Main Code (excluding build.rs)**: 2269  
+- **Total Main Code (including build.rs)**: 2419 (Reported: 2419)  
 ✅ Totals match.
 
 ## Raw Counts
@@ -68,10 +68,10 @@ Total| 250          | 51           | 42           | 6            | 349
 File name: ./beaker/src/image_input.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 123          | 18           | 9            | 10           | 160         
+Main         | 142          | 18           | 9            | 12           | 181         
 Tests        | 97           | 21           | 0            | 9            | 127         
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 220          | 39           | 9            | 19           | 287         
+Total| 239          | 39           | 9            | 21           | 308         
 
 File name: ./beaker/src/lib.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -132,10 +132,10 @@ Total| 180          | 24           | 3            | 12           | 219
 File name: ./beaker/src/color_utils.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 124          | 24           | 28           | 5            | 181         
-Tests        | 51           | 7            | 0            | 3            | 61          
+Main         | 163          | 30           | 32           | 9            | 234         
+Tests        | 41           | 7            | 0            | 2            | 50          
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 175          | 31           | 28           | 8            | 242         
+Total| 204          | 37           | 32           | 11           | 284         
 
 File name: ./beaker/src/yolo_postprocessing.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -148,10 +148,10 @@ Total| 249          | 52           | 0            | 35           | 336
 File name: ./beaker/src/model_processing.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 200          | 42           | 19           | 12           | 273         
+Main         | 252          | 46           | 19           | 17           | 334         
 Tests        | 0            | 0            | 0            | 0            | 0           
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 200          | 42           | 19           | 12           | 273         
+Total| 252          | 46           | 19           | 17           | 334         
 
 File name: ./beaker/src/cutout_postprocessing.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -172,7 +172,7 @@ Total| 50           | 13           | 1            | 9            | 73
 File count: 20
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 2309         | 435          | 171          | 188          | 3103        
-Tests        | 1284         | 185          | 23           | 76           | 1568        
+Main         | 2419         | 445          | 175          | 199          | 3238        
+Tests        | 1274         | 185          | 23           | 75           | 1557        
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 3593         | 620          | 194          | 264          | 4671        
+Total| 3693         | 630          | 198          | 274          | 4795        

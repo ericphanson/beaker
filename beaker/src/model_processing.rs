@@ -85,6 +85,9 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
         );
     }
 
+    // Create progress bar for batch processing if appropriate
+    let progress_bar = crate::color_utils::progress::create_batch_progress_bar(image_files.len());
+
     // Collect device information for metadata
     let device_selection = determine_optimal_device(&config.base().device);
     let device_selected = device_selection.device.clone();
@@ -157,6 +160,8 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
         strict_mode: config.base().strict,
     };
 
+    // Create vector to contain failed image paths
+    let mut failed_images = Vec::new();
     for (index, image_path) in image_files.iter().enumerate() {
         match P::process_single_image(&mut session, image_path, &config) {
             Ok(result) => {
@@ -173,25 +178,48 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
                         start_timestamp,
                     )?;
                 }
-                // Log comprehensive processing result
-                log::info!(
-                    "{} Processed {} ({}/{}) in {:.1}ms {}",
-                    crate::color_utils::symbols::completed_successfully(),
-                    image_path.display(),
-                    index + 1,
-                    image_files.len(),
-                    result.processing_time_ms(),
-                    result.output_summary()
-                );
+
+                // Use progress bar or log message based on what's available
+                if let Some(ref pb) = progress_bar {
+                    pb.inc(1);
+                    pb.set_message(format!(
+                        "Processed {}",
+                        image_path.file_name().unwrap_or_default().to_string_lossy()
+                    ));
+                } else {
+                    // Log comprehensive processing result for single files or non-interactive
+                    log::info!(
+                        "{} Processed {} ({}/{}) in {:.1}ms {}",
+                        crate::color_utils::symbols::completed_successfully(),
+                        image_path.display(),
+                        index + 1,
+                        image_files.len(),
+                        result.processing_time_ms(),
+                        result.output_summary()
+                    );
+                }
             }
             Err(e) => {
                 failed_count += 1;
+                if let Some(ref pb) = progress_bar {
+                    pb.inc(1);
+                    pb.set_message(format!(
+                        "Failed: {}",
+                        image_path.file_name().unwrap_or_default().to_string_lossy()
+                    ));
+                }
+
+                failed_images.push(image_path.to_str().unwrap_or_default().to_string());
 
                 if config.base().strict {
+                    if let Some(pb) = progress_bar {
+                        pb.finish_and_clear();
+                    }
                     return Err(e);
                 } else {
                     log::warn!(
-                        "⚠️  Failed to process {} ({}/{}): {}",
+                        "{} Failed to process {} ({}/{}): {}",
+                        crate::color_utils::symbols::warning(),
                         image_path.display(),
                         index + 1,
                         image_files.len(),
@@ -202,12 +230,45 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
         }
     }
 
+    // Finish progress bar if it exists
+    if let Some(pb) = progress_bar {
+        pb.finish_with_message("Processing complete");
+    }
+    // if failed_images > 20, we will truncate and add an ellipsis
+    let failed_images_str = if failed_images.len() > 20 {
+        format!(
+            "{} and {} more...",
+            failed_images[..20].join(", "),
+            failed_images.len() - 20
+        )
+    } else {
+        failed_images.join(", ")
+    };
     if failed_count > 0 {
         log::warn!(
-            "⚠️  {} of {} images failed to process",
+            "{} {} images failed to process: {}",
+            crate::color_utils::symbols::warning(),
             failed_count,
-            image_files.len()
+            failed_images_str
         );
+    }
+
+    if image_files.len() > 1 {
+        if failed_count > 0 {
+            log::info!(
+                "{} Processed {} images with {} successes and {} failures",
+                crate::color_utils::symbols::completed_partially_successfully(),
+                successful_count + failed_count,
+                successful_count,
+                failed_count
+            );
+        } else {
+            log::info!(
+                "{} Processed {} images successfully",
+                crate::color_utils::symbols::completed_successfully(),
+                successful_count
+            );
+        }
     }
 
     Ok(successful_count)

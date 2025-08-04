@@ -89,7 +89,7 @@ pub fn collect_images_from_sources(
         let source_path = Path::new(source);
 
         if source_path.is_file() {
-            // Single file
+            // Single file exists
             if is_supported_image_file(source_path) {
                 all_image_files.push(source_path.to_path_buf());
             } else if config.strict_mode {
@@ -103,8 +103,20 @@ pub fn collect_images_from_sources(
             // Directory - find all images inside
             let dir_images = find_images_in_directory(source_path)?;
             all_image_files.extend(dir_images);
+        } else if !source.contains('*') && !source.contains('?') && !source.contains('[') {
+            // Looks like a simple file path (not a glob pattern) but doesn't exist
+            if config.strict_mode {
+                return Err(anyhow::anyhow!("File does not exist: {}", source));
+            } else {
+                // In permissive mode, report the missing file as a warning
+                log::warn!(
+                    "{}File does not exist: {}",
+                    crate::color_utils::symbols::warning(),
+                    source
+                );
+            }
         } else {
-            // Could be a glob pattern or non-existent path
+            // Could be a glob pattern
             match glob::glob(source) {
                 Ok(paths) => {
                     let mut found_any = false;
@@ -117,7 +129,10 @@ pub fn collect_images_from_sources(
                                 }
                             }
                             Err(e) => {
-                                log::warn!("⚠️  Warning: Error reading path in glob {source}: {e}");
+                                log::warn!(
+                                    "{}Warning: Error reading path in glob {source}: {e}",
+                                    crate::color_utils::symbols::warning()
+                                );
                             }
                         }
                     }
@@ -135,8 +150,14 @@ pub fn collect_images_from_sources(
                             "Source path does not exist and is not a valid glob pattern: {}",
                             source
                         ));
+                    } else {
+                        // In permissive mode, report the missing file as a warning
+                        log::warn!(
+                            "{}Source path does not exist: {}",
+                            crate::color_utils::symbols::warning(),
+                            source
+                        );
                     }
-                    // In permissive mode, silently skip invalid patterns
                 }
             }
         }

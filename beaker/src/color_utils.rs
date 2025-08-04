@@ -120,7 +120,7 @@ pub mod symbols {
         if colors_enabled() {
             "🔍"
         } else {
-            "[HEAD-DETECTION]"
+            ""
         }
     }
 
@@ -129,7 +129,7 @@ pub mod symbols {
         if colors_enabled() {
             "✂️ "
         } else {
-            "[BACKGROUND-REMOVAL]"
+            "[CUTOUT]"
         }
     }
 
@@ -147,7 +147,7 @@ pub mod symbols {
         if colors_enabled() {
             "⚙️ "
         } else {
-            "[SETUP]"
+            ""
         }
     }
 
@@ -156,7 +156,7 @@ pub mod symbols {
         if colors_enabled() {
             "🎯"
         } else {
-            "[FOUND]"
+            ""
         }
     }
 
@@ -165,7 +165,7 @@ pub mod symbols {
         if colors_enabled() {
             "🔍"
         } else {
-            "[CHECKING]"
+            ""
         }
     }
 
@@ -175,6 +175,59 @@ pub mod symbols {
             "✅"
         } else {
             "[SUCCESS]"
+        }
+    }
+
+    /// Symbol for partial success (some successes, some failures)
+    pub fn completed_partially_successfully() -> &'static str {
+        if colors_enabled() {
+            "⚠️"
+        } else {
+            "[PARTIAL-SUCCESS]"
+        }
+    }
+
+    /// Symbol for warnings
+    pub fn warning() -> &'static str {
+        if colors_enabled() {
+            "⚠️ "
+        } else {
+            ""
+        }
+    }
+}
+
+/// Progress bar utilities that respect TTY state
+pub mod progress {
+    use super::colors_enabled;
+    use indicatif::{ProgressBar, ProgressStyle};
+    use std::io::{stderr, IsTerminal};
+
+    /// Create a progress bar for batch processing, only if stderr is interactive
+    pub fn create_batch_progress_bar(total: usize) -> Option<ProgressBar> {
+        // Only show progress bar if:
+        // 1. Processing more than 1 item
+        // 2. stderr is a TTY (interactive)
+        // 3. Colors are enabled (respects all our color settings)
+        if total > 1 && stderr().is_terminal() && colors_enabled() {
+            let pb = ProgressBar::new(total as u64);
+
+            let style = if colors_enabled() {
+                ProgressStyle::default_bar()
+                    .template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta})")
+                    .unwrap()
+                    .progress_chars("#>-")
+            } else {
+                ProgressStyle::default_bar()
+                    .template("[{elapsed_precise}] [{wide_bar}] {pos}/{len} ({eta})")
+                    .unwrap()
+                    .progress_chars("#>-")
+            };
+
+            pb.set_style(style);
+            Some(pb)
+        } else {
+            None
         }
     }
 }
@@ -227,16 +280,5 @@ mod tests {
 
         let result = maybe_color_stderr("test", |s| s.red());
         assert_eq!(result, "test");
-    }
-    #[test]
-    fn test_symbols_fallback() {
-        // Test that symbols provide fallback text
-        assert!(!symbols::head_detection_start().is_empty());
-        assert!(!symbols::background_removal_start().is_empty());
-        assert!(!symbols::operation_failed().is_empty());
-        assert!(!symbols::system_setup().is_empty());
-        assert!(!symbols::resources_found().is_empty());
-        assert!(!symbols::checking().is_empty());
-        assert!(!symbols::completed_successfully().is_empty());
     }
 }
