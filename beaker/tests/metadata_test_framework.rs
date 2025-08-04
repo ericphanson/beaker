@@ -69,11 +69,31 @@ pub fn setup_test_files(temp_dir: &TempDir) -> (PathBuf, PathBuf) {
 
 /// Run a beaker command and return exit code
 pub fn run_beaker_command(args: &[&str]) -> i32 {
-    let mut full_args = vec!["run", "--"];
-    full_args.extend_from_slice(args);
+    use std::sync::Once;
 
-    let output = Command::new("cargo")
-        .args(&full_args)
+    static BUILD_ONCE: Once = Once::new();
+
+    // Build the binary once at the start of testing
+    BUILD_ONCE.call_once(|| {
+        let build_output = Command::new("cargo")
+            .args(["build"])
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .output()
+            .expect("Failed to build beaker");
+
+        if !build_output.status.success() {
+            panic!(
+                "Failed to build beaker: {}",
+                String::from_utf8_lossy(&build_output.stderr)
+            );
+        }
+    });
+
+    // Run the built binary directly
+    let beaker_binary = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/debug/beaker");
+
+    let output = Command::new(&beaker_binary)
+        .args(args)
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .output()
         .expect("Failed to execute beaker command");

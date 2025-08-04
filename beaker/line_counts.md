@@ -2,7 +2,7 @@
 
 - **Cutout Main Code**: 330 (Tests: 44)  
 - **Head Main Code**: 509 (Tests: 0)  
-- **Common Main Code**: 1210 (Tests: 1201)  
+- **Common Main Code**: 1210 (Tests: 1215)  
 - **Total Main Code (excluding build.rs)**: 2049  
 - **Total Main Code (including build.rs)**: 2199 (Reported: 2199)  
 ✅ Totals match.
@@ -21,9 +21,9 @@ File name: ./beaker/tests/metadata_test_framework.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
 Main         | 0            | 0            | 0            | 0            | 0           
-Tests        | 461          | 67           | 19           | 27           | 574         
+Tests        | 475          | 71           | 19           | 29           | 594         
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 461          | 67           | 19           | 27           | 574         
+Total| 475          | 71           | 19           | 29           | 594         
 
 File name: ./beaker/tests/test_performance_tracker.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -165,6 +165,6 @@ File count: 19
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
 Main         | 2199         | 413          | 144          | 187          | 2943        
-Tests        | 1245         | 174          | 24           | 70           | 1513        
+Tests        | 1259         | 178          | 24           | 72           | 1533        
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 3444         | 587          | 168          | 257          | 4456        
+Total| 3458         | 591          | 168          | 259          | 4476        
