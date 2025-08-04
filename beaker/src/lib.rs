@@ -3,6 +3,7 @@
 //! This library provides unified infrastructure for AI-powered bird image analysis,
 //! including head detection and background removal capabilities.
 
+pub mod color_utils;
 pub mod config;
 pub mod cutout_postprocessing;
 pub mod cutout_preprocessing;

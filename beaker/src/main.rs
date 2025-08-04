@@ -3,6 +3,7 @@ use env_logger::Builder;
 use env_logger::Env;
 use log::{error, info, Level};
 
+mod color_utils;
 mod config;
 mod cutout_postprocessing;
 mod cutout_preprocessing;
@@ -17,7 +18,7 @@ mod shared_metadata;
 mod yolo_postprocessing;
 mod yolo_preprocessing;
 
-use colored::*;
+use color_utils::{colors, symbols};
 use config::{CutoutCommand, CutoutConfig, GlobalArgs, HeadCommand, HeadDetectionConfig};
 use cutout_processing::{run_cutout_processing, CUTOUT_MODEL_INFO};
 use head_detection::{run_head_detection, MODEL_VERSION};
@@ -72,6 +73,9 @@ fn get_log_level_from_verbosity(
 fn main() {
     let cli = Cli::parse();
 
+    // Initialize color configuration early
+    color_utils::init_color_config(cli.global.no_color);
+
     // If user didn't pass -v/-q and RUST_LOG is set, honor the env var.
     let use_env = !cli.global.verbosity.is_present() && std::env::var_os("RUST_LOG").is_some();
 
@@ -88,11 +92,11 @@ fn main() {
     logger
         .format(|buf, record| {
             let level_str = match record.level() {
-                Level::Error => "ERROR".red().bold().to_string(),
-                Level::Warn => "WARN".yellow().to_string(),
-                Level::Info => "INFO".green().to_string(),
-                Level::Debug => "DEBUG".blue().to_string(),
-                Level::Trace => "TRACE".magenta().to_string(),
+                Level::Error => colors::error_level("ERROR"),
+                Level::Warn => colors::warning_level("WARN"),
+                Level::Info => colors::info_level("INFO"),
+                Level::Debug => colors::debug_level("DEBUG"),
+                Level::Trace => colors::trace_level("TRACE"),
             };
             writeln!(buf, "[{}] {}", level_str, record.args())
         })
@@ -107,8 +111,12 @@ fn main() {
             };
 
             info!(
-                "🔍 Head detection: {} | conf: {} | IoU: {} | device: {}",
-                sources_desc, head_cmd.confidence, head_cmd.iou_threshold, cli.global.device
+                "{} Head detection: {} | conf: {} | IoU: {} | device: {}",
+                symbols::head_detection_start(),
+                sources_desc,
+                head_cmd.confidence,
+                head_cmd.iou_threshold,
+                cli.global.device
             );
 
             // Build outputs list
@@ -134,7 +142,7 @@ fn main() {
             match run_head_detection(internal_config) {
                 Ok(_) => {}
                 Err(e) => {
-                    error!("❌ Detection failed: {e}");
+                    error!("{} Detection failed: {e}", symbols::operation_failed());
                     std::process::exit(1);
                 }
             }
@@ -147,8 +155,10 @@ fn main() {
             };
 
             info!(
-                "✂️  Background removal: {} | device: {}",
-                sources_desc, cli.global.device
+                "{} Background removal: {} | device: {}",
+                symbols::background_removal_start(),
+                sources_desc,
+                cli.global.device
             );
 
             // Build features list
@@ -181,7 +191,10 @@ fn main() {
             match run_cutout_processing(internal_config) {
                 Ok(_) => {}
                 Err(e) => {
-                    error!("❌ Background removal failed: {e}");
+                    error!(
+                        "{} Background removal failed: {e}",
+                        symbols::operation_failed()
+                    );
                     std::process::exit(1);
                 }
             }

@@ -225,7 +225,8 @@ pub fn create_onnx_session(
 
     // Log execution provider information
     log::debug!(
-        "⚙️  Execution providers registered: {}",
+        "{} Execution providers registered: {}",
+        crate::color_utils::symbols::system_setup(),
         model_info.execution_providers.join(" -> ")
     );
 

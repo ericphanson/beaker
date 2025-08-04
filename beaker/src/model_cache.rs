@@ -58,7 +58,11 @@ fn download_model(url: &str, output_path: &Path) -> Result<()> {
     let mut file = fs::File::create(output_path)?;
     file.write_all(&content)?;
 
-    log::info!("✅ Model downloaded to: {}", output_path.display());
+    log::info!(
+        "{} Model downloaded to: {}",
+        crate::color_utils::symbols::completed_successfully(),
+        output_path.display()
+    );
 
     Ok(())
 }
@@ -70,11 +74,18 @@ pub fn get_or_download_model(model_info: &ModelInfo) -> Result<PathBuf> {
 
     // Check if model already exists and has correct checksum
     if model_path.exists() {
-        log::debug!("🔍 Checking cached model: {}", model_path.display());
+        log::debug!(
+            "{} Checking cached model: {}",
+            crate::color_utils::symbols::checking(),
+            model_path.display()
+        );
 
         match verify_checksum(&model_path, model_info.md5_checksum) {
             Ok(true) => {
-                log::debug!("✅ Using cached model with valid checksum");
+                log::debug!(
+                    "{} Using cached model with valid checksum",
+                    crate::color_utils::symbols::completed_successfully()
+                );
                 return Ok(model_path);
             }
             Ok(false) => {
@@ -100,7 +111,10 @@ pub fn get_or_download_model(model_info: &ModelInfo) -> Result<PathBuf> {
         ));
     }
 
-    log::info!("✅ Model downloaded and verified successfully");
+    log::info!(
+        "{} Model downloaded and verified successfully",
+        crate::color_utils::symbols::completed_successfully()
+    );
 
     Ok(model_path)
 }

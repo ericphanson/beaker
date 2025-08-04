@@ -52,6 +52,10 @@ pub struct GlobalArgs {
     /// Device to use for inference (auto, cpu, coreml)
     #[arg(long, default_value = "auto", global = true)]
     pub device: String,
+
+    /// Disable colored output (also respects NO_COLOR env var and BEAKER_NO_COLOR)
+    #[arg(long, global = true)]
+    pub no_color: bool,
 }
 
 /// Base configuration common to all models
@@ -232,6 +236,7 @@ mod tests {
             no_metadata: true,
             verbosity: Verbosity::new(2, 0), // -vv level (info level enables verbose)
             permissive: true,
+            no_color: false,
         };
 
         let config: BaseModelConfig = global_args.into();
@@ -252,6 +257,7 @@ mod tests {
             no_metadata: false,
             verbosity: Verbosity::new(0, 0), // Default level (warnings and errors only)
             permissive: false,
+            no_color: false,
         };
 
         let head_cmd = HeadCommand {
@@ -280,6 +286,7 @@ mod tests {
             no_metadata: false,
             verbosity: Verbosity::new(1, 0), // -v level (info)
             permissive: false,
+            no_color: false,
         };
 
         let cutout_cmd = CutoutCommand {

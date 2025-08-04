@@ -80,7 +80,11 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
         return Ok(0);
     }
 
-    log::info!("🎯 Found {} image(s) to process", image_files.len());
+    log::info!(
+        "{} Found {} image(s) to process",
+        crate::color_utils::symbols::resources_found(),
+        image_files.len()
+    );
 
     // Collect device information for metadata
     let device_selection = determine_optimal_device(&config.base().device);
@@ -151,7 +155,8 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
 
                 // Log comprehensive processing result
                 log::info!(
-                    "✅ Processed {} ({}/{}) in {:.1}ms {}",
+                    "{} Processed {} ({}/{}) in {:.1}ms {}",
+                    crate::color_utils::symbols::completed_successfully(),
                     image_path.display(),
                     index + 1,
                     image_files.len(),
