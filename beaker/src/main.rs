@@ -28,7 +28,7 @@ pub enum Commands {
     /// Detect bird heads in images
     Head(HeadCommand),
 
-    /// Remove backgrounds from images using AI segmentation
+    /// Remove backgrounds from images
     Cutout(CutoutCommand),
 
     /// Show version information
