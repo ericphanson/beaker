@@ -2,9 +2,9 @@
 
 - **Cutout Main Code**: 330 (Tests: 44)  
 - **Head Main Code**: 500 (Tests: 0)  
-- **Common Main Code**: 1192 (Tests: 1186)  
-- **Total Main Code (excluding build.rs)**: 2022  
-- **Total Main Code (including build.rs)**: 2172 (Reported: 2172)  
+- **Common Main Code**: 1171 (Tests: 1186)  
+- **Total Main Code (excluding build.rs)**: 2001  
+- **Total Main Code (including build.rs)**: 2151 (Reported: 2151)  
 ✅ Totals match.
 
 ## Raw Counts
@@ -124,10 +124,10 @@ Total| 206          | 26           | 9            | 12           | 253
 File name: ./beaker/src/main.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 187          | 19           | 3            | 12           | 221         
+Main         | 166          | 23           | 3            | 9            | 201         
 Tests        | 0            | 0            | 0            | 0            | 0           
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 187          | 19           | 3            | 12           | 221         
+Total| 166          | 23           | 3            | 9            | 201         
 
 File name: ./beaker/src/yolo_postprocessing.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -164,7 +164,7 @@ Total| 50           | 13           | 1            | 9            | 73
 File count: 19
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 2172         | 408          | 143          | 183          | 2906        
+Main         | 2151         | 412          | 143          | 180          | 2886        
 Tests        | 1230         | 178          | 23           | 73           | 1504        
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 3402         | 586          | 166          | 256          | 4410        
+Total| 3381         | 590          | 166          | 253          | 4390        

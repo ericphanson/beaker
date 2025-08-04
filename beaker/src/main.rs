@@ -100,46 +100,37 @@ fn main() {
 
     match &cli.command {
         Some(Commands::Head(head_cmd)) => {
-            // Display what we're processing (use info! instead of verbose check)
-            if head_cmd.sources.len() == 1 {
-                info!("🔍 Running head detection on: {}", head_cmd.sources[0]);
+            let sources_desc = if head_cmd.sources.len() == 1 {
+                head_cmd.sources[0].clone()
             } else {
-                info!(
-                    "🔍 Running head detection on {} inputs:",
-                    head_cmd.sources.len()
-                );
-                for source in &head_cmd.sources {
-                    info!("   • {source}");
-                }
-            }
+                format!("{} inputs", head_cmd.sources.len())
+            };
 
             info!(
-                "   Model: embedded ONNX model (version: {})",
-                MODEL_VERSION.trim()
+                "🔍 Head detection: {} | conf: {} | IoU: {} | device: {}",
+                sources_desc, head_cmd.confidence, head_cmd.iou_threshold, cli.global.device
             );
-            info!("   Confidence threshold: {}", head_cmd.confidence);
-            info!("   IoU threshold: {}", head_cmd.iou_threshold);
-            info!("   Device: {}", cli.global.device);
+
+            // Build outputs list
+            let mut outputs = Vec::new();
             if head_cmd.crop {
-                info!("   Will create head crops");
+                outputs.push("crops");
             }
             if head_cmd.bounding_box {
-                info!("   Will save bounding box images");
+                outputs.push("bounding-boxes");
             }
             if !cli.global.no_metadata {
-                log::debug!("   Will create metadata output");
-            }
-            if let Some(output_dir) = &cli.global.output_dir {
-                info!("   Output directory: {output_dir}");
+                outputs.push("metadata");
             }
 
-            // Convert CLI command to internal config and run detection
+            if !outputs.is_empty() {
+                info!("   Outputs: {}", outputs.join(", "));
+            }
+
             let internal_config =
                 HeadDetectionConfig::from_args(cli.global.clone(), head_cmd.clone());
             match run_head_detection(internal_config) {
-                Ok(_detections) => {
-                    // Detection results already logged by the processing framework
-                }
+                Ok(_) => {}
                 Err(e) => {
                     error!("❌ Detection failed: {e}");
                     std::process::exit(1);
@@ -147,57 +138,46 @@ fn main() {
             }
         }
         Some(Commands::Cutout(cutout_cmd)) => {
-            // Display what we're processing (use info! instead of verbose check)
-            if cutout_cmd.sources.len() == 1 {
-                info!(
-                    "✂️  Running background removal on: {}",
-                    cutout_cmd.sources[0]
-                );
+            let sources_desc = if cutout_cmd.sources.len() == 1 {
+                cutout_cmd.sources[0].clone()
             } else {
-                info!(
-                    "✂️  Running background removal on {} inputs:",
-                    cutout_cmd.sources.len()
-                );
-                for source in &cutout_cmd.sources {
-                    info!("   • {source}");
-                }
-            }
+                format!("{} inputs", cutout_cmd.sources.len())
+            };
 
-            info!("   Model: ISNet General Use");
-            info!("   Device: {}", cli.global.device);
+            info!(
+                "✂️  Background removal: {} | device: {}",
+                sources_desc, cli.global.device
+            );
+
+            // Build features list
+            let mut features = Vec::new();
             if cutout_cmd.post_process {
-                info!("   Will apply mask post-processing");
+                features.push("post-process");
             }
             if cutout_cmd.alpha_matting {
-                info!(
-                    "   Will use alpha matting (fg: {}, bg: {}, erode: {})",
-                    cutout_cmd.alpha_matting_foreground_threshold,
-                    cutout_cmd.alpha_matting_background_threshold,
-                    cutout_cmd.alpha_matting_erode_size
-                );
-            }
-            if let Some(bg_color) = &cutout_cmd.background_color {
-                info!(
-                    "   Background color: RGBA({}, {}, {}, {})",
-                    bg_color[0], bg_color[1], bg_color[2], bg_color[3]
-                );
+                features.push("alpha-matting");
             }
             if cutout_cmd.save_mask {
-                info!("   Will save segmentation masks");
+                features.push("save-mask");
             }
-            if !cli.global.no_metadata {
-                log::debug!("   Will create metadata output");
-            }
-            if let Some(output_dir) = &cli.global.output_dir {
-                info!("   Output directory: {output_dir}");
+            if !features.is_empty() {
+                info!("   Features: {}", features.join(", "));
             }
 
-            // Convert CLI command to internal config and run cutout processing
+            // Build outputs list
+            let mut outputs = Vec::new();
+            outputs.push("cutout"); // Always produces cutout
+            if cutout_cmd.save_mask {
+                outputs.push("mask");
+            }
+            if !cli.global.no_metadata {
+                outputs.push("metadata");
+            }
+            info!("   Outputs: {}", outputs.join(", "));
+
             let internal_config = CutoutConfig::from_args(cli.global.clone(), cutout_cmd.clone());
             match run_cutout_processing(internal_config) {
-                Ok(_processed) => {
-                    // Processing results already logged by the processing framework
-                }
+                Ok(_) => {}
                 Err(e) => {
                     error!("❌ Background removal failed: {e}");
                     std::process::exit(1);
