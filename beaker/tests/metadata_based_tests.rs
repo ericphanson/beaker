@@ -2,82 +2,27 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use tempfile::TempDir;
 
 // Import the metadata structures
 use beaker::shared_metadata::BeakerMetadata;
 
-/// Test performance tracking
-#[derive(Debug)]
-struct TestPerformanceTracker {
-    head_invocations: u32,
-    cutout_invocations: u32,
-    total_test_time: Duration,
-    slowest_tests: Vec<(String, Duration)>,
+// Import performance tracking
+mod test_performance_tracker;
+use std::sync::Once;
+use test_performance_tracker::{initialize_performance_tracker, record_test_performance};
+
+static INIT: Once = Once::new();
+
+/// Initialize performance tracker with test scenarios
+fn ensure_performance_tracker_initialized() {
+    INIT.call_once(|| {
+        let scenarios = get_test_scenarios();
+        let test_names: Vec<String> = scenarios.iter().map(|s| s.name.to_string()).collect();
+        initialize_performance_tracker(test_names);
+    });
 }
-
-impl TestPerformanceTracker {
-    fn record_test(&mut self, test_name: &str, tool: &str, duration: Duration) {
-        // Track per-tool invocations
-        match tool {
-            "head" => self.head_invocations += 1,
-            "cutout" => self.cutout_invocations += 1,
-            "both" => {
-                self.head_invocations += 1;
-                self.cutout_invocations += 1;
-            }
-            _ => {}
-        }
-
-        // Add to total time
-        self.total_test_time += duration;
-
-        // Track slowest tests (keep top 5)
-        self.slowest_tests.push((test_name.to_string(), duration));
-        self.slowest_tests.sort_by(|a, b| b.1.cmp(&a.1));
-        if self.slowest_tests.len() > 5 {
-            self.slowest_tests.truncate(5);
-        }
-    }
-
-    fn print_summary(&self) {
-        println!("\n📊 Test Performance Summary:");
-        println!(
-            "  Total test time: {:.2}s",
-            self.total_test_time.as_secs_f64()
-        );
-        println!("  Head model invocations: {}", self.head_invocations);
-        println!("  Cutout model invocations: {}", self.cutout_invocations);
-
-        if !self.slowest_tests.is_empty() {
-            println!("  Slowest tests:");
-            for (name, duration) in &self.slowest_tests {
-                println!("    - {}: {:.2}s", name, duration.as_secs_f64());
-            }
-        }
-
-        // Performance warnings
-        if self.total_test_time.as_secs() > 60 {
-            println!("  ⚠️  Total test time exceeded 60s target");
-        }
-        if self.cutout_invocations > 10 {
-            println!(
-                "  ⚠️  High cutout model usage ({} invocations) - consider optimization",
-                self.cutout_invocations
-            );
-        }
-    }
-}
-
-// Global performance tracker
-static PERFORMANCE_TRACKER: Mutex<TestPerformanceTracker> = Mutex::new(TestPerformanceTracker {
-    head_invocations: 0,
-    cutout_invocations: 0,
-    total_test_time: Duration::ZERO,
-    slowest_tests: Vec::new(),
-});
 
 /// Test scenario definition for systematic testing
 #[derive(Debug)]
@@ -263,8 +208,22 @@ fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck, tes
                             "Config field {field_path} should exist for {tool} in test {test_name}"
                         )
                     });
-                assert_eq!(actual_value, expected_value,
-                    "Config {field_path} should be {expected_value:?} for {tool} in test {test_name}, got {actual_value:?}");
+
+                // Handle floating point comparison tolerance for numbers
+                match (actual_value, expected_value) {
+                    (Value::Number(actual), Value::Number(expected)) => {
+                        let actual_f64 = actual.as_f64().unwrap_or(0.0);
+                        let expected_f64 = expected.as_f64().unwrap_or(0.0);
+                        let tolerance = 1e-6;
+                        assert!((actual_f64 - expected_f64).abs() < tolerance,
+                            "Config {field_path} should be approximately {expected_f64} for {tool} in test {test_name}, got {actual_f64} (diff: {})",
+                            (actual_f64 - expected_f64).abs());
+                    }
+                    _ => {
+                        assert_eq!(actual_value, expected_value,
+                            "Config {field_path} should be {expected_value:?} for {tool} in test {test_name}, got {actual_value:?}");
+                    }
+                }
             }
         }
 
@@ -401,30 +360,6 @@ fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck, tes
     }
 }
 
-/// Record test performance metrics
-fn record_test_performance(test_name: &str, tool: &str, duration: Duration) {
-    // Warn if any single test takes > 5 seconds
-    if duration.as_secs() > 5 {
-        eprintln!(
-            "⚠️  Slow test: {} took {:.2}s",
-            test_name,
-            duration.as_secs_f64()
-        );
-    }
-
-    // Record in global tracker
-    if let Ok(mut tracker) = PERFORMANCE_TRACKER.lock() {
-        tracker.record_test(test_name, tool, duration);
-    }
-}
-
-/// Print performance summary from global tracker
-fn print_performance_summary() {
-    if let Ok(tracker) = PERFORMANCE_TRACKER.lock() {
-        tracker.print_summary();
-    }
-}
-
 /// Run and validate a test scenario
 fn run_and_validate_scenario(scenario: TestScenario, temp_dir: &TempDir) {
     let start_time = Instant::now();
@@ -515,7 +450,15 @@ fn run_and_validate_scenario(scenario: TestScenario, temp_dir: &TempDir) {
     }
 
     // Parse and validate metadata
-    let metadata_path = temp_dir.path().join("example.beaker.toml");
+    let metadata_path = if scenario
+        .expected_files
+        .contains(&"example-2-birds.beaker.toml")
+    {
+        temp_dir.path().join("example-2-birds.beaker.toml")
+    } else {
+        temp_dir.path().join("example.beaker.toml")
+    };
+
     assert!(
         metadata_path.exists(),
         "Metadata file should exist for test: {}",
@@ -670,12 +613,12 @@ fn get_test_scenarios() -> Vec<TestScenario> {
             name: "cutout_basic_processing",
             tool: "cutout",
             args: vec!["../example.jpg"],
-            expected_files: vec!["example.beaker.toml", "example_cutout.png"],
+            expected_files: vec!["example.beaker.toml", "example.png"],
             metadata_checks: vec![
                 MetadataCheck::FilesProcessed("cutout", 1),
                 MetadataCheck::ConfigValue("cutout", "alpha_matting", json!(false)),
                 MetadataCheck::ConfigValue("cutout", "save_mask", json!(false)),
-                MetadataCheck::OutputCreated("example_cutout.png"),
+                MetadataCheck::OutputCreated("example.png"),
                 MetadataCheck::TimingBound(
                     "cutout",
                     "execution.total_processing_time_ms",
@@ -690,16 +633,12 @@ fn get_test_scenarios() -> Vec<TestScenario> {
             name: "cutout_with_alpha_matting_and_mask",
             tool: "cutout",
             args: vec!["../example.jpg", "--alpha-matting", "--save-mask"],
-            expected_files: vec![
-                "example.beaker.toml",
-                "example_cutout.png",
-                "example_mask.png",
-            ],
+            expected_files: vec!["example.beaker.toml", "example.png", "example_mask.png"],
             metadata_checks: vec![
                 MetadataCheck::ConfigValue("cutout", "alpha_matting", json!(true)),
                 MetadataCheck::ConfigValue("cutout", "save_mask", json!(true)),
                 MetadataCheck::FilesProcessed("cutout", 1),
-                MetadataCheck::OutputCreated("example_cutout.png"),
+                MetadataCheck::OutputCreated("example.png"),
                 MetadataCheck::OutputCreated("example_mask.png"),
                 MetadataCheck::TimingBound(
                     "cutout",
@@ -740,99 +679,95 @@ fn get_test_scenarios() -> Vec<TestScenario> {
     ]
 }
 
-/// Main test runner that executes all scenarios
-#[test]
-fn test_comprehensive_metadata_validation() {
-    let scenarios = get_test_scenarios();
-    let start_time = Instant::now();
-
-    println!(
-        "🧪 Running {} metadata-based test scenarios...",
-        scenarios.len()
-    );
-
-    for scenario in scenarios {
-        println!("  Running: {}", scenario.name);
-        let temp_dir = TempDir::new().expect("Failed to create temp directory");
-        run_and_validate_scenario(scenario, &temp_dir);
-    }
-
-    let total_duration = start_time.elapsed();
-
-    // Report basic performance metrics
-    println!("\n📊 Test Performance Summary:");
-    println!("  Total test time: {:.2}s", total_duration.as_secs_f64());
-
-    // Print detailed performance summary from tracker
-    print_performance_summary();
-
-    // Fail if total test suite exceeds 60 seconds (allowing some buffer)
-    assert!(
-        total_duration.as_secs() < 60,
-        "Test suite took {:.2}s, should be under 60s for fast feedback",
-        total_duration.as_secs_f64()
-    );
-
-    println!("✅ All metadata validation tests passed!");
-}
-
 /// Individual test functions for better isolation and parallel execution
-#[test]
-fn test_head_detection_cpu_device() {
-    let temp_dir = TempDir::new().expect("Failed to create temp directory");
-    let scenarios = get_test_scenarios();
-    let scenario = scenarios
-        .into_iter()
-        .find(|s| s.name == "head_detection_cpu_single_image")
-        .expect("Should find CPU test scenario");
-    run_and_validate_scenario(scenario, &temp_dir);
-    print_performance_summary();
+macro_rules! generate_metadata_tests {
+    ($($scenario_name:expr,)*) => {
+        // Validation function that runs before any test
+        fn validate_test_scenarios_completeness() {
+            static mut VALIDATED: bool = false;
+            static VALIDATION_LOCK: std::sync::Once = std::sync::Once::new();
+
+            VALIDATION_LOCK.call_once(|| {
+                let expected_scenarios: Vec<&str> = get_test_scenarios()
+                    .iter()
+                    .map(|s| s.name)
+                    .collect();
+
+                let macro_scenarios = vec![$($scenario_name,)*];
+
+                // Check that all expected scenarios are in the macro
+                for expected in &expected_scenarios {
+                    if !macro_scenarios.contains(expected) {
+                        panic!(
+                            "Test scenario '{}' is defined in get_test_scenarios() but missing from generate_metadata_tests! macro",
+                            expected
+                        );
+                    }
+                }
+
+                // Check that all macro scenarios exist in the expected list
+                for macro_scenario in &macro_scenarios {
+                    if !expected_scenarios.contains(macro_scenario) {
+                        panic!(
+                            "Test scenario '{}' is in generate_metadata_tests! macro but missing from get_test_scenarios()",
+                            macro_scenario
+                        );
+                    }
+                }
+
+                // Check counts match
+                if expected_scenarios.len() != macro_scenarios.len() {
+                    panic!(
+                        "Mismatch between number of scenarios in get_test_scenarios() ({}) and generate_metadata_tests! macro ({})",
+                        expected_scenarios.len(),
+                        macro_scenarios.len()
+                    );
+                }
+
+                eprintln!("✅ All {} test scenarios are correctly included in the macro", expected_scenarios.len());
+                unsafe { VALIDATED = true; }
+            });
+        }
+
+        $(
+            paste::paste! {
+                #[test]
+                fn [<test_ $scenario_name>]() {
+                    // Validate scenarios before running any test
+                    validate_test_scenarios_completeness();
+
+                    // Initialize performance tracker once
+                    ensure_performance_tracker_initialized();
+
+                    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+                    let scenarios = get_test_scenarios();
+                    let scenario = scenarios
+                        .into_iter()
+                        .find(|s| s.name == $scenario_name)
+                        .unwrap_or_else(|| panic!("Should find test scenario: {}", $scenario_name));
+
+                    // Run test scenario with automatic performance tracking
+                    let result = std::panic::catch_unwind(|| {
+                        run_and_validate_scenario(scenario, &temp_dir);
+                    });
+
+                    if let Err(panic_info) = result {
+                        std::panic::resume_unwind(panic_info);
+                    }
+                }
+            }
+        )*
+    };
 }
 
-#[test]
-fn test_head_detection_auto_device() {
-    let temp_dir = TempDir::new().expect("Failed to create temp directory");
-    let scenarios = get_test_scenarios();
-    let scenario = scenarios
-        .into_iter()
-        .find(|s| s.name == "head_detection_auto_device")
-        .expect("Should find auto device test scenario");
-    run_and_validate_scenario(scenario, &temp_dir);
-    print_performance_summary();
-}
-
-#[test]
-fn test_head_detection_with_output_files() {
-    let temp_dir = TempDir::new().expect("Failed to create temp directory");
-    let scenarios = get_test_scenarios();
-    let scenario = scenarios
-        .into_iter()
-        .find(|s| s.name == "head_detection_with_crops_and_bbox")
-        .expect("Should find crops and bbox test scenario");
-    run_and_validate_scenario(scenario, &temp_dir);
-    print_performance_summary();
-}
-
-#[test]
-fn test_cutout_basic() {
-    let temp_dir = TempDir::new().expect("Failed to create temp directory");
-    let scenarios = get_test_scenarios();
-    let scenario = scenarios
-        .into_iter()
-        .find(|s| s.name == "cutout_basic_processing")
-        .expect("Should find basic cutout test scenario");
-    run_and_validate_scenario(scenario, &temp_dir);
-    print_performance_summary();
-}
-
-#[test]
-fn test_multi_tool_workflow() {
-    let temp_dir = TempDir::new().expect("Failed to create temp directory");
-    let scenarios = get_test_scenarios();
-    let scenario = scenarios
-        .into_iter()
-        .find(|s| s.name == "multi_tool_sequential_processing")
-        .expect("Should find multi-tool test scenario");
-    run_and_validate_scenario(scenario, &temp_dir);
-    print_performance_summary();
+generate_metadata_tests! {
+    "head_detection_cpu_single_image",
+    "head_detection_auto_device",
+    "head_detection_with_crops_and_bbox",
+    "head_detection_high_confidence",
+    "head_detection_two_birds",
+    "head_detection_batch_processing",
+    "cutout_basic_processing",
+    "cutout_with_alpha_matting_and_mask",
+    "multi_tool_sequential_processing",
 }

@@ -2,7 +2,7 @@
 
 - **Cutout Main Code**: 332 (Tests: 44)  
 - **Head Main Code**: 492 (Tests: 0)  
-- **Common Main Code**: 1197 (Tests: 1115)  
+- **Common Main Code**: 1197 (Tests: 1186)  
 - **Total Main Code (excluding build.rs)**: 2021  
 - **Total Main Code (including build.rs)**: 2171 (Reported: 2171)  
 ✅ Totals match.
@@ -13,9 +13,17 @@ File name: ./beaker/tests/metadata_based_tests.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
 Main         | 0            | 0            | 0            | 0            | 0           
-Tests        | 711          | 72           | 23           | 32           | 838         
+Tests        | 655          | 67           | 20           | 31           | 773         
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 711          | 72           | 23           | 32           | 838         
+Total| 655          | 67           | 20           | 31           | 773         
+
+File name: ./beaker/tests/test_performance_tracker.rs
+Type         | Code         | Blank        | Doc comments | Comments     | Total       
+-------------|--------------|--------------|--------------|--------------|-------------
+Main         | 0            | 0            | 0            | 0            | 0           
+Tests        | 127          | 20           | 4            | 11           | 162         
+Examples     | 0            | 0            | 0            | 0            | 0           
+Total| 127          | 20           | 4            | 11           | 162         
 
 File name: ./beaker/build.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -145,10 +153,10 @@ Tests        | 14           | 3            | 0            | 2            | 19
 Examples     | 0            | 0            | 0            | 0            | 0           
 Total| 50           | 13           | 1            | 9            | 73          
 
-File count: 17
+File count: 18
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
 Main         | 2171         | 409          | 143          | 181          | 2904        
-Tests        | 1159         | 157          | 23           | 57           | 1396        
+Tests        | 1230         | 172          | 24           | 67           | 1493        
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 3330         | 566          | 166          | 238          | 4300        
+Total| 3401         | 581          | 167          | 248          | 4397        
