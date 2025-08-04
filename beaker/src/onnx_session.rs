@@ -69,14 +69,14 @@ pub fn determine_optimal_device(requested_device: &str) -> DeviceSelection {
             let coreml = CoreMLExecutionProvider::default();
             match coreml.is_available() {
                 Ok(true) => {
-                    log::info!("🖥️  Using CoreML execution provider");
+                    log::info!("   Using CoreML execution provider");
                     DeviceSelection {
                         device: "coreml".to_string(),
                         reason: "Auto-selected CoreML (available)".to_string(),
                     }
                 }
                 _ => {
-                    log::info!("🖥️  Using CPU execution provider");
+                    log::info!("   Using CPU execution provider");
                     DeviceSelection {
                         device: "cpu".to_string(),
                         reason: "Auto-selected CPU (CoreML not available)".to_string(),
@@ -197,7 +197,10 @@ pub fn create_onnx_session(
                 model_source: "embedded".to_string(),
                 model_path: None,
                 model_size_bytes: bytes.len(),
-                description: format!("embedded ONNX model ({} bytes)", bytes.len()),
+                description: format!(
+                    "embedded ONNX model ({:.2} MB)",
+                    bytes.len() as f64 / 1_048_576.0
+                ),
                 execution_providers: ep_names,
             };
             (session, info)
@@ -210,7 +213,10 @@ pub fn create_onnx_session(
                 model_source: "file".to_string(),
                 model_path: Some(path.clone()),
                 model_size_bytes: model_bytes.len(),
-                description: format!("ONNX model from {path}"),
+                description: format!(
+                    "ONNX model ({:.2} MB) from {path}",
+                    model_bytes.len() as f64 / 1_048_576.0
+                ),
                 execution_providers: ep_names,
             };
             (session, info)

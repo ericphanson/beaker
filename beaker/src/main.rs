@@ -123,7 +123,9 @@ fn main() {
                 outputs.push("metadata");
             }
 
-            if !outputs.is_empty() {
+            if outputs.is_empty() {
+                info!("   Outputs: none");
+            } else {
                 info!("   Outputs: {}", outputs.join(", "));
             }
 

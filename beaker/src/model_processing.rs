@@ -100,7 +100,7 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
     let model_load_time_ms = session_start.elapsed().as_secs_f64() * 1000.0;
 
     log::info!(
-        "🤖 Loaded {} in {:.3}ms",
+        "   Loaded {} in {:.3}ms",
         model_info.description,
         model_load_time_ms
     );

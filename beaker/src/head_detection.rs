@@ -239,7 +239,7 @@ impl ModelProcessor for HeadProcessor {
             inference_time.as_secs_f64() * 1000.0
         );
         info!(
-            "🎯 Found {} detection(s) after confidence filtering (>{}) and NMS (IoU>{})",
+            "   Found {} detection(s) after confidence filtering (>{}) and NMS (IoU>{})",
             detections.len(),
             config.confidence,
             config.iou_threshold
