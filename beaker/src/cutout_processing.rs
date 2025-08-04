@@ -1,5 +1,4 @@
 use anyhow::Result;
-use chrono::{DateTime, Utc};
 use image::GenericImageView;
 use ort::{session::Session, value::Value};
 use serde::Serialize;
@@ -14,7 +13,7 @@ use crate::cutout_postprocessing::{
 use crate::cutout_preprocessing::preprocess_image_for_isnet_v2;
 use crate::model_cache::{get_or_download_model, ISNET_GENERAL_MODEL};
 use crate::output_manager::OutputManager;
-use log::{debug, info};
+use log::debug;
 
 #[derive(Serialize, Clone)]
 pub struct CutoutResult {
@@ -29,9 +28,8 @@ pub struct CutoutResult {
 /// Core results for enhanced metadata (without config duplication)
 #[derive(Serialize)]
 pub struct CutoutCoreResult {
-    pub timestamp: DateTime<Utc>,
     pub model_version: String,
-    pub input_path: String,
+    pub processing_time_ms: f64,
     pub output_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mask_path: Option<String>,
@@ -116,12 +114,7 @@ fn process_single_image(
 
     let processing_time = start_time.elapsed().as_secs_f64() * 1000.0;
 
-    info!(
-        "✅ Processed {} in {:.1}ms → {}",
-        image_path.display(),
-        processing_time,
-        output_path.display()
-    );
+    // Create result with timing information
 
     let cutout_result = CutoutResult {
         input_path: image_path.to_string_lossy().to_string(),
@@ -160,16 +153,22 @@ impl ModelResult for CutoutResult {
         "cutout"
     }
 
-    fn core_results(&self) -> Result<serde_json::Value> {
-        let cutout_core_result = CutoutCoreResult {
-            timestamp: chrono::Utc::now(),
+    fn core_results(&self) -> Result<toml::Value> {
+        let core_result = CutoutCoreResult {
             model_version: self.model_version.clone(),
-            input_path: self.input_path.clone(),
+            processing_time_ms: self.processing_time_ms,
             output_path: self.output_path.clone(),
             mask_path: self.mask_path.clone(),
         };
+        Ok(toml::Value::try_from(core_result)?)
+    }
 
-        Ok(serde_json::to_value(cutout_core_result)?)
+    fn output_summary(&self) -> String {
+        if self.mask_path.is_some() {
+            format!("→ {} + mask", self.output_path)
+        } else {
+            format!("→ {}", self.output_path)
+        }
     }
 }
 
@@ -199,7 +198,7 @@ impl ModelProcessor for CutoutProcessor {
         process_single_image(config, session, image_path)
     }
 
-    fn serialize_config(config: &Self::Config) -> Result<serde_json::Value> {
-        Ok(serde_json::to_value(config)?)
+    fn serialize_config(config: &Self::Config) -> Result<toml::Value> {
+        Ok(toml::Value::try_from(config)?)
     }
 }

@@ -29,7 +29,10 @@ pub trait ModelResult {
     fn tool_name(&self) -> &'static str;
 
     /// Get the serializable core results for the main tool section
-    fn core_results(&self) -> Result<serde_json::Value>;
+    fn core_results(&self) -> Result<toml::Value>;
+
+    /// Get a summary of all output files created
+    fn output_summary(&self) -> String;
 }
 
 /// Core trait that all models must implement
@@ -51,7 +54,7 @@ pub trait ModelProcessor {
     ) -> Result<Self::Result>;
 
     /// Get serializable configuration for metadata
-    fn serialize_config(config: &Self::Config) -> Result<serde_json::Value>;
+    fn serialize_config(config: &Self::Config) -> Result<toml::Value>;
 }
 
 /// Helper function to create session with pre-determined device
@@ -70,7 +73,6 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
     use chrono::Utc;
     use std::time::Instant;
 
-    let framework_start = Instant::now();
     let start_timestamp = Utc::now();
 
     // Collect command line for metadata
@@ -131,16 +133,17 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
         match P::process_single_image(&mut session, image_path, &config) {
             Ok(result) => {
                 successful_count += 1;
+
+                // Log comprehensive processing result
                 log::info!(
-                    "✅ Processed {} ({}/{}) in {:.1}ms",
+                    "✅ Processed {} ({}/{}) in {:.1}ms {}",
                     image_path.display(),
                     index + 1,
                     image_files.len(),
-                    result.processing_time_ms()
+                    result.processing_time_ms(),
+                    result.output_summary()
                 );
-                log::debug!("📊 {}", result.result_summary());
-
-                // Save enhanced metadata for this file
+                log::debug!("📊 {}", result.result_summary()); // Save enhanced metadata for this file
                 if !config.base().skip_metadata {
                     save_enhanced_metadata_for_file::<P>(
                         &result,
@@ -176,16 +179,6 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
         }
     }
 
-    let total_time = framework_start.elapsed();
-
-    if successful_count > 0 {
-        log::info!(
-            "✅ Processed {} images in {:.1}s",
-            successful_count,
-            total_time.as_secs_f64()
-        );
-    }
-
     if failed_count > 0 {
         log::warn!(
             "⚠️  {} of {} images failed to process",
@@ -198,6 +191,7 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
 }
 
 /// Save enhanced metadata for a single processed file
+#[allow(clippy::too_many_arguments)]
 fn save_enhanced_metadata_for_file<P: ModelProcessor>(
     result: &P::Result,
     config: &P::Config,

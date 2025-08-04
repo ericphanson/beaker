@@ -1,9 +1,9 @@
-use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
 use tempfile::TempDir;
+use toml::Value;
 
 // Import the metadata structures
 use beaker::shared_metadata::BeakerMetadata;
@@ -94,14 +94,14 @@ pub fn parse_metadata(path: &Path) -> BeakerMetadata {
         .unwrap_or_else(|_| panic!("Failed to parse metadata TOML: {}", path.display()))
 }
 
-/// Get nested value from JSON using dot notation (e.g., "config.confidence")
+/// Get nested value from TOML using dot notation (e.g., "config.confidence")
 pub fn get_nested_value<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
     let parts: Vec<&str> = path.split('.').collect();
     let mut current = value;
 
     for part in parts {
         match current {
-            Value::Object(map) => {
+            Value::Table(map) => {
                 current = map.get(part)?;
             }
             _ => return None,
@@ -183,7 +183,7 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
                         .unwrap_or_else(|| {
                             panic!("Device requested should exist for {tool} in test {test_name}")
                         });
-                assert_eq!(&json!(device_requested), expected_value,
+                assert_eq!(device_requested, expected_value.as_str().unwrap(),
                     "Device should be {expected_value:?} for {tool} in test {test_name}, got {device_requested}");
             } else {
                 let actual_value =
@@ -195,13 +195,15 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
 
                 // Handle floating point comparison tolerance for numbers
                 match (actual_value, expected_value) {
-                    (Value::Number(actual), Value::Number(expected)) => {
-                        let actual_f64 = actual.as_f64().unwrap_or(0.0);
-                        let expected_f64 = expected.as_f64().unwrap_or(0.0);
+                    (Value::Float(actual), Value::Float(expected)) => {
                         let tolerance = 1e-6;
-                        assert!((actual_f64 - expected_f64).abs() < tolerance,
-                            "Config {field_path} should be approximately {expected_f64} for {tool} in test {test_name}, got {actual_f64} (diff: {})",
-                            (actual_f64 - expected_f64).abs());
+                        assert!((actual - expected).abs() < tolerance,
+                            "Config {field_path} should be approximately {expected} for {tool} in test {test_name}, got {actual} (diff: {})",
+                            (actual - expected).abs());
+                    }
+                    (Value::Integer(actual), Value::Integer(expected)) => {
+                        assert_eq!(actual, expected,
+                            "Config {field_path} should be {expected} for {tool} in test {test_name}, got {actual}");
                     }
                     _ => {
                         assert_eq!(actual_value, expected_value,
@@ -327,13 +329,16 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
         }
 
         MetadataCheck::CoreResultsField(tool, field_name) => {
-            // Convert metadata to JSON for easier nested access
-            let metadata_json = serde_json::to_value(metadata)
-                .expect("Should be able to serialize metadata to JSON");
+            // Convert metadata to TOML for easier nested access
+            let metadata_toml = toml::Value::try_from(metadata)
+                .expect("Should be able to serialize metadata to TOML");
 
-            let tool_section = metadata_json.get(tool).unwrap_or_else(|| {
-                panic!("Tool section {tool} should exist in JSON for test {test_name}")
-            });
+            let tool_section = match metadata_toml {
+                Value::Table(ref table) => table.get(&tool.to_string()).unwrap_or_else(|| {
+                    panic!("Tool section {tool} should exist in TOML for test {test_name}")
+                }),
+                _ => panic!("Metadata should be a TOML table"),
+            };
 
             let field_value = get_nested_value(tool_section, field_name);
             assert!(

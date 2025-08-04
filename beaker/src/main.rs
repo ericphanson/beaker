@@ -127,7 +127,7 @@ fn main() {
                 info!("   Will save bounding box images");
             }
             if !cli.global.no_metadata {
-                info!("   Will create metadata output");
+                log::debug!("   Will create metadata output");
             }
             if let Some(output_dir) = &cli.global.output_dir {
                 info!("   Output directory: {output_dir}");
@@ -137,8 +137,8 @@ fn main() {
             let internal_config =
                 HeadDetectionConfig::from_args(cli.global.clone(), head_cmd.clone());
             match run_head_detection(internal_config) {
-                Ok(detections) => {
-                    info!("✅ Found {detections} detections");
+                Ok(_detections) => {
+                    // Detection results already logged by the processing framework
                 }
                 Err(e) => {
                     error!("❌ Detection failed: {e}");
@@ -186,7 +186,7 @@ fn main() {
                 info!("   Will save segmentation masks");
             }
             if !cli.global.no_metadata {
-                info!("   Will create metadata output");
+                log::debug!("   Will create metadata output");
             }
             if let Some(output_dir) = &cli.global.output_dir {
                 info!("   Output directory: {output_dir}");
@@ -195,8 +195,8 @@ fn main() {
             // Convert CLI command to internal config and run cutout processing
             let internal_config = CutoutConfig::from_args(cli.global.clone(), cutout_cmd.clone());
             match run_cutout_processing(internal_config) {
-                Ok(processed) => {
-                    info!("✅ Processed {processed} images");
+                Ok(_processed) => {
+                    // Processing results already logged by the processing framework
                 }
                 Err(e) => {
                     error!("❌ Background removal failed: {e}");

@@ -36,7 +36,6 @@ pub struct HeadResult {
 /// Core results for enhanced metadata (without config duplication)
 #[derive(Serialize)]
 pub struct HeadCoreResult {
-    pub timestamp: DateTime<Utc>,
     pub model_version: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bounding_box_path: Option<String>,
@@ -358,15 +357,39 @@ impl ModelResult for HeadDetectionResult {
         "head"
     }
 
-    fn core_results(&self) -> Result<serde_json::Value> {
+    fn core_results(&self) -> Result<toml::Value> {
         let head_core_result = HeadCoreResult {
-            timestamp: chrono::Utc::now(),
             model_version: MODEL_VERSION.to_string(),
             bounding_box_path: self.bounding_box_path.clone(),
             detections: self.detections_with_paths.clone(),
         };
 
-        Ok(serde_json::to_value(head_core_result)?)
+        Ok(toml::Value::try_from(head_core_result)?)
+    }
+
+    fn output_summary(&self) -> String {
+        let mut outputs = Vec::new();
+
+        // Count crops
+        let crop_count = self
+            .detections_with_paths
+            .iter()
+            .filter(|d| d.crop_path.is_some())
+            .count();
+        if crop_count > 0 {
+            outputs.push(format!("{crop_count} crop(s)"));
+        }
+
+        // Add bounding box if present
+        if self.bounding_box_path.is_some() {
+            outputs.push("bounding box".to_string());
+        }
+
+        if outputs.is_empty() {
+            "metadata only".to_string()
+        } else {
+            format!("→ {}", outputs.join(" + "))
+        }
     }
 }
 
@@ -437,7 +460,7 @@ impl ModelProcessor for HeadProcessor {
             inference_time.as_secs_f64() * 1000.0
         );
         info!(
-            "🎯 Found {} detections after confidence filtering (>{}) and NMS (IoU>{})",
+            "🎯 Found {} detection(s) after confidence filtering (>{}) and NMS (IoU>{})",
             detections.len(),
             config.confidence,
             config.iou_threshold
@@ -457,7 +480,7 @@ impl ModelProcessor for HeadProcessor {
         })
     }
 
-    fn serialize_config(config: &Self::Config) -> Result<serde_json::Value> {
-        Ok(serde_json::to_value(config)?)
+    fn serialize_config(config: &Self::Config) -> Result<toml::Value> {
+        Ok(toml::Value::try_from(config)?)
     }
 }

@@ -18,11 +18,11 @@ pub struct BeakerMetadata {
 pub struct HeadSections {
     // Core results (backwards compatibility - flatten the existing head results)
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
-    pub core: Option<serde_json::Value>,
+    pub core: Option<toml::Value>,
 
     // New subsections
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub config: Option<serde_json::Value>,
+    pub config: Option<toml::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub execution: Option<ExecutionContext>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -36,11 +36,11 @@ pub struct HeadSections {
 pub struct CutoutSections {
     // Core results (backwards compatibility - flatten the existing cutout results)
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
-    pub core: Option<serde_json::Value>,
+    pub core: Option<toml::Value>,
 
     // New subsections
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub config: Option<serde_json::Value>,
+    pub config: Option<toml::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub execution: Option<ExecutionContext>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -122,7 +122,30 @@ pub fn save_metadata(metadata: &BeakerMetadata, path: &Path) -> Result<()> {
         fs::create_dir_all(parent)?;
     }
 
-    let toml_content = toml::to_string_pretty(metadata)?;
+    let toml_content = match toml::to_string_pretty(metadata) {
+        Ok(content) => content,
+        Err(e) => {
+            log::debug!("About to serialize metadata: {metadata:#?}");
+            // Try to serialize each section individually to isolate the problem
+            if let Some(ref head) = metadata.head {
+                log::error!("Head section: {head:#?}");
+                if let Err(head_err) = toml::to_string_pretty(head) {
+                    log::error!("Head section serialization failed: {head_err}");
+                }
+            }
+            if let Some(ref cutout) = metadata.cutout {
+                log::error!("Cutout section: {cutout:#?}");
+                if let Err(cutout_err) = toml::to_string_pretty(cutout) {
+                    log::error!("Cutout section serialization failed: {cutout_err}");
+                }
+            }
+            return Err(anyhow::anyhow!(
+                "Failed to serialize metadata to TOML: {}. This usually means a field contains a value that cannot be represented in TOML format.",
+                e
+            ));
+        }
+    };
+
     fs::write(path, toml_content)?;
     Ok(())
 }
@@ -173,23 +196,27 @@ mod tests {
 
     #[test]
     fn test_toml_structure() {
-        use serde_json::json;
-
         // Create test metadata with tool sections
         let mut metadata = BeakerMetadata::default();
 
         // Add head sections with some test data
         metadata.head = Some(HeadSections {
-            core: Some(json!({
-                "model_version": "test-v1.0.0",
-                "confidence_threshold": 0.25,
-                "processing_time_ms": 150.5
-            })),
-            config: Some(json!({
-                "confidence": 0.25,
-                "iou_threshold": 0.45,
-                "crop": true
-            })),
+            core: Some(
+                toml::toml! {
+                    model_version = "test-v1.0.0"
+                    confidence_threshold = 0.25
+                    processing_time_ms = 150.5
+                }
+                .into(),
+            ),
+            config: Some(
+                toml::toml! {
+                    confidence = 0.25
+                    iou_threshold = 0.45
+                    crop = true
+                }
+                .into(),
+            ),
             execution: Some(ExecutionContext {
                 timestamp: Some(chrono::Utc::now()),
                 beaker_version: Some("0.1.1".to_string()),
