@@ -2,9 +2,9 @@
 
 - **Cutout Main Code**: 325 (Tests: 44)  
 - **Head Main Code**: 494 (Tests: 0)  
-- **Common Main Code**: 1525 (Tests: 1189)  
-- **Total Main Code (excluding build.rs)**: 2344  
-- **Total Main Code (including build.rs)**: 2494 (Reported: 2494)  
+- **Common Main Code**: 1510 (Tests: 1189)  
+- **Total Main Code (excluding build.rs)**: 2329  
+- **Total Main Code (including build.rs)**: 2479 (Reported: 2479)  
 ✅ Totals match.
 
 ## Raw Counts
@@ -148,10 +148,10 @@ Total| 249          | 52           | 0            | 35           | 336
 File name: ./beaker/src/model_processing.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 281          | 47           | 19           | 23           | 370         
+Main         | 266          | 47           | 19           | 22           | 354         
 Tests        | 0            | 0            | 0            | 0            | 0           
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 281          | 47           | 19           | 23           | 370         
+Total| 266          | 47           | 19           | 22           | 354         
 
 File name: ./beaker/src/cutout_postprocessing.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -172,7 +172,7 @@ Total| 50           | 13           | 1            | 9            | 73
 File count: 20
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 2494         | 454          | 175          | 205          | 3328        
+Main         | 2479         | 454          | 175          | 204          | 3312        
 Tests        | 1233         | 178          | 23           | 73           | 1507        
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 3727         | 632          | 198          | 278          | 4835        
+Total| 3712         | 632          | 198          | 277          | 4819        

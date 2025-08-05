@@ -242,63 +242,41 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
 
                 failed_images.push(image_path.to_str().unwrap_or_default().to_string());
 
-                if config.base().strict {
-                    if let Some(pb) = progress_bar {
-                        pb.finish_and_clear();
-                    }
-                    return Err(e);
+                let err_msg = format!(
+                    "{} Failed to process {}: {}",
+                    crate::color_utils::symbols::warning(),
+                    image_path.display(),
+                    e
+                );
+                if let Some(ref bar) = progress_bar {
+                    bar.suspend(|| log::warn!("{err_msg}"));
                 } else {
-                    log::warn!(
-                        "{} Failed to process {} ({}/{}): {}",
-                        crate::color_utils::symbols::warning(),
-                        image_path.display(),
-                        index + 1,
-                        image_files.len(),
-                        e
-                    );
+                    log::warn!("{err_msg}");
                 }
             }
         }
     }
 
     // Finish progress bar if it exists
-    if let Some(pb) = progress_bar {
+    if let Some(ref pb) = progress_bar {
         pb.finish_and_clear();
-    }
-    // if failed_images > 20, we will truncate and add an ellipsis
-    let failed_images_str = if failed_images.len() > 20 {
-        format!(
-            "{} and {} more...",
-            failed_images[..20].join(", "),
-            failed_images.len() - 20
-        )
-    } else {
-        failed_images.join(", ")
-    };
-    if failed_count > 0 {
-        log::warn!(
-            "{} {} images failed to process: {}",
-            crate::color_utils::symbols::warning(),
-            failed_count,
-            failed_images_str
-        );
     }
     let total_processing_time = total_processing_start.elapsed();
 
     if image_files.len() > 1 {
         if failed_count > 0 {
             log::info!(
-                "{} Processed {} images with {} successes and {} failures in {:.1}s ({:.0}ms per image)",
+                "{}  Processed {} images with {} successes and {} failures in {:.1}s ({:.0}ms per success)",
                 crate::color_utils::symbols::completed_partially_successfully(),
                 successful_count + failed_count,
                 successful_count,
                 failed_count,
                 total_processing_time.as_millis() as f64 / 1000.0,
-                total_processing_time.as_millis() as f64 / (successful_count + failed_count) as f64
+                total_processing_time.as_millis() as f64 / (successful_count) as f64
             );
         } else {
             log::info!(
-                "{} Processed {} images successfully in {:.1}s ({:.0}ms per image)",
+                "{}  Processed {} images successfully in {:.1}s ({:.0}ms per image)",
                 crate::color_utils::symbols::completed_successfully(),
                 successful_count,
                 total_processing_time.as_millis() as f64 / 1000.0,
@@ -307,6 +285,12 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
         }
     }
 
+    if config.base().strict && failed_count > 0 {
+        return Err(anyhow::anyhow!(
+            "{} image(s) failed to process (without `--permissive` flag)",
+            failed_count
+        ));
+    }
     Ok(successful_count)
 }
 
