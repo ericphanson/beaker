@@ -9,6 +9,7 @@
 //! - Metadata path utilities
 
 use anyhow::Result;
+use log::debug;
 use std::path::{Path, PathBuf};
 
 use crate::model_processing::ModelConfig;
@@ -155,7 +156,6 @@ impl<'a> OutputManager<'a> {
         &self,
         head_sections: Option<HeadSections>,
         cutout_sections: Option<CutoutSections>,
-        progress_bar: &Option<indicatif::ProgressBar>,
     ) -> Result<()> {
         if self.config.base().skip_metadata {
             return Ok(());
@@ -164,7 +164,7 @@ impl<'a> OutputManager<'a> {
         let metadata_path =
             get_metadata_path(self.input_path, self.config.base().output_dir.as_deref())?;
 
-        let mut metadata = load_or_create_metadata(&metadata_path, progress_bar)?;
+        let mut metadata = load_or_create_metadata(&metadata_path)?;
 
         // Update the sections that were provided
         if let Some(head) = head_sections {
@@ -176,12 +176,7 @@ impl<'a> OutputManager<'a> {
 
         save_metadata(&metadata, &metadata_path)?;
 
-        let save_msg = format!("📋 Saved complete metadata to: {}", metadata_path.display());
-        if let Some(ref bar) = progress_bar {
-            bar.suspend(|| log::debug!("{save_msg}"));
-        } else {
-            log::debug!("{save_msg}");
-        }
+        debug!("📋 Saved complete metadata to: {}", metadata_path.display());
 
         Ok(())
     }

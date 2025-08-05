@@ -204,6 +204,8 @@ pub mod symbols {
 
 /// Progress bar utilities that respect TTY state
 pub mod progress {
+    use crate::progress::add_progress_bar;
+
     use super::colors_enabled;
     use indicatif::{ProgressBar, ProgressStyle};
     use std::io::{stderr, IsTerminal};
@@ -216,17 +218,17 @@ pub mod progress {
         // 3. Colors are enabled (respects all our color settings)
         if total > 1 && stderr().is_terminal() {
             let pb = ProgressBar::new(total as u64);
-
+            add_progress_bar(pb.clone());
             let style = if colors_enabled() {
                 ProgressStyle::default_bar()
                     .template(
-                        "[{elapsed_precise}] [{bar:40.green/black}] ({percent}%) {msg}\n{prefix}",
+                        "[{elapsed_precise}] [{bar:30.green/black}] ({percent}%) {msg}\n{prefix}",
                     )
                     .unwrap()
                     .progress_chars("█▓▒░")
             } else {
                 ProgressStyle::default_bar()
-                    .template("[{elapsed_precise}] [{bar:40}] ({percent}%) {msg}\n{prefix}")
+                    .template("[{elapsed_precise}] [{bar:30}] ({percent}%) {msg}\n{prefix}")
                     .unwrap()
                     .progress_chars("#> ")
             };

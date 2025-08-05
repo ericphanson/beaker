@@ -14,6 +14,7 @@ mod model_cache;
 mod model_processing;
 mod onnx_session;
 mod output_manager;
+mod progress;
 mod shared_metadata;
 mod yolo_postprocessing;
 mod yolo_preprocessing;
@@ -22,6 +23,7 @@ use color_utils::{colors, symbols};
 use config::{CutoutCommand, CutoutConfig, GlobalArgs, HeadCommand, HeadDetectionConfig};
 use cutout_processing::{run_cutout_processing, CUTOUT_MODEL_INFO};
 use head_detection::{run_head_detection, MODEL_VERSION};
+use progress::global_mp;
 use std::io::Write;
 
 #[derive(clap::Subcommand)]
@@ -89,7 +91,7 @@ fn main() {
         b
     };
 
-    logger
+    let base_logger = logger
         .format(|buf, record| {
             let level_str = match record.level() {
                 Level::Error => colors::error_level("ERROR"),
@@ -106,7 +108,16 @@ fn main() {
                 writeln!(buf, "[{}] {}", level_str, record.args())
             }
         })
-        .init();
+        .build();
+
+    // this will suspend the global multi-progress bar when logging
+    indicatif_log_bridge::LogWrapper::new((*global_mp()).clone(), base_logger)
+        .try_init()
+        .unwrap();
+
+    // if !use_env {
+    // log::set_max_level(get_log_level_from_verbosity(cli.global.verbosity));
+    // }
 
     match &cli.command {
         Some(Commands::Head(head_cmd)) => {

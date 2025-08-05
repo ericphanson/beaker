@@ -189,7 +189,6 @@ impl ModelProcessor for HeadProcessor {
         session: &mut Session,
         image_path: &Path,
         config: &Self::Config,
-        progress_bar: &Option<indicatif::ProgressBar>,
     ) -> Result<Self::Result> {
         let processing_start = Instant::now();
 
@@ -197,21 +196,12 @@ impl ModelProcessor for HeadProcessor {
         let img = image::open(image_path)?;
         let (orig_width, orig_height) = img.dimensions();
 
-        // Helper closure for logging with progress bar
-        let debug_with_progress = |msg: &str| {
-            if let Some(ref bar) = progress_bar {
-                bar.suspend(|| log::debug!("{msg}"));
-            } else {
-                log::debug!("{msg}");
-            }
-        };
-
-        debug_with_progress(&format!(
+        debug!(
             "📷 Processing {}: {}x{}",
             image_path.display(),
             orig_width,
             orig_height
-        ));
+        );
 
         // Preprocess the image
         let model_size = 640; // Standard YOLO input size
@@ -243,10 +233,10 @@ impl ModelProcessor for HeadProcessor {
             model_size,
         )?;
 
-        debug_with_progress(&format!(
+        debug!(
             "⚡ Inference completed in {:.1} ms",
             inference_time.as_secs_f64() * 1000.0
-        ));
+        );
 
         let total_processing_time = processing_start.elapsed().as_secs_f64() * 1000.0;
 

@@ -14,6 +14,7 @@ pub mod model_cache;
 pub mod model_processing;
 pub mod onnx_session;
 pub mod output_manager;
+pub mod progress;
 pub mod shared_metadata;
 pub mod yolo_postprocessing;
 pub mod yolo_preprocessing;

@@ -4,8 +4,10 @@
 //! along with generic processing functions that handle the common patterns across
 //! different model types.
 
+use crate::progress::{add_progress_bar, remove_progress_bar};
 use anyhow::Result;
 use colored::Colorize;
+use log::warn;
 use ort::session::Session;
 use std::path::Path;
 use std::time::Duration;
@@ -53,7 +55,6 @@ pub trait ModelProcessor {
         session: &mut Session,
         image_path: &Path,
         config: &Self::Config,
-        progress_bar: &Option<indicatif::ProgressBar>,
     ) -> Result<Self::Result>;
 
     /// Get serializable configuration for metadata
@@ -101,8 +102,8 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
     // It sometimes takes a while to load the model, so we'll use a spinner when on TTY
     // it will show "model loading" while the model is being loaded, then switch to "model loaded" when done
     let spinner = indicatif::ProgressBar::new_spinner();
+    add_progress_bar(spinner.clone());
     spinner.set_message(" Loading model...");
-    spinner.tick();
     spinner.enable_steady_tick(Duration::from_millis(100));
 
     let model_source = P::get_model_source();
@@ -111,6 +112,9 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
         device: &device_selected,
     };
     let (mut session, model_info) = create_onnx_session(model_source.unwrap(), &session_config)?;
+
+    spinner.finish_and_clear();
+    remove_progress_bar(&spinner);
 
     let model_load_time_ms = session_start.elapsed().as_secs_f64() * 1000.0;
 
@@ -122,9 +126,7 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
         "CPU".to_string()
     };
 
-    spinner.finish_and_clear();
-
-    let timing_str = maybe_dim_stderr(&format!("in {model_load_time_ms:.0}ms"));
+    let timing_str: String = maybe_dim_stderr(&format!("in {model_load_time_ms:.0}ms"));
     log::info!(
         "{} Model loaded ({}, {}) {}",
         crate::color_utils::symbols::model_loaded(),
@@ -186,7 +188,7 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
                 pb.set_message(format!("ETA: {eta:.1}s"));
             }
         }
-        match P::process_single_image(&mut session, image_path, &config, &progress_bar) {
+        match P::process_single_image(&mut session, image_path, &config) {
             Ok(result) => {
                 successful_count += 1;
 
@@ -199,18 +201,19 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
                         system.clone(),
                         input.clone(),
                         start_timestamp,
-                        &progress_bar,
                     )?;
                 }
                 if progress_bar.is_none() {
+                    let val = result.processing_time_ms();
+                    let timing_str: String = maybe_dim_stderr(&format!("in {val:.0} ms"));
                     // Log comprehensive processing result for single files or non-interactive
                     log::info!(
-                        "{} Processed {} ({}/{}) in {:.0} ms {}",
+                        "{} Processed {} ({}/{}) {} {}",
                         crate::color_utils::symbols::completed_successfully(),
                         image_path.display(),
                         index + 1,
                         image_files.len(),
-                        result.processing_time_ms(),
+                        timing_str,
                         result.output_summary()
                     );
                 }
@@ -221,17 +224,12 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
                 failed_images.push(image_path.to_str().unwrap_or_default().to_string());
 
                 let colored_error = crate::color_utils::colors::error_level(&e.to_string());
-                let err_msg = format!(
+                warn!(
                     "{} Failed to process {}:\n            {}",
                     crate::color_utils::symbols::warning(),
                     image_path.display(),
                     colored_error
                 );
-                if let Some(ref bar) = progress_bar {
-                    bar.suspend(|| log::warn!("{err_msg}"));
-                } else {
-                    log::warn!("{err_msg}");
-                }
             }
         }
         if let Some(ref pb) = progress_bar {
@@ -242,6 +240,7 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
     // Finish progress bar if it exists
     if let Some(ref pb) = progress_bar {
         pb.finish_and_clear();
+        remove_progress_bar(pb);
     }
     let total_processing_time = total_processing_start.elapsed();
 
@@ -296,7 +295,6 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
     system: SystemInfo,
     input: InputProcessing,
     start_timestamp: chrono::DateTime<chrono::Utc>,
-    progress_bar: &Option<indicatif::ProgressBar>,
 ) -> Result<()> {
     use crate::output_manager::OutputManager;
     use crate::shared_metadata::{CutoutSections, ExecutionContext, HeadSections};
@@ -326,7 +324,7 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
                 system: Some(system),
                 input: Some(input),
             };
-            output_manager.save_complete_metadata(Some(head_sections), None, progress_bar)?;
+            output_manager.save_complete_metadata(Some(head_sections), None)?;
         }
         "cutout" => {
             let cutout_sections = CutoutSections {
@@ -336,7 +334,7 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
                 system: Some(system),
                 input: Some(input),
             };
-            output_manager.save_complete_metadata(None, Some(cutout_sections), progress_bar)?;
+            output_manager.save_complete_metadata(None, Some(cutout_sections))?;
         }
         _ => {
             return Err(anyhow::anyhow!("Unknown tool name: {}", result.tool_name()));

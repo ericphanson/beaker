@@ -7,7 +7,7 @@
 - species classification
 
 Not really a command but:
-- collage: given a set of cutouts (cropped or not), arrange via heuristics into a nice collage
+- collage: given a set of cutouts (cropped or not), arrange via heuristics into a nice collage. Clearly the next step...
 
 ## Improve existing commands
 

@@ -1,11 +1,3 @@
-use anyhow::Result;
-use image::GenericImageView;
-use ort::{session::Session, value::Value};
-use serde::Serialize;
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::time::Instant;
-
 use crate::config::CutoutConfig;
 use crate::cutout_postprocessing::{
     apply_alpha_matting, create_cutout, create_cutout_with_background, postprocess_mask,
@@ -14,6 +6,14 @@ use crate::cutout_preprocessing::preprocess_image_for_isnet_v2;
 use crate::model_cache::{get_or_download_model, ModelInfo};
 use crate::onnx_session::ModelSource;
 use crate::output_manager::OutputManager;
+use anyhow::Result;
+use image::GenericImageView;
+use log::debug;
+use ort::{session::Session, value::Value};
+use serde::Serialize;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 /// ISNet General Use model information
 pub const CUTOUT_MODEL_INFO: ModelInfo = ModelInfo {
@@ -40,20 +40,10 @@ fn process_single_image(
     config: &CutoutConfig,
     session: &mut Session,
     image_path: &Path,
-    progress_bar: &Option<indicatif::ProgressBar>,
 ) -> Result<CutoutCoreResult> {
     let start_time = Instant::now();
 
-    // Helper closure for logging with progress bar
-    let debug_with_progress = |msg: &str| {
-        if let Some(ref bar) = progress_bar {
-            bar.suspend(|| log::debug!("{msg}"));
-        } else {
-            log::debug!("{msg}");
-        }
-    };
-
-    debug_with_progress(&format!("🖼️  Processing: {}", image_path.display()));
+    debug!("🖼️  Processing: {}", image_path.display());
 
     // Load and preprocess the image
     let img = image::open(image_path)?;
@@ -112,14 +102,14 @@ fn process_single_image(
         fs::create_dir_all(parent)?;
     }
     cutout_result.save(&output_path)?;
-    debug_with_progress(&format!("✅ Cutout saved to: {}", output_path.display()));
+    debug!("✅ Cutout saved to: {}", output_path.display());
     // Save mask if requested
     if let Some(mask_path_val) = &mask_path {
         if let Some(parent) = Path::new(mask_path_val).parent() {
             fs::create_dir_all(parent)?;
         }
         mask.save(mask_path_val)?;
-        debug_with_progress(&format!("✅ Mask saved to: {}", mask_path_val.display()));
+        debug!("✅ Mask saved to: {}", mask_path_val.display());
     }
 
     let processing_time = start_time.elapsed().as_secs_f64() * 1000.0;
@@ -194,10 +184,9 @@ impl ModelProcessor for CutoutProcessor {
         session: &mut Session,
         image_path: &Path,
         config: &Self::Config,
-        progress_bar: &Option<indicatif::ProgressBar>,
     ) -> Result<Self::Result> {
         // Use the existing process_single_image function
-        process_single_image(config, session, image_path, progress_bar)
+        process_single_image(config, session, image_path)
     }
 
     fn serialize_config(config: &Self::Config) -> Result<toml::Value> {

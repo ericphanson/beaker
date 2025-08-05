@@ -1,5 +1,6 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
+use log::warn;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
@@ -94,27 +95,19 @@ pub struct InputProcessing {
 }
 
 /// Load existing metadata from a file, or create new empty metadata
-pub fn load_or_create_metadata(
-    path: &Path,
-    progress_bar: &Option<indicatif::ProgressBar>,
-) -> Result<BeakerMetadata> {
+pub fn load_or_create_metadata(path: &Path) -> Result<BeakerMetadata> {
     if path.exists() {
         let content = fs::read_to_string(path)?;
         match toml::from_str::<BeakerMetadata>(&content) {
             Ok(metadata) => Ok(metadata),
             Err(e) => {
                 let colored_error = crate::color_utils::colors::warning_level(&e.to_string());
-                let msg = format!(
+                warn!(
                     "{} Dropping existing metadata from {}:\n{}",
                     crate::color_utils::symbols::warning(),
                     path.display(),
                     colored_error
                 );
-                if let Some(ref bar) = progress_bar {
-                    bar.suspend(|| log::warn!("{msg}"));
-                } else {
-                    log::warn!("{msg}");
-                }
 
                 Ok(BeakerMetadata::default())
             }
