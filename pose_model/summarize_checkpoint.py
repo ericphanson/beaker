@@ -11,6 +11,8 @@ import torch
 import logging
 import yaml
 
+verbose = False
+
 # Add the upstream directory to Python path
 sys.path.append(os.path.join(os.path.dirname(__file__), "upstream"))
 
@@ -83,13 +85,13 @@ def load_model_checkpoint(checkpoint_path, cfg):
             )
             print("✓ Checkpoint loaded successfully!")
             if missing_keys:
-                print(
-                    f"Missing keys: {len(missing_keys)} (this is normal for some model parts)"
-                )
+                print(f"Missing keys ({len(missing_keys)}):")
+                for key in missing_keys:
+                    print(f"  - {key}")
             if unexpected_keys:
-                print(
-                    f"Unexpected keys: {len(unexpected_keys)} (this is normal for some checkpoints)"
-                )
+                print(f"Unexpected keys ({len(unexpected_keys)}):")
+                for key in unexpected_keys:
+                    print(f"  + {key}")
         except Exception as e:
             print(f"⚠ Warning: Could not load some parameters: {e}")
             # Try to load with prefix removal if needed
@@ -177,9 +179,10 @@ def main():
 
     # Generate and display model summary
     try:
-        print("Generating detailed model summary...")
         summary = get_model_summary(model, dummy_input, verbose=True)
-        print(summary)
+        if verbose:
+            print("Generating detailed model summary...")
+            print(summary)
     except Exception as e:
         print(f"Error generating detailed model summary: {e}")
         print("Attempting basic model information...")
