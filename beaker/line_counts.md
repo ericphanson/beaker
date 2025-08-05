@@ -1,10 +1,10 @@
 ## Summary
 
 - **Cutout Main Code**: 325 (Tests: 44)  
-- **Head Main Code**: 494 (Tests: 0)  
+- **Head Main Code**: 487 (Tests: 0)  
 - **Common Main Code**: 1569 (Tests: 1166)  
-- **Total Main Code (excluding build.rs)**: 2388  
-- **Total Main Code (including build.rs)**: 2538 (Reported: 2538)  
+- **Total Main Code (excluding build.rs)**: 2381  
+- **Total Main Code (including build.rs)**: 2531 (Reported: 2531)  
 ✅ Totals match.
 
 ## Raw Counts
@@ -52,10 +52,10 @@ Total| 51           | 10           | 0            | 9            | 70
 File name: ./beaker/src/head_detection.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 194          | 39           | 7            | 17           | 257         
+Main         | 187          | 38           | 6            | 16           | 247         
 Tests        | 0            | 0            | 0            | 0            | 0           
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 194          | 39           | 7            | 17           | 257         
+Total| 187          | 38           | 6            | 16           | 247         
 
 File name: ./beaker/src/config.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -180,7 +180,7 @@ Total| 50           | 13           | 1            | 9            | 73
 File count: 21
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 2538         | 460          | 188          | 208          | 3394        
+Main         | 2531         | 459          | 187          | 207          | 3384        
 Tests        | 1210         | 171          | 23           | 70           | 1474        
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 3748         | 631          | 211          | 278          | 4868        
+Total| 3741         | 630          | 210          | 277          | 4858        

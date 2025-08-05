@@ -23,10 +23,11 @@ const MODEL_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/bird-head-d
 pub const MODEL_VERSION: &str =
     include_str!(concat!(env!("OUT_DIR"), "/bird-head-detector.version"));
 
-/// Core results for enhanced metadata (without config duplication)
 #[derive(Serialize)]
-pub struct HeadCoreResult {
+pub struct HeadDetectionResult {
     pub model_version: String,
+    #[serde(skip_serializing)]
+    pub processing_time_ms: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bounding_box_path: Option<String>,
     pub detections: Vec<DetectionWithPath>,
@@ -122,13 +123,7 @@ pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
     crate::model_processing::run_model_processing::<HeadProcessor>(config)
 }
 
-// Implementation of ModelProcessor trait for head detection
 /// Implementation of ModelResult for HeadDetectionResult
-pub struct HeadDetectionResult {
-    pub processing_time_ms: f64,
-    pub bounding_box_path: Option<String>,
-    pub detections_with_paths: Vec<DetectionWithPath>,
-}
 
 impl ModelResult for HeadDetectionResult {
     fn processing_time_ms(&self) -> f64 {
@@ -140,13 +135,7 @@ impl ModelResult for HeadDetectionResult {
     }
 
     fn core_results(&self) -> Result<toml::Value> {
-        let head_core_result = HeadCoreResult {
-            model_version: MODEL_VERSION.to_string(),
-            bounding_box_path: self.bounding_box_path.clone(),
-            detections: self.detections_with_paths.clone(),
-        };
-
-        Ok(toml::Value::try_from(head_core_result)?)
+        Ok(toml::Value::try_from(self)?)
     }
 
     fn output_summary(&self) -> String {
@@ -154,7 +143,7 @@ impl ModelResult for HeadDetectionResult {
 
         // Count crops
         let crop_count = self
-            .detections_with_paths
+            .detections
             .iter()
             .filter(|d| d.crop_path.is_some())
             .count();
@@ -245,9 +234,10 @@ impl ModelProcessor for HeadProcessor {
             handle_image_outputs(&img, &detections, image_path, config)?;
 
         Ok(HeadDetectionResult {
+            model_version: MODEL_VERSION.to_string(),
             processing_time_ms: total_processing_time,
             bounding_box_path,
-            detections_with_paths,
+            detections: detections_with_paths,
         })
     }
 
