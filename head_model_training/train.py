@@ -153,7 +153,9 @@ def main():
         print(
             f"   - Epochs: {TRAINING_CONFIG['debug_epochs']} (vs {TRAINING_CONFIG['epochs']} normal)"
         )
-        print(f"   - Data subset: {TRAINING_CONFIG['debug_fraction'] * 100:.1f}% of full dataset")
+        print(
+            f"   - Data subset: {TRAINING_CONFIG['debug_fraction'] * 100:.1f}% of full dataset"
+        )
 
         # Create debug dataset
         data_config = create_debug_dataset()
@@ -173,7 +175,9 @@ def main():
         experiment.log_parameter("debug_mode", is_debug)
         if is_debug:
             experiment.log_parameter("debug_epochs", epochs)
-            experiment.log_parameter("debug_fraction", TRAINING_CONFIG["debug_fraction"])
+            experiment.log_parameter(
+                "debug_fraction", TRAINING_CONFIG["debug_fraction"]
+            )
 
     # Load a pretrained YOLOv8n model
     print(f"📦 Loading {TRAINING_CONFIG['model']} pretrained model...")
@@ -203,7 +207,9 @@ def main():
     if experiment:
         try:
             # Log final metrics
-            final_metrics = results.results_dict if hasattr(results, "results_dict") else {}
+            final_metrics = (
+                results.results_dict if hasattr(results, "results_dict") else {}
+            )
             for key, value in final_metrics.items():
                 if isinstance(value, int | float):
                     experiment.log_metric(f"final_{key}", value)
@@ -222,7 +228,9 @@ def main():
 
     mode_text = "DEBUG" if is_debug else "FULL"
     print(f"✅ {mode_text} training completed!")
-    print(f"📊 Best model saved to: {TRAINING_CONFIG['project']}/{run_name}/weights/best.pt")
+    print(
+        f"📊 Best model saved to: {TRAINING_CONFIG['project']}/{run_name}/weights/best.pt"
+    )
 
     return results
 

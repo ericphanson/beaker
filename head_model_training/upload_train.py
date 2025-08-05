@@ -51,7 +51,12 @@ def run_command(cmd, capture=True, check=True, timeout=60):
     try:
         if capture:
             result = subprocess.run(
-                cmd, shell=True, capture_output=True, text=True, check=check, timeout=timeout
+                cmd,
+                shell=True,
+                capture_output=True,
+                text=True,
+                check=check,
+                timeout=timeout,
             )
             return result.stdout.strip(), result.stderr.strip()
         else:
@@ -62,7 +67,10 @@ def run_command(cmd, capture=True, check=True, timeout=60):
         return "", "Command timed out"
     except subprocess.CalledProcessError as e:
         if capture:
-            return e.stdout.strip() if e.stdout else "", e.stderr.strip() if e.stderr else ""
+            return (
+                e.stdout.strip() if e.stdout else "",
+                e.stderr.strip() if e.stderr else "",
+            )
         raise
 
 
@@ -80,7 +88,10 @@ def check_prerequisites():
 
     # Check if gh is authenticated
     stdout, stderr = run_command("gh auth status", check=False)
-    if "Logged in to github.com" not in stderr and "Logged in to github.com" not in stdout:
+    if (
+        "Logged in to github.com" not in stderr
+        and "Logged in to github.com" not in stdout
+    ):
         print("❌ GitHub CLI is not authenticated.")
         print("   Run: gh auth login")
         return False
@@ -226,7 +237,9 @@ def get_model_path():
 
     while True:
         try:
-            choice = input(f"\n🎯 Select model to upload (1-{len(available_models)}): ").strip()
+            choice = input(
+                f"\n🎯 Select model to upload (1-{len(available_models)}): "
+            ).strip()
             if not choice:
                 continue
 
@@ -404,7 +417,9 @@ def create_release(version, model_path):
         files_section += "- `bird-head-detector.pt`: Trained model weights (PyTorch)\n"
 
     if onnx_files:
-        files_section += "- `bird-head-detector.onnx`: Trained model weights (ONNX format)\n"
+        files_section += (
+            "- `bird-head-detector.onnx`: Trained model weights (ONNX format)\n"
+        )
 
     if plot_files:
         files_section += "\n### Training Visualizations\n"
@@ -512,7 +527,9 @@ cargo build --release
             files_str = " ".join(f'"{f}"' for f in upload_files)
             upload_cmd = f"gh release upload {version} {files_str}"
             print("🔧 Running upload command...")
-            stdout, stderr = run_command(upload_cmd, timeout=300)  # 5 minute timeout for uploads
+            stdout, stderr = run_command(
+                upload_cmd, timeout=300
+            )  # 5 minute timeout for uploads
 
             if stderr and "timed out" in stderr:
                 print(
@@ -547,7 +564,9 @@ def get_repo_info():
         # Extract owner/repo from URL
         if stdout.startswith("https://"):
             # https://github.com/owner/repo.git
-            parts = stdout.replace("https://github.com/", "").replace(".git", "").split("/")
+            parts = (
+                stdout.replace("https://github.com/", "").replace(".git", "").split("/")
+            )
         else:
             # git@github.com:owner/repo.git
             parts = stdout.replace("git@github.com:", "").replace(".git", "").split("/")
@@ -560,9 +579,15 @@ def get_repo_info():
 
 def main():
     """Main release process."""
-    parser = argparse.ArgumentParser(description="Release bird head detector models to GitHub")
-    parser.add_argument("--model", type=str, help="Path to specific model file to upload")
-    parser.add_argument("--version", type=str, help="Version number for the release (e.g., 1.0.0)")
+    parser = argparse.ArgumentParser(
+        description="Release bird head detector models to GitHub"
+    )
+    parser.add_argument(
+        "--model", type=str, help="Path to specific model file to upload"
+    )
+    parser.add_argument(
+        "--version", type=str, help="Version number for the release (e.g., 1.0.0)"
+    )
     args = parser.parse_args()
 
     print("🚀 Bird Head Detector Release Script")
@@ -674,7 +699,9 @@ def main():
                 continue
 
             if not validate_version(version):
-                print("   Invalid version format! Use semantic versioning (e.g., 1.0.0)")
+                print(
+                    "   Invalid version format! Use semantic versioning (e.g., 1.0.0)"
+                )
                 continue
 
             # Normalize version (add 'bird-head-detector-v' prefix if missing)
@@ -698,7 +725,9 @@ def main():
     print(f"   Size: {model_size:.1f} MB")
     print(f"   Repository: {get_repo_info()}")
 
-    confirm = input(f"\n❓ Create release {normalized_version}? (y/N): ").strip().lower()
+    confirm = (
+        input(f"\n❓ Create release {normalized_version}? (y/N): ").strip().lower()
+    )
     if confirm not in ["y", "yes"]:
         print("❌ Release cancelled")
         sys.exit(0)

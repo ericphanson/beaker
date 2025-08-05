@@ -40,7 +40,10 @@ def load_data():
 
     # Load image paths
     images = pl.read_csv(
-        data_dir / "images.txt", separator=" ", has_header=False, new_columns=["img_id", "filepath"]
+        data_dir / "images.txt",
+        separator=" ",
+        has_header=False,
+        new_columns=["img_id", "filepath"],
     )
 
     # Load train/test split
@@ -135,7 +138,9 @@ def convert_to_yolo():
 
     # Use tqdm for progress bar
     for row in tqdm(
-        unique_images.iter_rows(named=True), total=total_images, desc="Converting images"
+        unique_images.iter_rows(named=True),
+        total=total_images,
+        desc="Converting images",
     ):
         img_id = row["img_id"]
         filepath = row["filepath"]
