@@ -25,105 +25,13 @@ pub const CUTOUT_MODEL_INFO: ModelInfo = ModelInfo {
 
 /// Core results for enhanced metadata (without config duplication)
 #[derive(Serialize)]
-pub struct CutoutCoreResult {
+pub struct CutoutResult {
     pub model_version: String,
     #[serde(skip_serializing)]
     pub processing_time_ms: f64,
     pub output_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mask_path: Option<String>,
-}
-
-/// Check if a file is a supported image format
-/// Process a single image with an existing session
-fn process_single_image(
-    config: &CutoutConfig,
-    session: &mut Session,
-    image_path: &Path,
-) -> Result<CutoutCoreResult> {
-    let start_time = Instant::now();
-
-    debug!("🖼️  Processing: {}", image_path.display());
-
-    // Load and preprocess the image
-    let img = image::open(image_path)?;
-    let original_size = img.dimensions();
-
-    let input_array = preprocess_image_for_isnet_v2(&img)?;
-
-    // Prepare input for the model
-    let input_name = session.inputs[0].name.clone();
-    let output_name = session.outputs[0].name.clone();
-    let input_value = Value::from_array(input_array)
-        .map_err(|e| anyhow::anyhow!("Failed to create input value: {}", e))?;
-
-    // Run inference
-    let outputs = session
-        .run(ort::inputs![input_name.as_str() => &input_value])
-        .map_err(|e| anyhow::anyhow!("Failed to run inference: {}", e))?;
-
-    // Extract the output tensor using ORT v2 API
-    let output_view = outputs[output_name.as_str()]
-        .try_extract_array::<f32>()
-        .map_err(|e| anyhow::anyhow!("Failed to extract output array: {}", e))?;
-
-    // Extract the mask from the output (shape should be [1, 1, 1024, 1024])
-    let mask_2d = output_view.slice(ndarray::s![0, 0, .., ..]);
-
-    // Post-process the mask
-    let mask = postprocess_mask(&mask_2d, original_size, config.post_process_mask)?;
-
-    // Generate output paths using OutputManager
-    let output_manager = OutputManager::new(config, image_path);
-    let output_path = output_manager.generate_main_output_path("cutout", "png")?;
-    let mask_path = if config.save_mask {
-        Some(output_manager.generate_auxiliary_output("mask", "png")?)
-    } else {
-        None
-    };
-
-    // Create the cutout
-    let cutout_result = if config.alpha_matting {
-        apply_alpha_matting(
-            &img,
-            &mask,
-            config.alpha_matting_foreground_threshold,
-            config.alpha_matting_background_threshold,
-            config.alpha_matting_erode_size,
-        )?
-    } else if let Some(bg_color) = config.background_color {
-        create_cutout_with_background(&img, &mask, bg_color)?
-    } else {
-        create_cutout(&img, &mask)?
-    };
-
-    // Save the cutout (always PNG for transparency)
-    if let Some(parent) = output_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    cutout_result.save(&output_path)?;
-    debug!("✅ Cutout saved to: {}", output_path.display());
-    // Save mask if requested
-    if let Some(mask_path_val) = &mask_path {
-        if let Some(parent) = Path::new(mask_path_val).parent() {
-            fs::create_dir_all(parent)?;
-        }
-        mask.save(mask_path_val)?;
-        debug!("✅ Mask saved to: {}", mask_path_val.display());
-    }
-
-    let processing_time = start_time.elapsed().as_secs_f64() * 1000.0;
-
-    // Create result with timing information
-
-    let cutout_result = CutoutCoreResult {
-        output_path: output_path.to_string_lossy().to_string(),
-        model_version: CUTOUT_MODEL_INFO.name.to_string(),
-        processing_time_ms: processing_time,
-        mask_path: mask_path.map(|p| p.to_string_lossy().to_string()),
-    };
-
-    Ok(cutout_result)
 }
 
 /// Process multiple images sequentially
@@ -135,7 +43,7 @@ pub fn run_cutout_processing(config: CutoutConfig) -> Result<usize> {
 // Implementation of ModelProcessor trait for cutout processing
 use crate::model_processing::{ModelProcessor, ModelResult};
 
-impl ModelResult for CutoutCoreResult {
+impl ModelResult for CutoutResult {
     fn processing_time_ms(&self) -> f64 {
         self.processing_time_ms
     }
@@ -145,13 +53,7 @@ impl ModelResult for CutoutCoreResult {
     }
 
     fn core_results(&self) -> Result<toml::Value> {
-        let core_result = CutoutCoreResult {
-            model_version: self.model_version.clone(),
-            processing_time_ms: self.processing_time_ms,
-            output_path: self.output_path.clone(),
-            mask_path: self.mask_path.clone(),
-        };
-        Ok(toml::Value::try_from(core_result)?)
+        Ok(toml::Value::try_from(self)?)
     }
 
     fn output_summary(&self) -> String {
@@ -168,7 +70,7 @@ pub struct CutoutProcessor;
 
 impl ModelProcessor for CutoutProcessor {
     type Config = CutoutConfig;
-    type Result = CutoutCoreResult;
+    type Result = CutoutResult;
 
     fn get_model_source<'a>() -> Result<ModelSource<'a>> {
         let model_path: PathBuf = get_or_download_model(&CUTOUT_MODEL_INFO)?;
@@ -185,8 +87,88 @@ impl ModelProcessor for CutoutProcessor {
         image_path: &Path,
         config: &Self::Config,
     ) -> Result<Self::Result> {
-        // Use the existing process_single_image function
-        process_single_image(config, session, image_path)
+        let start_time = Instant::now();
+
+        debug!("🖼️  Processing: {}", image_path.display());
+
+        // Load and preprocess the image
+        let img = image::open(image_path)?;
+        let original_size = img.dimensions();
+
+        let input_array = preprocess_image_for_isnet_v2(&img)?;
+
+        // Prepare input for the model
+        let input_name = session.inputs[0].name.clone();
+        let output_name = session.outputs[0].name.clone();
+        let input_value = Value::from_array(input_array)
+            .map_err(|e| anyhow::anyhow!("Failed to create input value: {}", e))?;
+
+        // Run inference
+        let outputs = session
+            .run(ort::inputs![input_name.as_str() => &input_value])
+            .map_err(|e| anyhow::anyhow!("Failed to run inference: {}", e))?;
+
+        // Extract the output tensor using ORT v2 API
+        let output_view = outputs[output_name.as_str()]
+            .try_extract_array::<f32>()
+            .map_err(|e| anyhow::anyhow!("Failed to extract output array: {}", e))?;
+
+        // Extract the mask from the output (shape should be [1, 1, 1024, 1024])
+        let mask_2d = output_view.slice(ndarray::s![0, 0, .., ..]);
+
+        // Post-process the mask
+        let mask = postprocess_mask(&mask_2d, original_size, config.post_process_mask)?;
+
+        // Generate output paths using OutputManager
+        let output_manager = OutputManager::new(config, image_path);
+        let output_path = output_manager.generate_main_output_path("cutout", "png")?;
+        let mask_path = if config.save_mask {
+            Some(output_manager.generate_auxiliary_output("mask", "png")?)
+        } else {
+            None
+        };
+
+        // Create the cutout
+        let cutout_result = if config.alpha_matting {
+            apply_alpha_matting(
+                &img,
+                &mask,
+                config.alpha_matting_foreground_threshold,
+                config.alpha_matting_background_threshold,
+                config.alpha_matting_erode_size,
+            )?
+        } else if let Some(bg_color) = config.background_color {
+            create_cutout_with_background(&img, &mask, bg_color)?
+        } else {
+            create_cutout(&img, &mask)?
+        };
+
+        // Save the cutout (always PNG for transparency)
+        if let Some(parent) = output_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        cutout_result.save(&output_path)?;
+        debug!("✅ Cutout saved to: {}", output_path.display());
+        // Save mask if requested
+        if let Some(mask_path_val) = &mask_path {
+            if let Some(parent) = Path::new(mask_path_val).parent() {
+                fs::create_dir_all(parent)?;
+            }
+            mask.save(mask_path_val)?;
+            debug!("✅ Mask saved to: {}", mask_path_val.display());
+        }
+
+        let processing_time = start_time.elapsed().as_secs_f64() * 1000.0;
+
+        // Create result with timing information
+        let cutout_result = CutoutResult {
+            output_path: output_path.to_string_lossy().to_string(),
+            model_version: CUTOUT_MODEL_INFO.name.to_string(),
+            processing_time_ms: processing_time,
+            mask_path: mask_path.map(|p| p.to_string_lossy().to_string()),
+        };
+
+        Ok(cutout_result)
     }
 
     fn serialize_config(config: &Self::Config) -> Result<toml::Value> {

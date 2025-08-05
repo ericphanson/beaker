@@ -41,7 +41,50 @@ pub struct DetectionWithPath {
     pub crop_path: Option<String>,
 }
 
-/// Check if a file is a supported image format
+/// Process multiple images sequentially
+pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
+    // Use the new generic processing framework
+    crate::model_processing::run_model_processing::<HeadProcessor>(config)
+}
+
+impl ModelResult for HeadDetectionResult {
+    fn processing_time_ms(&self) -> f64 {
+        self.processing_time_ms
+    }
+
+    fn tool_name(&self) -> &'static str {
+        "head"
+    }
+
+    fn core_results(&self) -> Result<toml::Value> {
+        Ok(toml::Value::try_from(self)?)
+    }
+
+    fn output_summary(&self) -> String {
+        let mut outputs = Vec::new();
+
+        // Count crops
+        let crop_count = self
+            .detections
+            .iter()
+            .filter(|d| d.crop_path.is_some())
+            .count();
+        if crop_count > 0 {
+            outputs.push(format!("{crop_count} crop(s)"));
+        }
+
+        // Add bounding box if present
+        if self.bounding_box_path.is_some() {
+            outputs.push("bounding box".to_string());
+        }
+        if outputs.is_empty() {
+            "".to_string()
+        } else {
+            format!("→ {}", outputs.join(" + "))
+        }
+    }
+}
+
 /// Get the appropriate output extension based on input file
 /// PNG files output PNG to preserve transparency, others output JPG
 fn get_output_extension(input_path: &Path) -> &'static str {
@@ -116,51 +159,6 @@ fn handle_image_outputs(
     }
 
     Ok((bounding_box_path, detections_with_paths))
-}
-
-pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
-    // Use the new generic processing framework
-    crate::model_processing::run_model_processing::<HeadProcessor>(config)
-}
-
-/// Implementation of ModelResult for HeadDetectionResult
-
-impl ModelResult for HeadDetectionResult {
-    fn processing_time_ms(&self) -> f64 {
-        self.processing_time_ms
-    }
-
-    fn tool_name(&self) -> &'static str {
-        "head"
-    }
-
-    fn core_results(&self) -> Result<toml::Value> {
-        Ok(toml::Value::try_from(self)?)
-    }
-
-    fn output_summary(&self) -> String {
-        let mut outputs = Vec::new();
-
-        // Count crops
-        let crop_count = self
-            .detections
-            .iter()
-            .filter(|d| d.crop_path.is_some())
-            .count();
-        if crop_count > 0 {
-            outputs.push(format!("{crop_count} crop(s)"));
-        }
-
-        // Add bounding box if present
-        if self.bounding_box_path.is_some() {
-            outputs.push("bounding box".to_string());
-        }
-        if outputs.is_empty() {
-            "".to_string()
-        } else {
-            format!("→ {}", outputs.join(" + "))
-        }
-    }
 }
 
 /// Head detection processor implementing the generic ModelProcessor trait

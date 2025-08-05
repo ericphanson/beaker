@@ -1,10 +1,10 @@
 ## Summary
 
-- **Cutout Main Code**: 325 (Tests: 44)  
+- **Cutout Main Code**: 312 (Tests: 44)  
 - **Head Main Code**: 487 (Tests: 0)  
 - **Common Main Code**: 1569 (Tests: 1166)  
-- **Total Main Code (excluding build.rs)**: 2381  
-- **Total Main Code (including build.rs)**: 2531 (Reported: 2531)  
+- **Total Main Code (excluding build.rs)**: 2368  
+- **Total Main Code (including build.rs)**: 2518 (Reported: 2518)  
 ✅ Totals match.
 
 ## Raw Counts
@@ -52,10 +52,10 @@ Total| 51           | 10           | 0            | 9            | 70
 File name: ./beaker/src/head_detection.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 187          | 38           | 6            | 16           | 247         
+Main         | 187          | 37           | 5            | 16           | 245         
 Tests        | 0            | 0            | 0            | 0            | 0           
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 187          | 38           | 6            | 16           | 247         
+Total| 187          | 37           | 5            | 16           | 245         
 
 File name: ./beaker/src/config.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -100,10 +100,10 @@ Total| 198          | 16           | 5            | 12           | 231
 File name: ./beaker/src/cutout_processing.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 145          | 30           | 6            | 14           | 195         
+Main         | 132          | 28           | 4            | 13           | 177         
 Tests        | 0            | 0            | 0            | 0            | 0           
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 145          | 30           | 6            | 14           | 195         
+Total| 132          | 28           | 4            | 13           | 177         
 
 File name: ./beaker/src/model_cache.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -180,7 +180,7 @@ Total| 50           | 13           | 1            | 9            | 73
 File count: 21
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 2531         | 459          | 187          | 207          | 3384        
+Main         | 2518         | 456          | 184          | 206          | 3364        
 Tests        | 1210         | 171          | 23           | 70           | 1474        
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 3741         | 630          | 210          | 277          | 4858        
+Total| 3728         | 627          | 207          | 276          | 4838        
