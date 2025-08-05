@@ -31,7 +31,7 @@ fn calculate_md5(path: &Path) -> Result<String> {
     let contents = fs::read(path)?;
     let mut hasher = md5::Context::new();
     hasher.consume(&contents);
-    let result = hasher.compute();
+    let result = hasher.finalize();
     Ok(format!("{result:x}"))
 }
 

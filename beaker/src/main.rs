@@ -82,7 +82,7 @@ fn main() {
     let mut logger = if use_env {
         Builder::from_env(Env::default())
     } else {
-        let level_filter = get_log_level_from_verbosity(cli.global.verbosity.clone());
+        let level_filter = get_log_level_from_verbosity(cli.global.verbosity);
 
         let mut b = Builder::new();
         b.filter_level(level_filter);
