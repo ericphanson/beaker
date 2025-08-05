@@ -213,11 +213,7 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
                         start_timestamp,
                     )?;
                 }
-
-                // Use progress bar or log message based on what's available
-                if let Some(ref pb) = progress_bar {
-                    pb.inc(1);
-                } else {
+                if progress_bar.is_none() {
                     // Log comprehensive processing result for single files or non-interactive
                     log::info!(
                         "{} Processed {} ({}/{}) in {:.1}ms {}",
@@ -232,13 +228,6 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
             }
             Err(e) => {
                 failed_count += 1;
-                if let Some(ref pb) = progress_bar {
-                    pb.inc(1);
-                    pb.set_message(format!(
-                        "Failed: {}",
-                        image_path.file_name().unwrap_or_default().to_string_lossy()
-                    ));
-                }
 
                 failed_images.push(image_path.to_str().unwrap_or_default().to_string());
 
@@ -255,6 +244,9 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
                 }
             }
         }
+        if let Some(ref pb) = progress_bar {
+            pb.inc(1);
+        }
     }
 
     // Finish progress bar if it exists
@@ -263,6 +255,7 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
     }
     let total_processing_time = total_processing_start.elapsed();
 
+    // The case n=1 doesn't use a progress bar and already got a direct log message
     if image_files.len() > 1 {
         if failed_count > 0 {
             log::info!(
@@ -285,6 +278,7 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
         }
     }
 
+    // If strict mode is enabled, fail if any images failed
     if config.base().strict && failed_count > 0 {
         return Err(anyhow::anyhow!(
             "{} image(s) failed to process (without `--permissive` flag)",
