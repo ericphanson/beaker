@@ -37,7 +37,7 @@ pub struct GlobalArgs {
     #[arg(long, global = true)]
     pub output_dir: Option<String>,
 
-    /// Create metadata output files
+    /// Create metadata output file(s)
     #[arg(long, global = true)]
     pub metadata: bool,
 
@@ -45,7 +45,7 @@ pub struct GlobalArgs {
     #[command(flatten)]
     pub verbosity: Verbosity,
 
-    /// Use permissive mode for input validation (silently skip unsupported files)
+    /// Use permissive mode for input validation (warn instead of error for unsupported files)
     #[arg(long, global = true)]
     pub permissive: bool,
 
@@ -53,7 +53,7 @@ pub struct GlobalArgs {
     #[arg(long, default_value = "auto", global = true)]
     pub device: String,
 
-    /// Disable colored output (also respects NO_COLOR env var and BEAKER_NO_COLOR)
+    /// Disable colored output (also respects NO_COLOR and BEAKER_NO_COLOR env vars)
     #[arg(long, global = true)]
     pub no_color: bool,
 }
@@ -70,7 +70,7 @@ pub struct BaseModelConfig {
     pub output_dir: Option<String>,
     /// Whether to skip metadata generation
     pub skip_metadata: bool,
-    /// Use strict mode (fail on unsupported files vs skip them)
+    /// Use strict mode (fail if files are not found or are unsupported). Opposite of `--permissive`.
     pub strict: bool,
 }
 

@@ -138,7 +138,7 @@ fn main() {
             );
 
             if outputs.is_empty() {
-                error!("No outputs requested! Pass at least one of `--metadata`,  `--crop`, or `--bounding-box`.");
+                error!("No outputs requested! Pass at least one of `--metadata`, `--crop`, or `--bounding-box`.");
                 std::process::exit(1);
             } else {
                 let internal_config =
