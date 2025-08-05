@@ -53,6 +53,7 @@ pub trait ModelProcessor {
         session: &mut Session,
         image_path: &Path,
         config: &Self::Config,
+        progress_bar: &Option<indicatif::ProgressBar>,
     ) -> Result<Self::Result>;
 
     /// Get serializable configuration for metadata
@@ -143,33 +144,9 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
         model_load_time_ms: Some(model_load_time_ms),
     };
 
-    // Collect source type information
-    let source_types: Vec<String> = config
-        .base()
-        .sources
-        .iter()
-        .map(|source| {
-            let path = std::path::Path::new(source);
-            if path.is_dir() {
-                "directory".to_string()
-            } else if source.contains('*') || source.contains('?') {
-                "glob".to_string()
-            } else {
-                "file".to_string()
-            }
-        })
-        .collect();
-
     // Process each image and collect results
     let mut successful_count = 0;
     let mut failed_count = 0;
-
-    // Create input processing info
-    let input = InputProcessing {
-        sources: config.base().sources.to_vec(),
-        source_types: source_types.to_vec(),
-        strict_mode: config.base().strict,
-    };
 
     // Create progress bar for batch processing if appropriate
     let progress_bar: Option<indicatif::ProgressBar> =
@@ -177,7 +154,15 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
 
     // Create vector to contain failed image paths
     let mut failed_images = Vec::new();
-    for (index, image_path) in image_files.iter().enumerate() {
+    for (index, (image_path, (source_type, source_string))) in image_files.iter().enumerate() {
+        // Create input processing info
+        let input = InputProcessing {
+            image_path: image_path.to_string_lossy().to_string(),
+            source: source_string.to_string(),
+            source_type: source_type.to_string(),
+            strict_mode: config.base().strict,
+        };
+
         if let Some(ref pb) = progress_bar {
             // we will style the filename with bold:
             let filename = crate::color_utils::maybe_color_stderr(
@@ -201,7 +186,7 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
                 pb.set_message(format!("ETA: {eta:.1}s"));
             }
         }
-        match P::process_single_image(&mut session, image_path, &config) {
+        match P::process_single_image(&mut session, image_path, &config, &progress_bar) {
             Ok(result) => {
                 successful_count += 1;
 
@@ -214,6 +199,7 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
                         system.clone(),
                         input.clone(),
                         start_timestamp,
+                        &progress_bar,
                     )?;
                 }
                 if progress_bar.is_none() {
@@ -310,6 +296,7 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
     system: SystemInfo,
     input: InputProcessing,
     start_timestamp: chrono::DateTime<chrono::Utc>,
+    progress_bar: &Option<indicatif::ProgressBar>,
 ) -> Result<()> {
     use crate::output_manager::OutputManager;
     use crate::shared_metadata::{CutoutSections, ExecutionContext, HeadSections};
@@ -339,7 +326,7 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
                 system: Some(system),
                 input: Some(input),
             };
-            output_manager.save_complete_metadata(Some(head_sections), None)?;
+            output_manager.save_complete_metadata(Some(head_sections), None, progress_bar)?;
         }
         "cutout" => {
             let cutout_sections = CutoutSections {
@@ -349,7 +336,7 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
                 system: Some(system),
                 input: Some(input),
             };
-            output_manager.save_complete_metadata(None, Some(cutout_sections))?;
+            output_manager.save_complete_metadata(None, Some(cutout_sections), progress_bar)?;
         }
         _ => {
             return Err(anyhow::anyhow!("Unknown tool name: {}", result.tool_name()));

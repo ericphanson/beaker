@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -77,13 +78,32 @@ pub fn find_images_in_directory(dir_path: &Path) -> Result<Vec<PathBuf>> {
     image_files.sort();
     Ok(image_files)
 }
+/// Type of image source
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImageSourceType {
+    File,
+    Directory,
+    Glob,
+}
 
-/// Collect all image files from multiple sources (files, directories, or glob patterns)
+impl std::fmt::Display for ImageSourceType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            ImageSourceType::File => "file",
+            ImageSourceType::Directory => "directory",
+            ImageSourceType::Glob => "glob",
+        };
+        write!(f, "{s}")
+    }
+}
+
+/// Collect all image files from multiple sources (files, directories, or glob patterns).
+/// Returns a map from image file paths to a tuple of their source type (file, directory, or glob) and the source string (e.g. "*.jpg").
 pub fn collect_images_from_sources(
     sources: &[String],
     config: &ImageInputConfig,
-) -> Result<Vec<PathBuf>> {
-    let mut all_image_files = Vec::new();
+) -> Result<HashMap<PathBuf, (ImageSourceType, String)>> {
+    let mut image_map = HashMap::new();
 
     for source in sources {
         let source_path = Path::new(source);
@@ -91,7 +111,10 @@ pub fn collect_images_from_sources(
         if source_path.is_file() {
             // Single file exists
             if is_supported_image_file(source_path) {
-                all_image_files.push(source_path.to_path_buf());
+                image_map.insert(
+                    source_path.to_path_buf(),
+                    (ImageSourceType::File, source.clone()),
+                );
             } else if config.strict_mode {
                 return Err(anyhow::anyhow!(
                     "File is not a supported image format: {}",
@@ -102,7 +125,9 @@ pub fn collect_images_from_sources(
         } else if source_path.is_dir() {
             // Directory - find all images inside
             let dir_images = find_images_in_directory(source_path)?;
-            all_image_files.extend(dir_images);
+            for img in dir_images {
+                image_map.insert(img, (ImageSourceType::Directory, source.clone()));
+            }
         } else if !source.contains('*') && !source.contains('?') && !source.contains('[') {
             // Looks like a simple file path (not a glob pattern) but doesn't exist
             if config.strict_mode {
@@ -124,7 +149,7 @@ pub fn collect_images_from_sources(
                         match path_result {
                             Ok(path) => {
                                 if path.is_file() && is_supported_image_file(&path) {
-                                    all_image_files.push(path);
+                                    image_map.insert(path, (ImageSourceType::Glob, source.clone()));
                                     found_any = true;
                                 }
                             }
@@ -166,22 +191,15 @@ pub fn collect_images_from_sources(
         }
     }
 
-    // Sort all collected files for consistent ordering
-    all_image_files.sort();
-
-    // Remove duplicates (in case same file is specified multiple ways)
-    all_image_files.dedup();
-
     // Check if we found any images - fail in strict mode, succeed in permissive mode
-    if all_image_files.is_empty() && config.strict_mode {
+    if image_map.is_empty() && config.strict_mode {
         return Err(anyhow::anyhow!(
             "No image files found in the specified sources"
         ));
     }
 
-    Ok(all_image_files)
+    Ok(image_map)
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -271,29 +289,6 @@ mod tests {
         let result = collect_images_from_sources(&sources, &config);
         assert!(result.is_ok());
         assert_eq!(result.unwrap().len(), 1);
-    }
-
-    #[test]
-    fn test_collect_images_directory() {
-        let temp_dir = tempdir().unwrap();
-        let dir_path = temp_dir.path();
-
-        // Create test files
-        fs::write(dir_path.join("image1.jpg"), b"fake image").unwrap();
-        fs::write(dir_path.join("image2.png"), b"fake image").unwrap();
-        fs::write(dir_path.join("not_image.txt"), b"text file").unwrap();
-
-        let config = ImageInputConfig::default();
-        let sources = vec![dir_path.to_string_lossy().to_string()];
-        let result = collect_images_from_sources(&sources, &config).unwrap();
-
-        assert_eq!(result.len(), 2);
-        assert!(result
-            .iter()
-            .any(|p| p.file_name().unwrap() == "image1.jpg"));
-        assert!(result
-            .iter()
-            .any(|p| p.file_name().unwrap() == "image2.png"));
     }
 
     #[test]

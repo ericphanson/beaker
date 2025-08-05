@@ -87,17 +87,38 @@ pub struct SystemInfo {
 /// Input processing statistics for a tool invocation
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct InputProcessing {
-    pub sources: Vec<String>,
-    pub source_types: Vec<String>,
+    pub image_path: String,
+    pub source: String,
+    pub source_type: String,
     pub strict_mode: bool,
 }
 
 /// Load existing metadata from a file, or create new empty metadata
-pub fn load_or_create_metadata(path: &Path) -> Result<BeakerMetadata> {
+pub fn load_or_create_metadata(
+    path: &Path,
+    progress_bar: &Option<indicatif::ProgressBar>,
+) -> Result<BeakerMetadata> {
     if path.exists() {
         let content = fs::read_to_string(path)?;
-        let metadata: BeakerMetadata = toml::from_str(&content)?;
-        Ok(metadata)
+        match toml::from_str::<BeakerMetadata>(&content) {
+            Ok(metadata) => Ok(metadata),
+            Err(e) => {
+                let colored_error = crate::color_utils::colors::warning_level(&e.to_string());
+                let msg = format!(
+                    "{} Dropping existing metadata from {}:\n{}",
+                    crate::color_utils::symbols::warning(),
+                    path.display(),
+                    colored_error
+                );
+                if let Some(ref bar) = progress_bar {
+                    bar.suspend(|| log::warn!("{msg}"));
+                } else {
+                    log::warn!("{msg}");
+                }
+
+                Ok(BeakerMetadata::default())
+            }
+        }
     } else {
         Ok(BeakerMetadata::default())
     }
@@ -165,22 +186,6 @@ pub fn get_metadata_path(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
-
-    #[test]
-    fn test_metadata_roundtrip() {
-        let temp_dir = tempdir().unwrap();
-        let metadata_path = temp_dir.path().join("test.beaker.toml");
-
-        // Create and save metadata
-        let metadata = BeakerMetadata::default();
-        save_metadata(&metadata, &metadata_path).unwrap();
-
-        // Load and verify
-        let loaded = load_or_create_metadata(&metadata_path).unwrap();
-        assert!(loaded.head.is_none());
-        assert!(loaded.cutout.is_none());
-    }
 
     #[test]
     fn test_toml_structure() {

@@ -14,7 +14,6 @@ use crate::cutout_preprocessing::preprocess_image_for_isnet_v2;
 use crate::model_cache::{get_or_download_model, ModelInfo};
 use crate::onnx_session::ModelSource;
 use crate::output_manager::OutputManager;
-use log::debug;
 
 /// ISNet General Use model information
 pub const CUTOUT_MODEL_INFO: ModelInfo = ModelInfo {
@@ -41,10 +40,20 @@ fn process_single_image(
     config: &CutoutConfig,
     session: &mut Session,
     image_path: &Path,
+    progress_bar: &Option<indicatif::ProgressBar>,
 ) -> Result<CutoutCoreResult> {
     let start_time = Instant::now();
 
-    debug!("🖼️  Processing: {}", image_path.display());
+    // Helper closure for logging with progress bar
+    let debug_with_progress = |msg: &str| {
+        if let Some(ref bar) = progress_bar {
+            bar.suspend(|| log::debug!("{msg}"));
+        } else {
+            log::debug!("{msg}");
+        }
+    };
+
+    debug_with_progress(&format!("🖼️  Processing: {}", image_path.display()));
 
     // Load and preprocess the image
     let img = image::open(image_path)?;
@@ -103,14 +112,14 @@ fn process_single_image(
         fs::create_dir_all(parent)?;
     }
     cutout_result.save(&output_path)?;
-    debug!("✅ Cutout saved to: {}", output_path.display());
+    debug_with_progress(&format!("✅ Cutout saved to: {}", output_path.display()));
     // Save mask if requested
     if let Some(mask_path_val) = &mask_path {
         if let Some(parent) = Path::new(mask_path_val).parent() {
             fs::create_dir_all(parent)?;
         }
         mask.save(mask_path_val)?;
-        debug!("✅ Mask saved to: {}", mask_path_val.display());
+        debug_with_progress(&format!("✅ Mask saved to: {}", mask_path_val.display()));
     }
 
     let processing_time = start_time.elapsed().as_secs_f64() * 1000.0;
@@ -185,9 +194,10 @@ impl ModelProcessor for CutoutProcessor {
         session: &mut Session,
         image_path: &Path,
         config: &Self::Config,
+        progress_bar: &Option<indicatif::ProgressBar>,
     ) -> Result<Self::Result> {
         // Use the existing process_single_image function
-        process_single_image(config, session, image_path)
+        process_single_image(config, session, image_path, progress_bar)
     }
 
     fn serialize_config(config: &Self::Config) -> Result<toml::Value> {
