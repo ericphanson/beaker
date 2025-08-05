@@ -8,6 +8,7 @@
 
 ## Improve existing commands
 
+- [ ] `head` is missing output paths for crops & bounding boxes in the metadata file - must have regressed
 - [ ] `--metadata-format` (json vs toml)
 - [ ] `--metadata=path|stdout|no|auto`
 - [ ] support raw image inputs, including panasonic rw2. We should convert these to JPEG, run the yolo model, obtain the bounding boxes, then go back to the raw input and crop that to produce DNG raw output. Normally we try to match output image format to input, but if it's a proprietary raw format we will just do DNG. Use crates dng for output writing, rawloader for input reading, and image for cropping.
