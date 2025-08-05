@@ -356,27 +356,43 @@ if args.fp16:
 # ----------------------------------------------------------------------
 print("Quantising to dynamic-range INT8 …")
 try:
+    import onnx
     from onnxruntime.quantization import quantize_dynamic, QuantType
 
     ONNX_INT8 = args.workdir / "vhr_birdpose_s_add_int8.onnx"
 
-    # Base quantization settings
+    # First, analyze the model to find Conv nodes that might cause issues
+    print("  Analyzing model for problematic nodes...")
+    model = onnx.load(str(quantization_input))
+
+    conv_nodes = []
+    for node in model.graph.node:
+        if node.op_type == "Conv":
+            conv_nodes.append(node.name)
+
+    print(
+        f"  Found {len(conv_nodes)} Conv nodes that will be excluded from quantization"
+    )
+    if len(conv_nodes) > 0:
+        print(f"  First few Conv nodes: {conv_nodes[:5]}")
+        if len(conv_nodes) > 5:
+            print(f"  ... and {len(conv_nodes) - 5} more")
+
+    # Base quantization settings with Conv node exclusion
     quant_kwargs = {
         "model_input": quantization_input.as_posix(),
         "model_output": ONNX_INT8.as_posix(),
         "weight_type": QuantType.QInt8,
+        "nodes_to_exclude": conv_nodes,  # Exclude Conv nodes to avoid ConvInteger issues
     }
 
     # Add aggressive quantization options if requested
     if args.aggressive_quantization:
         print("  Using aggressive quantization settings...")
-        # Quantize more operations
-        quant_kwargs.update(
-            {
-                "nodes_to_quantize": None,  # Quantize all supported nodes
-                "nodes_to_exclude": [],  # Don't exclude any nodes by default
-            }
-        )
+        # For aggressive quantization, we might exclude fewer nodes, but still exclude problematic Conv nodes
+
+        # You could experiment with excluding fewer nodes, but Conv nodes are often problematic
+        # quant_kwargs["nodes_to_exclude"] = conv_nodes  # Keep excluding Conv nodes for stability
 
         # Try to also quantize activations to INT8 (more aggressive)
         try:
@@ -391,6 +407,7 @@ try:
         except ImportError:
             pass
 
+    print("  Applying dynamic quantization with node exclusions...")
     quantize_dynamic(**quant_kwargs)
     print(f"✓ Quantized ONNX saved to {ONNX_INT8}")
 
