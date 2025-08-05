@@ -5,8 +5,10 @@
 //! different model types.
 
 use anyhow::Result;
+use colored::Colorize;
 use ort::session::Session;
 use std::path::Path;
+use std::time::Duration;
 
 use crate::config::BaseModelConfig;
 use crate::image_input::{collect_images_from_sources, ImageInputConfig};
@@ -62,6 +64,7 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
     use std::time::Instant;
 
     let start_timestamp = Utc::now();
+    let total_processing_start = Instant::now();
 
     // Collect command line for metadata
     let command_line: Vec<String> = std::env::args().collect();
@@ -85,9 +88,6 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
         );
     }
 
-    // Create progress bar for batch processing if appropriate
-    let progress_bar = crate::color_utils::progress::create_batch_progress_bar(image_files.len());
-
     // Collect device information for metadata
     let device_selection = determine_optimal_device(&config.base().device);
     let device_selected = device_selection.device.clone();
@@ -95,12 +95,18 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
 
     // Create session with timing
     let session_start = Instant::now();
+    // It sometimes takes a while to load the model, so we'll use a spinner when on TTY
+    // it will show "model loading" while the model is being loaded, then switch to "model loaded" when done
+    let spinner = indicatif::ProgressBar::new_spinner();
+    spinner.set_message(" Loading model...");
+    spinner.tick();
+    spinner.enable_steady_tick(Duration::from_millis(100));
+
     let model_source = P::get_model_source();
 
     let session_config = SessionConfig {
         device: &device_selected,
     };
-
     let (mut session, model_info) = create_onnx_session(model_source.unwrap(), &session_config)?;
 
     let model_load_time_ms = session_start.elapsed().as_secs_f64() * 1000.0;
@@ -112,6 +118,8 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
     } else {
         "CPU".to_string()
     };
+
+    spinner.finish_and_clear();
 
     log::info!(
         "{} Model loaded ({}, {}) in {:.3}ms",
@@ -160,9 +168,36 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
         strict_mode: config.base().strict,
     };
 
+    // Create progress bar for batch processing if appropriate
+    let progress_bar: Option<indicatif::ProgressBar> =
+        crate::color_utils::progress::create_batch_progress_bar(image_files.len());
+
     // Create vector to contain failed image paths
     let mut failed_images = Vec::new();
     for (index, image_path) in image_files.iter().enumerate() {
+        if let Some(ref pb) = progress_bar {
+            // we will style the filename with bold:
+            let filename = crate::color_utils::maybe_color_stderr(
+                &image_path.file_name().unwrap_or_default().to_string_lossy(),
+                |s| s.bold(),
+            );
+            pb.set_prefix(format!(
+                "[{}/{}] Processing {}",
+                index + 1,
+                image_files.len(),
+                filename,
+            ));
+            // we are using msg as ETA
+            if index > 0 {
+                // Calculate ETA based on elapsed time and number of processed images
+                // This is a simple linear estimate, not perfect but works for most cases
+                let elapsed = pb.elapsed().as_secs_f64();
+                let total = image_files.len() as f64;
+                let processed = index as f64; // no +1 since we haven't processed this one yet
+                let eta = (elapsed / processed) * (total - processed);
+                pb.set_message(format!("ETA: {eta:.1}s"));
+            }
+        }
         match P::process_single_image(&mut session, image_path, &config) {
             Ok(result) => {
                 successful_count += 1;
@@ -182,10 +217,6 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
                 // Use progress bar or log message based on what's available
                 if let Some(ref pb) = progress_bar {
                     pb.inc(1);
-                    pb.set_message(format!(
-                        "Processed {}",
-                        image_path.file_name().unwrap_or_default().to_string_lossy()
-                    ));
                 } else {
                     // Log comprehensive processing result for single files or non-interactive
                     log::info!(
@@ -232,7 +263,7 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
 
     // Finish progress bar if it exists
     if let Some(pb) = progress_bar {
-        pb.finish_with_message("Processing complete");
+        pb.finish_and_clear();
     }
     // if failed_images > 20, we will truncate and add an ellipsis
     let failed_images_str = if failed_images.len() > 20 {
@@ -252,21 +283,26 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
             failed_images_str
         );
     }
+    let total_processing_time = total_processing_start.elapsed();
 
     if image_files.len() > 1 {
         if failed_count > 0 {
             log::info!(
-                "{} Processed {} images with {} successes and {} failures",
+                "{} Processed {} images with {} successes and {} failures in {:.1}s ({:.0}ms per image)",
                 crate::color_utils::symbols::completed_partially_successfully(),
                 successful_count + failed_count,
                 successful_count,
-                failed_count
+                failed_count,
+                total_processing_time.as_millis() as f64 / 1000.0,
+                total_processing_time.as_millis() as f64 / (successful_count + failed_count) as f64
             );
         } else {
             log::info!(
-                "{} Processed {} images successfully",
+                "{} Processed {} images successfully in {:.1}s ({:.0}ms per image)",
                 crate::color_utils::symbols::completed_successfully(),
-                successful_count
+                successful_count,
+                total_processing_time.as_millis() as f64 / 1000.0,
+                total_processing_time.as_millis() as f64 / successful_count as f64
             );
         }
     }

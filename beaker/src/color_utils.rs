@@ -209,22 +209,26 @@ pub mod progress {
         // 1. Processing more than 1 item
         // 2. stderr is a TTY (interactive)
         // 3. Colors are enabled (respects all our color settings)
-        if total > 1 && stderr().is_terminal() && colors_enabled() {
+        if total > 1 && stderr().is_terminal() {
             let pb = ProgressBar::new(total as u64);
 
             let style = if colors_enabled() {
                 ProgressStyle::default_bar()
-                    .template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta})")
+                    .template(
+                        "[{elapsed_precise}] [{bar:40.green/black}] ({percent}%) {msg}\n{prefix}",
+                    )
                     .unwrap()
-                    .progress_chars("#>-")
+                    .progress_chars("█▓▒░")
             } else {
                 ProgressStyle::default_bar()
-                    .template("[{elapsed_precise}] [{wide_bar}] {pos}/{len} ({eta})")
+                    .template("[{elapsed_precise}] [{bar:40}] ({percent}%) {msg}\n{prefix}")
                     .unwrap()
-                    .progress_chars("#>-")
+                    .progress_chars("#> ")
             };
 
             pb.set_style(style);
+            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+
             Some(pb)
         } else {
             None
