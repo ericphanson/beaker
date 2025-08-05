@@ -1,2 +1,8 @@
 *.pth
 checkpoints
+example.jpeg
+birds
+*.jpg
+*.jpeg
+*.json
+*.png

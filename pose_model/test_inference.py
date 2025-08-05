@@ -84,11 +84,27 @@ def preprocess_image(
     return processed, original_image, scale_factor
 
 
+def confidence_method_peak_value(heatmaps: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Method 1: Peak value confidence - most interpretable"""
+    if len(heatmaps.shape) == 4:
+        B, J, H, W = heatmaps.shape
+        reshaped = heatmaps.reshape(B, J, -1)
+        peak_vals = np.max(reshaped, axis=-1)  # (B, J)
+        peak_indices = np.argmax(reshaped, axis=-1)  # (B, J)
+        return peak_vals, peak_indices
+    else:
+        J, H, W = heatmaps.shape
+        reshaped = heatmaps.reshape(J, -1)
+        peak_vals = np.max(reshaped, axis=-1)  # (J,)
+        peak_indices = np.argmax(reshaped, axis=-1)  # (J,)
+        return peak_vals, peak_indices
+
+
 def postprocess_heatmaps(
     heatmaps: np.ndarray, original_size: Tuple[int, int], scale_factor: float
 ) -> List[Tuple[int, int, float]]:
     """
-    Postprocess heatmaps to get keypoint coordinates.
+    Postprocess heatmaps to get keypoint coordinates with peak value confidence.
 
     Args:
         heatmaps: Model output heatmaps (1, num_joints, H, W)
@@ -99,38 +115,48 @@ def postprocess_heatmaps(
         List of (x, y, confidence) tuples for each keypoint
     """
     if len(heatmaps.shape) == 4:
-        heatmaps = heatmaps[0]  # Remove batch dimension
+        heatmaps_work = heatmaps[0]  # Remove batch dimension
+    else:
+        heatmaps_work = heatmaps
 
-    num_joints, heatmap_h, heatmap_w = heatmaps.shape
+    num_joints, heatmap_h, heatmap_w = heatmaps_work.shape
     original_h, original_w = original_size
+
+    # Get confidence using peak value method
+    peak_vals, peak_indices = confidence_method_peak_value(heatmaps)
+
+    # Handle batch dimension
+    if len(peak_vals.shape) > 1:
+        peak_vals = peak_vals[0]
+        peak_indices = peak_indices[0]
 
     keypoints = []
     for joint_idx in range(num_joints):
-        heatmap = heatmaps[joint_idx]
+        # Convert peak index to 2D coordinates
+        peak_idx = peak_indices[joint_idx]
+        heatmap_y = peak_idx // heatmap_w
+        heatmap_x = peak_idx % heatmap_w
 
-        # Find maximum response location
-        max_idx = np.unravel_index(np.argmax(heatmap), heatmap.shape)
-        max_val = heatmap[max_idx]
+        confidence = peak_vals[joint_idx]
 
-        # Convert heatmap coordinates to original image coordinates
-        heatmap_x = max_idx[1]
-        heatmap_y = max_idx[0]
-
-        # Scale back to original image size
-        # Account for padding and scaling
+        # Scale heatmap coordinates to input image size (256x256)
         target_h, target_w = 256, 256
-        x_offset = (target_w - int(original_w * scale_factor)) // 2
-        y_offset = (target_h - int(original_h * scale_factor)) // 2
+        scale_heatmap_to_input = target_w / heatmap_w  # Should be 4.0 for 64->256
 
-        # Convert from heatmap to input image coordinates
-        input_x = (heatmap_x / heatmap_w) * target_w
-        input_y = (heatmap_y / heatmap_h) * target_h
+        input_x = heatmap_x * scale_heatmap_to_input
+        input_y = heatmap_y * scale_heatmap_to_input
 
-        # Remove padding offset
+        # Account for padding that was added during preprocessing
+        new_width = int(original_w * scale_factor)
+        new_height = int(original_h * scale_factor)
+        x_offset = (target_w - new_width) // 2
+        y_offset = (target_h - new_height) // 2
+
+        # Remove padding offset to get coordinates in the resized (but unpadded) image
         input_x -= x_offset
         input_y -= y_offset
 
-        # Scale back to original size
+        # Scale back to original image size
         orig_x = int(input_x / scale_factor)
         orig_y = int(input_y / scale_factor)
 
@@ -138,7 +164,7 @@ def postprocess_heatmaps(
         orig_x = max(0, min(orig_x, original_w - 1))
         orig_y = max(0, min(orig_y, original_h - 1))
 
-        keypoints.append((orig_x, orig_y, float(max_val)))
+        keypoints.append((orig_x, orig_y, float(confidence)))
 
     return keypoints
 
@@ -166,31 +192,32 @@ def visualize_pose(
     ax.set_title(title)
     ax.axis("off")
 
-    # Bird pose keypoint names (23 keypoints)
+    # Animal Kingdom bird pose keypoint names (23 keypoints)
+    # Official keypoint order from Animal Kingdom dataset
     keypoint_names = [
-        "beak",
-        "head",
-        "neck",
-        "back",
-        "tail",
-        "left_eye",
-        "right_eye",
-        "left_ear",
-        "right_ear",
-        "left_shoulder",
-        "right_shoulder",
-        "left_wing",
-        "right_wing",
-        "left_elbow",
-        "right_elbow",
-        "left_wrist",
-        "right_wrist",
-        "left_hip",
-        "right_hip",
-        "left_knee",
-        "right_knee",
-        "left_foot",
-        "right_foot",
+        "Head_Mid_Top",  # 0
+        "Eye_Left",  # 1
+        "Eye_Right",  # 2
+        "Mouth_Front_Top",  # 3
+        "Mouth_Back_Left",  # 4
+        "Mouth_Back_Right",  # 5
+        "Mouth_Front_Bottom",  # 6
+        "Shoulder_Left",  # 7
+        "Shoulder_Right",  # 8
+        "Elbow_Left",  # 9
+        "Elbow_Right",  # 10
+        "Wrist_Left",  # 11
+        "Wrist_Right",  # 12
+        "Torso_Mid_Back",  # 13
+        "Hip_Left",  # 14
+        "Hip_Right",  # 15
+        "Knee_Left",  # 16
+        "Knee_Right",  # 17
+        "Ankle_Left",  # 18
+        "Ankle_Right",  # 19
+        "Tail_Top_Back",  # 20
+        "Tail_Mid_Back",  # 21
+        "Tail_End_Back",  # 22
     ]
 
     # Color map for different keypoints
@@ -285,6 +312,7 @@ def test_model(
     input_tensor: np.ndarray,
     original_image: np.ndarray,
     scale_factor: float,
+    confidence_threshold: float = 0.3,
 ) -> dict:
     """Test a single model and return results."""
     if not os.path.exists(model_path):
@@ -310,7 +338,7 @@ def test_model(
         # Calculate statistics
         confidences = [conf for _, _, conf in keypoints]
         avg_confidence = np.mean(confidences)
-        valid_keypoints = sum(1 for conf in confidences if conf > 0.3)
+        valid_keypoints = sum(1 for conf in confidences if conf > confidence_threshold)
 
         return {
             "name": model_name,
@@ -398,7 +426,12 @@ def main():
     for model_name, model_path in models:
         print(f"Testing {model_name}...")
         result = test_model(
-            model_path, model_name, input_tensor, original_image, scale_factor
+            model_path,
+            model_name,
+            input_tensor,
+            original_image,
+            scale_factor,
+            args.confidence_threshold,
         )
         results.append(result)
 
@@ -467,6 +500,33 @@ def main():
             keypoints = result["keypoints"]
             colors = plt.cm.tab20(np.linspace(0, 1, len(keypoints)))
 
+            # Animal Kingdom keypoint names for labels
+            keypoint_names = [
+                "Head_Mid_Top",
+                "Eye_Left",
+                "Eye_Right",
+                "Mouth_Front_Top",
+                "Mouth_Back_Left",
+                "Mouth_Back_Right",
+                "Mouth_Front_Bottom",
+                "Shoulder_Left",
+                "Shoulder_Right",
+                "Elbow_Left",
+                "Elbow_Right",
+                "Wrist_Left",
+                "Wrist_Right",
+                "Torso_Mid_Back",
+                "Hip_Left",
+                "Hip_Right",
+                "Knee_Left",
+                "Knee_Right",
+                "Ankle_Left",
+                "Ankle_Right",
+                "Tail_Top_Back",
+                "Tail_Mid_Back",
+                "Tail_End_Back",
+            ]
+
             for j, (x, y, conf) in enumerate(keypoints):
                 if conf > args.confidence_threshold:
                     ax.plot(
@@ -477,6 +537,23 @@ def main():
                         markersize=6,
                         markeredgecolor="white",
                         markeredgewidth=1,
+                    )
+
+                    # Add keypoint label with confidence
+                    keypoint_name = (
+                        keypoint_names[j] if j < len(keypoint_names) else f"kp_{j}"
+                    )
+                    ax.annotate(
+                        f"{keypoint_name} ({conf:.2f})",
+                        (x, y),
+                        xytext=(2, 2),
+                        textcoords="offset points",
+                        fontsize=6,
+                        color="white",
+                        weight="bold",
+                        bbox=dict(
+                            boxstyle="round,pad=0.2", facecolor=colors[j], alpha=0.7
+                        ),
                     )
 
         # Hide unused subplots
@@ -490,7 +567,7 @@ def main():
             plt.savefig(output_path, dpi=300, bbox_inches="tight")
             print(f"✓ Comparison visualization saved to: {output_path}")
 
-        plt.show()
+        # plt.show()
 
         # Create detailed visualization for best model
         best_result = min(successful_results, key=lambda x: x["inference_time"])
@@ -512,7 +589,7 @@ def main():
             detailed_fig.savefig(output_path, dpi=300, bbox_inches="tight")
             print(f"✓ Detailed visualization saved to: {output_path}")
 
-        plt.show()
+        # plt.show()
 
     print("\n" + "=" * 80)
     print("Inference testing completed!")
