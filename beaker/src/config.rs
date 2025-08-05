@@ -37,9 +37,9 @@ pub struct GlobalArgs {
     #[arg(long, global = true)]
     pub output_dir: Option<String>,
 
-    /// Skip creating metadata output files
+    /// Create metadata output files
     #[arg(long, global = true)]
-    pub no_metadata: bool,
+    pub metadata: bool,
 
     /// Verbosity level (-q/--quiet, -v/-vv/-vvv/-vvvv for info/debug/trace)
     #[command(flatten)]
@@ -168,8 +168,8 @@ impl From<GlobalArgs> for BaseModelConfig {
             sources: Vec::new(), // Sources come from command, not global args
             device: global.device,
             output_dir: global.output_dir,
-            skip_metadata: global.no_metadata,
-            strict: !global.permissive, // Note: CLI uses permissive, internal uses strict
+            skip_metadata: !global.metadata, // Note: CLI uses metadata flag, internal uses skip_metadata
+            strict: !global.permissive,      // Note: CLI uses permissive, internal uses strict
         }
     }
 }
@@ -233,7 +233,7 @@ mod tests {
         let global_args = GlobalArgs {
             device: "cpu".to_string(),
             output_dir: Some("/tmp".to_string()),
-            no_metadata: true,
+            metadata: false,
             verbosity: Verbosity::new(2, 0), // -vv level (info level enables verbose)
             permissive: true,
             no_color: false,
@@ -244,8 +244,8 @@ mod tests {
         assert_eq!(config.sources, Vec::<String>::new()); // Sources come from command
         assert_eq!(config.device, "cpu");
         assert_eq!(config.output_dir, Some("/tmp".to_string()));
-        assert!(config.skip_metadata);
-        // Note: verbosity is now handled directly by the logging system via env_logger
+        assert!(config.skip_metadata); // metadata=false -> skip_metadata=true
+                                       // Note: verbosity is now handled directly by the logging system via env_logger
         assert!(!config.strict); // permissive=true -> strict=false
     }
 
@@ -254,7 +254,7 @@ mod tests {
         let global_args = GlobalArgs {
             device: "auto".to_string(),
             output_dir: None,
-            no_metadata: false,
+            metadata: false,
             verbosity: Verbosity::new(0, 0), // Default level (warnings and errors only)
             permissive: false,
             no_color: false,
@@ -283,7 +283,7 @@ mod tests {
         let global_args = GlobalArgs {
             device: "coreml".to_string(),
             output_dir: Some("/output".to_string()),
-            no_metadata: false,
+            metadata: false,
             verbosity: Verbosity::new(1, 0), // -v level (info)
             permissive: false,
             no_color: false,

@@ -31,8 +31,8 @@ cargo build --release
 # Run with custom confidence and IoU thresholds
 ./target/release/beaker head ../example.jpg --confidence 0.5 --iou-threshold 0.4
 
-# Use global output directory and skip metadata output
-./target/release/beaker --output-dir ./results --no-metadata head ../example.jpg --crop
+# Use global output directory
+./target/release/beaker --output-dir ./results head ../example.jpg --crop
 
 # Run on CPU explicitly
 ./target/release/beaker head ../example.jpg --device cpu
@@ -59,36 +59,11 @@ The build process automatically:
 
 When running detection, `beaker head` can generate several output files:
 
-- **Crops**: Individual square crops for each detected bird head (`image_crop-1.jpg`, `image_crop-2.jpg`, etc.)
+- **`--crop`**: Individual square crops for each detected bird head (`image_crop-1.jpg`, `image_crop-2.jpg`, etc.)
   - Single detection: `image_crop.jpg` (no suffix)
   - Multiple detections: Numbered with zero-padding for 10+ detections
-- **Bounding boxes**: Single image showing all detections with green boxes (`image_bounding-box.jpg`)
-- **Metadata**: Structured TOML output with detection coordinates, confidence scores, and relative file paths (`image.beaker.toml`)
-
-Example metadata output:
-```toml
-[head]
-model_version = "bird-head-detector-v1.0.0"
-confidence_threshold = 0.25
-iou_threshold = 0.45
-bounding_box_path = "example-bounding-box.jpg"
-
-[[head.detections]]
-x1 = 786.0
-y1 = 392.6
-x2 = 954.2
-y2 = 475.8
-confidence = 0.774
-crop_path = "example-crop-1.jpg"
-
-[[head.detections]]
-x1 = 378.0
-y1 = 407.8
-x2 = 557.4
-y2 = 582.3
-confidence = 0.473
-crop_path = "example-crop-2.jpg"
-```
+- **`--bounding-box`**: Single image showing all detections with green boxes (`image_bounding-box.jpg`)
+- **`--metadata`**: Structured TOML output with detection coordinates, confidence scores, and relative file paths (`image.beaker.toml`)
 
 ## Performance Benchmarks
 

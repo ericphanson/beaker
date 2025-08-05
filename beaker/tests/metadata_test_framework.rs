@@ -366,6 +366,7 @@ where
             "head",
             example_jpg.to_str().unwrap(),
             "--crop",
+            "--metadata",
             "--output-dir",
             temp_dir.path().to_str().unwrap(),
         ]);
@@ -375,6 +376,7 @@ where
             "cutout",
             example_jpg.to_str().unwrap(),
             "--save-mask",
+            "--metadata",
             "--output-dir",
             temp_dir.path().to_str().unwrap(),
         ]);
@@ -403,7 +405,11 @@ where
                 full_args.push(arg);
             }
         }
-        full_args.extend_from_slice(&["--output-dir", temp_dir.path().to_str().unwrap()]);
+        full_args.extend_from_slice(&[
+            "--metadata",
+            "--output-dir",
+            temp_dir.path().to_str().unwrap(),
+        ]);
         run_beaker_command(&full_args)
     };
 

@@ -151,7 +151,6 @@ def benchmark_beaker_head(
             "--device",
             device,
             "--verbose",
-            "--no-metadata",
         ]
         success, stdout, stderr, total_time = run_command(cmd)
 
@@ -180,7 +179,6 @@ def benchmark_beaker_cutout(
             "--device",
             device,
             "--verbose",
-            "--no-metadata",
         ]
         success, stdout, stderr, total_time = run_command(cmd)
 
@@ -268,7 +266,6 @@ def benchmark_beaker_batch(
                 "--device",
                 device,
                 "--verbose",
-                "--no-metadata",
                 "--output-dir",
                 output_dir,
             ]

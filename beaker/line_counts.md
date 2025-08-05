@@ -2,9 +2,9 @@
 
 - **Cutout Main Code**: 325 (Tests: 44)  
 - **Head Main Code**: 494 (Tests: 0)  
-- **Common Main Code**: 1525 (Tests: 1189)  
-- **Total Main Code (excluding build.rs)**: 2344  
-- **Total Main Code (including build.rs)**: 2494 (Reported: 2494)  
+- **Common Main Code**: 1527 (Tests: 1195)  
+- **Total Main Code (excluding build.rs)**: 2346  
+- **Total Main Code (including build.rs)**: 2496 (Reported: 2496)  
 ✅ Totals match.
 
 ## Raw Counts
@@ -21,9 +21,9 @@ File name: ./beaker/tests/metadata_test_framework.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
 Main         | 0            | 0            | 0            | 0            | 0           
-Tests        | 455          | 71           | 18           | 30           | 574         
+Tests        | 461          | 71           | 18           | 30           | 580         
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 455          | 71           | 18           | 30           | 574         
+Total| 461          | 71           | 18           | 30           | 580         
 
 File name: ./beaker/tests/test_performance_tracker.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -124,10 +124,10 @@ Total| 206          | 26           | 9            | 12           | 253
 File name: ./beaker/src/main.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 180          | 24           | 3            | 12           | 219         
+Main         | 182          | 23           | 3            | 12           | 220         
 Tests        | 0            | 0            | 0            | 0            | 0           
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 180          | 24           | 3            | 12           | 219         
+Total| 182          | 23           | 3            | 12           | 220         
 
 File name: ./beaker/src/color_utils.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -172,7 +172,7 @@ Total| 50           | 13           | 1            | 9            | 73
 File count: 20
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 2494         | 456          | 175          | 205          | 3330        
-Tests        | 1233         | 178          | 23           | 73           | 1507        
+Main         | 2496         | 455          | 175          | 205          | 3331        
+Tests        | 1239         | 178          | 23           | 73           | 1513        
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 3727         | 634          | 198          | 278          | 4837        
+Total| 3735         | 633          | 198          | 278          | 4844        

@@ -1,7 +1,7 @@
 use clap::Parser;
 use env_logger::Builder;
 use env_logger::Env;
-use log::{error, info, warn, Level};
+use log::{error, info, Level};
 
 mod color_utils;
 mod config;
@@ -118,7 +118,7 @@ fn main() {
             if head_cmd.bounding_box {
                 outputs.push("bounding-boxes");
             }
-            if !cli.global.no_metadata {
+            if cli.global.metadata {
                 outputs.push("metadata");
             }
 
@@ -138,16 +138,17 @@ fn main() {
             );
 
             if outputs.is_empty() {
-                warn!("No outputs requested! Remove `--no-metadata` or pass `--crop` or `--bounding-box` to enable a file output.");
-            }
-
-            let internal_config =
-                HeadDetectionConfig::from_args(cli.global.clone(), head_cmd.clone());
-            match run_head_detection(internal_config) {
-                Ok(_) => {}
-                Err(e) => {
-                    error!("{} Detection failed: {e}", symbols::operation_failed());
-                    std::process::exit(1);
+                error!("No outputs requested! Pass `--metadata`,  `--crop`, or `--bounding-box` to enable a file output.");
+                std::process::exit(1);
+            } else {
+                let internal_config =
+                    HeadDetectionConfig::from_args(cli.global.clone(), head_cmd.clone());
+                match run_head_detection(internal_config) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        error!("{} Detection failed: {e}", symbols::operation_failed());
+                        std::process::exit(1);
+                    }
                 }
             }
         }
@@ -172,7 +173,7 @@ fn main() {
             if cutout_cmd.save_mask {
                 outputs.push("mask");
             }
-            if !cli.global.no_metadata {
+            if cli.global.metadata {
                 outputs.push("metadata");
             }
 
