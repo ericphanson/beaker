@@ -6,6 +6,9 @@
 - wings/beaks etc (detect other parts besides head using CUB dataset)
 - species classification
 
+Not really a command but:
+- collage: given a set of cutouts (cropped or not), arrange via heuristics into a nice collage
+
 ## Improve existing commands
 
 - [ ] `head` is missing output paths for crops & bounding boxes in the metadata file - must have regressed
