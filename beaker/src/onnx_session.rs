@@ -96,7 +96,9 @@ pub fn create_onnx_session(
             Ok(cache_dir) => {
                 // Create the cache directory if it doesn't exist
                 if let Err(e) = std::fs::create_dir_all(&cache_dir) {
-                    log::warn!("⚠️  Failed to create CoreML cache directory: {e}");
+                    let colored_error: String =
+                        crate::color_utils::colors::error_level(&e.to_string());
+                    log::warn!("⚠️  Failed to create CoreML cache directory: {colored_error}");
                     None
                 } else {
                     log::debug!("📂 Using CoreML cache directory: {}", cache_dir.display());
@@ -104,7 +106,8 @@ pub fn create_onnx_session(
                 }
             }
             Err(e) => {
-                log::warn!("⚠️  Failed to get CoreML cache directory: {e}");
+                let colored_error: String = crate::color_utils::colors::error_level(&e.to_string());
+                log::warn!("⚠️  Failed to get CoreML cache directory: {colored_error}");
                 None
             }
         }

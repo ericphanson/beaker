@@ -74,6 +74,11 @@ where
     }
 }
 
+pub fn maybe_dim_stderr(text: &str) -> String {
+    use colored::Colorize;
+    maybe_color_stderr(text, |s| s.bright_black())
+}
+
 /// Semantic color functions for different message types
 pub mod colors {
     use super::maybe_color_stderr;
@@ -110,7 +115,7 @@ pub mod symbols {
 
     pub fn model_loaded() -> &'static str {
         if colors_enabled() {
-            "📦"
+            "✅"
         } else {
             "  "
         }
@@ -181,7 +186,7 @@ pub mod symbols {
     /// Symbol for partial success (some successes, some failures)
     pub fn completed_partially_successfully() -> &'static str {
         if colors_enabled() {
-            "⚠️"
+            "⚠️ "
         } else {
             "[PARTIAL-SUCCESS]"
         }

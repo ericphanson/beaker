@@ -93,7 +93,8 @@ pub fn get_or_download_model(model_info: &ModelInfo) -> Result<PathBuf> {
                 fs::remove_file(&model_path)?;
             }
             Err(e) => {
-                log::warn!("⚠️  Error verifying checksum: {e}, re-downloading");
+                let colored_error: String = crate::color_utils::colors::error_level(&e.to_string());
+                log::warn!("⚠️  Error verifying checksum: {colored_error}, re-downloading");
                 fs::remove_file(&model_path)?;
             }
         }

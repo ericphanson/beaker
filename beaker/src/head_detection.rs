@@ -234,7 +234,7 @@ impl ModelProcessor for HeadProcessor {
         )?;
 
         debug!(
-            "⚡ Inference completed in {:.3}ms",
+            "⚡ Inference completed in {:.1} ms",
             inference_time.as_secs_f64() * 1000.0
         );
 

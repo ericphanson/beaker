@@ -14,7 +14,9 @@ use crate::config::BaseModelConfig;
 use crate::image_input::{collect_images_from_sources, ImageInputConfig};
 use crate::onnx_session::{create_onnx_session, ModelSource, SessionConfig};
 
+use crate::color_utils::maybe_dim_stderr;
 use crate::shared_metadata::{InputProcessing, SystemInfo};
+
 /// Configuration trait for models that can be processed generically
 pub trait ModelConfig {
     fn base(&self) -> &BaseModelConfig;
@@ -121,12 +123,13 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
 
     spinner.finish_and_clear();
 
+    let timing_str = maybe_dim_stderr(&format!("in {model_load_time_ms:.0}ms"));
     log::info!(
-        "{} Model loaded ({}, {}) in {:.3}ms",
+        "{} Model loaded ({}, {}) {}",
         crate::color_utils::symbols::model_loaded(),
         megabytes_str,
         pretty_device_name,
-        model_load_time_ms
+        timing_str
     );
 
     let system = SystemInfo {
@@ -216,7 +219,7 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
                 if progress_bar.is_none() {
                     // Log comprehensive processing result for single files or non-interactive
                     log::info!(
-                        "{} Processed {} ({}/{}) in {:.1}ms {}",
+                        "{} Processed {} ({}/{}) in {:.0} ms {}",
                         crate::color_utils::symbols::completed_successfully(),
                         image_path.display(),
                         index + 1,
@@ -231,11 +234,12 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
 
                 failed_images.push(image_path.to_str().unwrap_or_default().to_string());
 
+                let colored_error = crate::color_utils::colors::error_level(&e.to_string());
                 let err_msg = format!(
-                    "{} Failed to process {}: {}",
+                    "{} Failed to process {}:\n            {}",
                     crate::color_utils::symbols::warning(),
                     image_path.display(),
-                    e
+                    colored_error
                 );
                 if let Some(ref bar) = progress_bar {
                     bar.suspend(|| log::warn!("{err_msg}"));
@@ -258,22 +262,30 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
     // The case n=1 doesn't use a progress bar and already got a direct log message
     if image_files.len() > 1 {
         if failed_count > 0 {
+            let timing_str = maybe_dim_stderr(&format!(
+                "({:.1}s, {:.0} ms/success)",
+                total_processing_time.as_millis() as f64 / 1000.0,
+                total_processing_time.as_millis() as f64 / successful_count as f64
+            ));
             log::info!(
-                "{}  Processed {} images with {} successes and {} failures in {:.1}s ({:.0}ms per success)",
+                "{} Processed {} images with {} successes and {} failures {}",
                 crate::color_utils::symbols::completed_partially_successfully(),
                 successful_count + failed_count,
                 successful_count,
                 failed_count,
-                total_processing_time.as_millis() as f64 / 1000.0,
-                total_processing_time.as_millis() as f64 / (successful_count) as f64
+                timing_str
             );
         } else {
-            log::info!(
-                "{}  Processed {} images successfully in {:.1}s ({:.0}ms per image)",
-                crate::color_utils::symbols::completed_successfully(),
-                successful_count,
+            let timing_str = maybe_dim_stderr(&format!(
+                "({:.1}s, {:.0} ms/image)",
                 total_processing_time.as_millis() as f64 / 1000.0,
                 total_processing_time.as_millis() as f64 / successful_count as f64
+            ));
+            log::info!(
+                "{} Processed {} images successfully {}",
+                crate::color_utils::symbols::completed_successfully(),
+                successful_count,
+                timing_str
             );
         }
     }

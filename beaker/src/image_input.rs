@@ -129,8 +129,11 @@ pub fn collect_images_from_sources(
                                 }
                             }
                             Err(e) => {
+                                let colored_error =
+                                    crate::color_utils::colors::error_level(&e.to_string());
+
                                 log::warn!(
-                                    "{}Warning: Error reading path in glob {source}: {e}",
+                                    "{}Warning: Error reading path in glob {source}: {colored_error}",
                                     crate::color_utils::symbols::warning()
                                 );
                             }

@@ -256,7 +256,7 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
             );
             let actual_time = timing_value.unwrap();
             assert!(actual_time >= *min_ms && actual_time <= *max_ms,
-                "Timing {field} should be between {min_ms}ms and {max_ms}ms for {tool} in test {test_name}, got {actual_time}ms");
+                "Timing {field} should be between {min_ms} ms and {max_ms} ms for {tool} in test {test_name}, got {actual_time} ms");
         }
 
         MetadataCheck::OutputCreated(_filename) => {
