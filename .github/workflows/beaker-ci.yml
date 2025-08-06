@@ -52,6 +52,22 @@ jobs:
         workspaces: "beaker -> target"
         # Include ONNX Runtime downloads in cache key
         key: ${{ matrix.target }}-${{ hashFiles('beaker/Cargo.lock') }}-${{ hashFiles('beaker/build.rs') }}
+        # Cache additional directories including ONNX Runtime downloads
+        cache-directories: |
+          ~/.cargo/registry/src
+          ~/.cargo/git/db
+          ~/.ort
+
+    - name: Cache ONNX Runtime binaries
+      uses: actions/cache@v4
+      with:
+        path: |
+          /tmp/onnxruntime-*
+          ${{ runner.temp }}/onnxruntime-*
+        key: onnx-runtime-binaries-v1.22.0-${{ matrix.target }}
+        restore-keys: |
+          onnx-runtime-binaries-v1.22.0-
+          onnx-runtime-binaries-
 
     - name: Cache ONNX model
       uses: actions/cache@v4
@@ -64,6 +80,83 @@ jobs:
 
     - name: Set model cache environment
       run: echo "ONNX_MODEL_CACHE_DIR=$HOME/.cache/onnx-models" >> $GITHUB_ENV
+
+    - name: Cache ONNX Runtime binaries
+      uses: actions/cache@v4
+      with:
+        path: |
+          /tmp/onnxruntime-*
+          ${{ runner.temp }}/onnxruntime-*
+        key: onnx-runtime-binaries-v1.22.0-${{ matrix.target }}
+        restore-keys: |
+          onnx-runtime-binaries-v1.22.0-
+          onnx-runtime-binaries-
+
+    - name: Install ONNX Runtime system dependencies (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        # Check if already cached
+        if [ -d "/tmp/onnxruntime-linux-x64-1.22.0" ]; then
+          echo "Using cached ONNX Runtime"
+          echo "ORT_LIB_LOCATION=/tmp/onnxruntime-linux-x64-1.22.0" >> $GITHUB_ENV
+        else
+          # Download ONNX Runtime manually from Microsoft releases
+          echo "Downloading ONNX Runtime for Linux..."
+          cd /tmp
+          wget -O onnxruntime.tgz "https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-linux-x64-1.22.0.tgz"
+          tar -xzf onnxruntime.tgz
+          echo "ORT_LIB_LOCATION=/tmp/onnxruntime-linux-x64-1.22.0" >> $GITHUB_ENV
+        fi
+        
+    - name: Install ONNX Runtime system dependencies (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        # Check if already cached
+        if [ -d "/tmp/onnxruntime-osx-"*"-1.22.0" ]; then
+          echo "Using cached ONNX Runtime"
+          echo "ORT_LIB_LOCATION=$(echo /tmp/onnxruntime-osx-*-1.22.0)" >> $GITHUB_ENV
+        else
+          # Download ONNX Runtime manually from Microsoft releases
+          echo "Downloading ONNX Runtime for macOS..."
+          cd /tmp
+          if [[ "${{ matrix.target }}" == "x86_64-apple-darwin" ]]; then
+            wget -O onnxruntime.tgz "https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-osx-x86_64-1.22.0.tgz"
+          else
+            wget -O onnxruntime.tgz "https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-osx-arm64-1.22.0.tgz"
+          fi
+          tar -xzf onnxruntime.tgz
+          echo "ORT_LIB_LOCATION=$(echo /tmp/onnxruntime-osx-*-1.22.0)" >> $GITHUB_ENV
+        fi
+        
+    - name: Install ONNX Runtime system dependencies (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        # Check if already cached
+        if (Test-Path "$env:TEMP\onnxruntime-win-x64-1.22.0") {
+          echo "Using cached ONNX Runtime"
+          echo "ORT_LIB_LOCATION=$env:TEMP\onnxruntime-win-x64-1.22.0" >> $env:GITHUB_ENV
+        } else {
+          # Download ONNX Runtime manually from Microsoft releases
+          echo "Downloading ONNX Runtime for Windows..."
+          cd $env:TEMP
+          Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-win-x64-1.22.0.zip" -OutFile "onnxruntime.zip"
+          Expand-Archive -Path "onnxruntime.zip" -DestinationPath "."
+          echo "ORT_LIB_LOCATION=$env:TEMP\onnxruntime-win-x64-1.22.0" >> $env:GITHUB_ENV
+        }
+
+    - name: Verify ONNX Runtime installation
+      shell: bash
+      run: |
+        echo "ONNX Runtime location: $ORT_LIB_LOCATION"
+        ls -la "$ORT_LIB_LOCATION" || true
+
+    - name: Set ONNX Runtime environment variables
+      run: |
+        # The ONNX Runtime location is already set by the download steps above
+        echo "ORT_DOWNLOAD_RETRIES=5" >> $GITHUB_ENV
+        echo "ORT_DOWNLOAD_TIMEOUT=300" >> $GITHUB_ENV
+
+
 
     - name: Check code formatting
       run: cargo fmt --check

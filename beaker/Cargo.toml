@@ -17,6 +17,7 @@ clap   = { version = "4.5", features = ["derive"] }
 clap-verbosity-flag = "3.0"
 log = "0.4"
 env_logger = "0.11"
+# Use download-binaries by default, but allow override via environment
 ort    = { version = "=2.0.0-rc.10", default-features = false, features = ["ndarray", "download-binaries"] }
 image  = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 ndarray = "0.16"
@@ -35,8 +36,8 @@ once_cell = "1.21.3"
 indicatif-log-bridge = "0.2.3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-# Add Core ML only where the pre-built binary exists
-ort = { version = "=2.0.0-rc.10", default-features = false, features = ["coreml", "download-binaries", "ndarray"] }
+# Add Core ML and download-binaries where needed
+ort = { version = "=2.0.0-rc.10", default-features = false, features = ["coreml", "ndarray", "download-binaries"] }
 # ───────────────────────────────────────────────────────────────
 [dev-dependencies]
 tempfile = "3.8"
