@@ -260,7 +260,6 @@ def main():
         workers=TRAINING_CONFIG["workers"],
         verbose=TRAINING_CONFIG["verbose"],
         amp=True,
-        time=TRAINING_CONFIG["time"],
     )
     # Log final results to Comet.ml
     if experiment and results:
