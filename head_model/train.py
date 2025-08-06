@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Train YOLOv8n model for bird head detection on M1 MacBook Pro with Comet.ml tracking.
+Train YOLOv12n model for bird head detection on M1 MacBook Pro with Comet.ml tracking.
 
 Debug Mode:
     Set TRAINING_CONFIG['debug_run'] = True for quick testing with reduced data and epochs.
@@ -26,19 +26,19 @@ from ultralytics import YOLO
 
 # Training Configuration
 TRAINING_CONFIG = {
-    "model": "yolov8n",
-    "model_file": "yolov8n.pt",
-    "data": "data/yolo/dataset.yaml",
+    "model": "yolov12n",
+    "model_file": "yolov12n.pt",
+    "data": "../data/yolo-4-class/dataset.yaml",
     "epochs": 100,
-    "imgsz": 640,
+    "imgsz": 960,
     "batch": 16,  # Adjust based on M1 memory
-    "project": "runs/detect",
-    "name": "bird_head_yolov8n",
+    "project": "../runs/detect-v2",
+    "name": "bird_multi_yolov12n",
     "workers": 0,  # Prevent multiprocessing issues on M1
     "verbose": True,
-    "task": "bird_head_detection",
+    "task": "bird_detection",
     "dataset": "CUB-200-2011",
-    "architecture": "YOLOv8n",
+    "architecture": "YOLOv12n",
     # Debug Configuration
     "debug_run": False,  # Set to True for quick testing
     "debug_epochs": 5,  # Reduced epochs for debug
@@ -87,7 +87,7 @@ def create_debug_dataset():
 
     import yaml
 
-    debug_dir = Path("data/yolo_debug")
+    debug_dir = Path("../data/yolo-4-class-debug")
     debug_dir.mkdir(exist_ok=True)
 
     # Create debug directories
@@ -96,7 +96,7 @@ def create_debug_dataset():
         (debug_dir / split / "labels").mkdir(parents=True, exist_ok=True)
 
     # Copy subset of files
-    original_dir = Path("data/yolo")
+    original_dir = Path("../data/yolo-4-class")
     fraction = TRAINING_CONFIG["debug_fraction"]
 
     for split in ["train", "val"]:
@@ -126,8 +126,8 @@ def create_debug_dataset():
         "path": str(debug_dir),
         "train": "train/images",
         "val": "val/images",
-        "nc": 1,
-        "names": ["bird_head"],
+        "nc": 4,
+        "names": ["bird", "head", "eye", "beak"],
     }
 
     yaml_path = debug_dir / "dataset.yaml"
@@ -179,7 +179,7 @@ def main():
                 "debug_fraction", TRAINING_CONFIG["debug_fraction"]
             )
 
-    # Load a pretrained YOLOv8n model
+    # Load a pretrained YOLO model
     print(f"📦 Loading {TRAINING_CONFIG['model']} pretrained model...")
     model = YOLO(TRAINING_CONFIG["model_file"])
 

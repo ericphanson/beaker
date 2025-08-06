@@ -1,5 +1,6 @@
 # This is a python script to convert the CUB 200 parts labels to yolo format.
 # Converts to normalized YOLO cx, cy, w, h format and map img_id to file paths using images.txt, train_test_split.txt.
+# Supports 4 classes: bird (0), head (1), eye (2), beak (3)
 
 import os
 import shutil
@@ -9,10 +10,13 @@ import polars as pl
 from PIL import Image
 from tqdm import tqdm
 
+# Global data prefix for easier path management
+DATA_PREFIX = "../data"
+
 
 def load_data():
     """Load all necessary data files"""
-    data_dir = Path("data/CUB_200_2011")
+    data_dir = Path(DATA_PREFIX) / "CUB_200_2011"
 
     # Load part locations
     part_locs = pl.read_csv(
@@ -63,26 +67,40 @@ def get_head_parts():
     return [2, 5, 6, 7, 10, 11, 15]
 
 
-def calculate_head_bbox(img_parts, img_width, img_height):
-    """Calculate bounding box for bird head based on visible head parts"""
+def get_eye_parts():
+    """Define which parts constitute eyes"""
+    # Eye parts: left eye, right eye
+    return [7, 11]
+
+
+def get_beak_parts():
+    """Define which parts constitute the beak"""
+    # Beak part
+    return [2]
+
+
+def calculate_part_bbox(
+    img_parts, img_width, img_height, padding_factor=0.1, min_padding=10
+):
+    """Calculate bounding box for a set of parts"""
     visible_parts = img_parts.filter(pl.col("visible") == 1)
 
     if len(visible_parts) == 0:
         return None
 
-    # Get min/max coordinates of visible head parts
+    # Get min/max coordinates of visible parts
     x_coords = visible_parts["x"].to_list()
     y_coords = visible_parts["y"].to_list()
 
     x_min, x_max = min(x_coords), max(x_coords)
     y_min, y_max = min(y_coords), max(y_coords)
 
-    # Add some padding around the parts (10% of the span in each direction)
+    # Add padding around the parts
     x_span = x_max - x_min
     y_span = y_max - y_min
 
-    padding_x = max(x_span * 0.1, 10)  # At least 10 pixels
-    padding_y = max(y_span * 0.1, 10)  # At least 10 pixels
+    padding_x = max(x_span * padding_factor, min_padding)
+    padding_y = max(y_span * padding_factor, min_padding)
 
     x_min = max(0, x_min - padding_x)
     y_min = max(0, y_min - padding_y)
@@ -100,12 +118,30 @@ def calculate_head_bbox(img_parts, img_width, img_height):
     return cx, cy, w, h
 
 
+def calculate_bird_bbox(bbox_row, img_width, img_height):
+    """Convert CUB bounding box to YOLO format"""
+    x, y, width, height = (
+        bbox_row["x"],
+        bbox_row["y"],
+        bbox_row["width"],
+        bbox_row["height"],
+    )
+
+    # Convert to YOLO format (normalized cx, cy, w, h)
+    cx = (x + width / 2) / img_width
+    cy = (y + height / 2) / img_height
+    w = width / img_width
+    h = height / img_height
+
+    return cx, cy, w, h
+
+
 def get_image_dimensions(image_path):
     """Get image dimensions"""
     try:
         with Image.open(image_path) as img:
             return img.width, img.height
-    except:
+    except Exception:
         return None, None
 
 
@@ -114,23 +150,17 @@ def convert_to_yolo():
     print("Loading data...")
     part_locs, parts, bboxes, images, train_test = load_data()
 
-    # Filter for head parts only
-    head_part_ids = get_head_parts()
-    head_parts = part_locs.filter(pl.col("part_id").is_in(head_part_ids))
-
-    # Join with images and train/test data
-    data = head_parts.join(images, on="img_id").join(train_test, on="img_id")
+    # Join all data together
+    full_data = images.join(train_test, on="img_id").join(bboxes, on="img_id")
 
     # Create output directories
-    os.makedirs("data/yolo/train/images", exist_ok=True)
-    os.makedirs("data/yolo/train/labels", exist_ok=True)
-    os.makedirs("data/yolo/val/images", exist_ok=True)
-    os.makedirs("data/yolo/val/labels", exist_ok=True)
+    os.makedirs(f"{DATA_PREFIX}/yolo-4-class/train/images", exist_ok=True)
+    os.makedirs(f"{DATA_PREFIX}/yolo-4-class/train/labels", exist_ok=True)
+    os.makedirs(f"{DATA_PREFIX}/yolo-4-class/val/images", exist_ok=True)
+    os.makedirs(f"{DATA_PREFIX}/yolo-4-class/val/labels", exist_ok=True)
 
     # Process each unique image
-    unique_images = data.select(["img_id", "filepath", "is_training"]).unique()
-    total_images = len(unique_images)
-
+    total_images = len(full_data)
     print(f"Processing {total_images} unique images...")
 
     processed = 0
@@ -138,7 +168,7 @@ def convert_to_yolo():
 
     # Use tqdm for progress bar
     for row in tqdm(
-        unique_images.iter_rows(named=True),
+        full_data.iter_rows(named=True),
         total=total_images,
         desc="Converting images",
     ):
@@ -147,22 +177,11 @@ def convert_to_yolo():
         is_training = row["is_training"]
 
         # Get image dimensions
-        full_image_path = f"data/CUB_200_2011/images/{filepath}"
+        full_image_path = f"{DATA_PREFIX}/CUB_200_2011/images/{filepath}"
         img_width, img_height = get_image_dimensions(full_image_path)
 
         if img_width is None or img_height is None:
             tqdm.write(f"Warning: Could not load image {filepath}")
-            skipped += 1
-            continue
-
-        # Get all head parts for this image
-        img_parts = head_parts.filter(pl.col("img_id") == img_id)
-
-        # Calculate head bounding box
-        head_bbox = calculate_head_bbox(img_parts, img_width, img_height)
-
-        if head_bbox is None:
-            tqdm.write(f"Warning: No visible head parts for image {filepath}")
             skipped += 1
             continue
 
@@ -171,7 +190,7 @@ def convert_to_yolo():
 
         # Copy image to YOLO directory
         image_name = Path(filepath).name
-        yolo_image_path = f"data/yolo/{split_dir}/images/{image_name}"
+        yolo_image_path = f"{DATA_PREFIX}/yolo-4-class/{split_dir}/images/{image_name}"
         os.makedirs(os.path.dirname(yolo_image_path), exist_ok=True)
 
         # Copy the image file
@@ -184,12 +203,57 @@ def convert_to_yolo():
 
         # Create YOLO label file
         label_name = Path(image_name).stem + ".txt"
-        label_path = f"data/yolo/{split_dir}/labels/{label_name}"
+        label_path = f"{DATA_PREFIX}/yolo-4-class/{split_dir}/labels/{label_name}"
 
-        # Write label (class 0 for bird head, followed by bbox coordinates)
-        cx, cy, w, h = head_bbox
+        labels = []
+
+        # 1. Bird bounding box (class 0) - from CUB bounding boxes
+        bird_bbox = calculate_bird_bbox(row, img_width, img_height)
+        cx, cy, w, h = bird_bbox
+        labels.append(f"0 {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}")
+
+        # Get all parts for this image
+        img_parts = part_locs.filter(pl.col("img_id") == img_id)
+
+        # 2. Head bounding box (class 1) - aggregated from head parts
+        head_part_ids = get_head_parts()
+        head_parts = img_parts.filter(pl.col("part_id").is_in(head_part_ids))
+        head_bbox = calculate_part_bbox(head_parts, img_width, img_height)
+        if head_bbox is not None:
+            cx, cy, w, h = head_bbox
+            labels.append(f"1 {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}")
+
+        # 3. Eye bounding boxes (class 2) - from eye parts
+        eye_part_ids = get_eye_parts()
+        for eye_part_id in eye_part_ids:
+            eye_part = img_parts.filter(
+                (pl.col("part_id") == eye_part_id) & (pl.col("visible") == 1)
+            )
+            if len(eye_part) > 0:
+                eye_bbox = calculate_part_bbox(
+                    eye_part, img_width, img_height, padding_factor=0.15, min_padding=5
+                )
+                if eye_bbox is not None:
+                    cx, cy, w, h = eye_bbox
+                    labels.append(f"2 {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}")
+
+        # 4. Beak bounding box (class 3) - from beak part
+        beak_part_ids = get_beak_parts()
+        beak_parts = img_parts.filter(
+            pl.col("part_id").is_in(beak_part_ids) & (pl.col("visible") == 1)
+        )
+        if len(beak_parts) > 0:
+            beak_bbox = calculate_part_bbox(
+                beak_parts, img_width, img_height, padding_factor=0.2, min_padding=5
+            )
+            if beak_bbox is not None:
+                cx, cy, w, h = beak_bbox
+                labels.append(f"3 {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}")
+
+        # Write all labels to file
         with open(label_path, "w") as f:
-            f.write(f"0 {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}\n")
+            for label in labels:
+                f.write(label + "\n")
 
         processed += 1
 
@@ -198,17 +262,17 @@ def convert_to_yolo():
     print(f"Skipped: {skipped} images")
 
     # Create dataset YAML file
-    yaml_content = """# Bird Head Detection Dataset
-path: data/yolo
+    yaml_content = f"""# Bird Multi-class Detection Dataset
+path: {DATA_PREFIX}/yolo-4-class
 train: train/images
 val: val/images
 
 # Classes
-nc: 1  # number of classes
-names: ['bird_head']  # class names
+nc: 4  # number of classes
+names: ['bird', 'head', 'eye', 'beak']  # class names
 """
 
-    with open("data/yolo/dataset.yaml", "w") as f:
+    with open(f"{DATA_PREFIX}/yolo-4-class/dataset.yaml", "w") as f:
         f.write(yaml_content)
 
     print("Created dataset.yaml configuration file")
