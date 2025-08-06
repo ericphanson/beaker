@@ -22,7 +22,34 @@ import os
 
 import comet_ml
 import torch
+import torch.nn as nn
 from ultralytics import YOLO
+
+
+def safe_view(t, *shape):
+    return t.view(*shape) if t.is_contiguous() else t.reshape(*shape)
+
+
+torch.Tensor.safe_view = safe_view  # add new method
+
+
+# save original implementation
+_orig_bn_forward = nn.BatchNorm2d.forward
+
+
+def _mps_safe_forward(self, input):
+    # MPS requires contiguous input, CUDA/CPU ignore the copy flag
+    if not input.is_contiguous():
+        input = input.contiguous()
+    return _orig_bn_forward(self, input)
+
+
+# patch every existing and future BatchNorm2d
+nn.BatchNorm2d.forward = _mps_safe_forward
+
+os.environ["TORCH_SHOW_CPP_STACKTRACES"] = "1"  # C++ sites as well
+torch.autograd.set_detect_anomaly(True)  # Python call chain
+
 
 # Training Configuration
 TRAINING_CONFIG = {
@@ -31,8 +58,8 @@ TRAINING_CONFIG = {
     "model_yaml": "yolov12-turbo.yaml",
     "data": "../data/yolo-4-class/dataset.yaml",
     "epochs": 100,
-    "imgsz": 960,
-    "batch": 16,  # Adjust based on M1 memory
+    "imgsz": 640,
+    "batch": 8,  # Reduced batch size for debugging
     "project": "../runs/detect-v2",
     "name": "bird_multi_yolov12n",
     "workers": 0,  # Prevent multiprocessing issues on M1
@@ -124,7 +151,7 @@ def create_debug_dataset():
 
     # Create debug dataset.yaml
     debug_yaml = {
-        "path": str(debug_dir),
+        "path": str(debug_dir.absolute()),  # Use absolute path
         "train": "train/images",
         "val": "val/images",
         "nc": 4,
@@ -142,7 +169,8 @@ def main():
     # Check if MPS is available
     if torch.backends.mps.is_available():
         print("✅ MPS (Metal Performance Shaders) is available")
-        device = "mps"
+        device = "mps"  # Re-enable MPS for speed
+        print("� Using MPS for accelerated training")
     else:
         print("❌ MPS not available, falling back to CPU")
         device = "cpu"
@@ -202,6 +230,7 @@ def main():
         name=run_name,
         workers=TRAINING_CONFIG["workers"],
         verbose=TRAINING_CONFIG["verbose"],
+        amp=False,  # Disable automatic mixed precision for debugging
     )
 
     # Log final results to Comet.ml

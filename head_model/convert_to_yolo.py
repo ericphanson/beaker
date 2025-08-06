@@ -262,8 +262,9 @@ def convert_to_yolo():
     print(f"Skipped: {skipped} images")
 
     # Create dataset YAML file
+    yolo_dir = Path(DATA_PREFIX) / "yolo-4-class"
     yaml_content = f"""# Bird Multi-class Detection Dataset
-path: {DATA_PREFIX}/yolo-4-class
+path: {yolo_dir.absolute()}
 train: train/images
 val: val/images
 

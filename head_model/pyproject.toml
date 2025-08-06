@@ -6,9 +6,9 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     # Core training and preprocessing dependencies
-    "numpy>=2.3.2",
+    "numpy",
     "opencv-python>=4.8.0",
-    "ultralytics>=8.3.172",
+    "ultralytics",
     "platformdirs>=4.0.0",
     "pillow>=11.3.0",
     "polars>=1.32.0",
@@ -21,7 +21,7 @@ dependencies = [
     "onnx>=1.12.0,<1.18.0",
     "onnxslim>=0.1.59",
     "onnxruntime>=1.22.0",
-
+    "huggingface-hub>=0.34.3",
 ]
 
 [project.scripts]
@@ -60,3 +60,6 @@ ignore = [
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
+
+[tool.uv.sources]
+ultralytics = { git = "https://github.com/ericphanson/yolov12" }
