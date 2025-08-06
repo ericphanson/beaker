@@ -5,10 +5,10 @@ use std::path::Path;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Handle ONNX Runtime download retries via environment variables
     setup_onnx_runtime_env()?;
-    
+
     // Handle ONNX model setup with improved error handling
     setup_onnx_model()?;
-    
+
     Ok(())
 }
 
@@ -17,15 +17,15 @@ fn setup_onnx_runtime_env() -> Result<(), Box<dyn std::error::Error>> {
     if env::var("ORT_DOWNLOAD_RETRIES").is_err() {
         println!("cargo:rustc-env=ORT_DOWNLOAD_RETRIES=5");
     }
-    
+
     // Add download timeout
     if env::var("ORT_DOWNLOAD_TIMEOUT").is_err() {
         println!("cargo:rustc-env=ORT_DOWNLOAD_TIMEOUT=300");
     }
-    
+
     // Use alternative CDN if main fails
     println!("cargo:rustc-env=ORT_DOWNLOAD_FALLBACK=1");
-    
+
     Ok(())
 }
 
@@ -81,7 +81,7 @@ fn setup_onnx_model() -> Result<(), Box<dyn std::error::Error>> {
 
     if force_download {
         println!("Downloading latest ONNX model from GitHub releases...");
-        
+
         match download_latest_model(&model_path) {
             Ok(release_tag) => {
                 // Write version file
@@ -110,11 +110,11 @@ fn setup_onnx_model() -> Result<(), Box<dyn std::error::Error>> {
                 println!("Warning: Failed to download ONNX model: {}", e);
                 println!("This is likely due to network restrictions in the build environment.");
                 println!("Creating a placeholder model file - this should be handled in CI.");
-                
+
                 // Create a placeholder file that indicates the model needs to be provided
                 fs::write(&model_path, b"PLACEHOLDER_MODEL_FILE")?;
                 fs::write(&version_path, "unknown")?;
-                
+
                 println!("Note: The application will fail at runtime without a valid ONNX model.");
                 println!("In CI, ensure the model cache is properly set up.");
             }
@@ -152,14 +152,14 @@ fn get_latest_release_tag() -> Result<String, Box<dyn std::error::Error>> {
     // Try multiple times with different timeout settings
     for attempt in 1..=3 {
         println!("Attempting to fetch releases (attempt {}/3)...", attempt);
-        
+
         let client = create_http_client();
         let result = client
             .get(api_url)
             .timeout(std::time::Duration::from_secs(30))
             .set("User-Agent", "beaker-build-script/0.1.0")
             .call();
-            
+
         let response = match result {
             Ok(resp) => resp,
             Err(e) => {
@@ -189,24 +189,24 @@ fn get_latest_release_tag() -> Result<String, Box<dyn std::error::Error>> {
 
         return Err("No bird-head-detector release found".into());
     }
-    
+
     unreachable!()
 }
 
 fn create_http_client() -> ureq::Agent {
     let mut builder = ureq::AgentBuilder::new();
-    
+
     // Add longer timeout
     builder = builder.timeout_connect(std::time::Duration::from_secs(30));
     builder = builder.timeout_read(std::time::Duration::from_secs(60));
-    
+
     // If we're in a sandboxed environment, try to be more permissive
     if env::var("CI").is_ok() || env::var("GITHUB_ACTIONS").is_ok() {
         // In CI, try to work around TLS issues with more retries and relaxed settings
         // This is a build-time dependency only, so it's acceptable
         builder = builder.timeout_connect(std::time::Duration::from_secs(60));
     }
-    
+
     builder.build()
 }
 
@@ -219,23 +219,24 @@ fn download_latest_model(output_path: &Path) -> Result<String, Box<dyn std::erro
     // Try multiple times with better error handling
     for attempt in 1..=3 {
         println!("Download attempt {}/3...", attempt);
-        
+
         let client = create_http_client();
         let response = match client
             .get(api_url)
             .timeout(std::time::Duration::from_secs(30))
             .set("User-Agent", "beaker-build-script/0.1.0")
-            .call() {
-                Ok(resp) => resp,
-                Err(e) => {
-                    println!("Attempt {} failed to fetch releases: {}", attempt, e);
-                    if attempt == 3 {
-                        return Err(format!("Failed to fetch releases after 3 attempts: {}", e).into());
-                    }
-                    std::thread::sleep(std::time::Duration::from_secs(2));
-                    continue;
+            .call()
+        {
+            Ok(resp) => resp,
+            Err(e) => {
+                println!("Attempt {} failed to fetch releases: {}", attempt, e);
+                if attempt == 3 {
+                    return Err(format!("Failed to fetch releases after 3 attempts: {}", e).into());
                 }
-            };
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                continue;
+            }
+        };
 
         let releases: serde_json::Value = response.into_json()?;
 
@@ -276,19 +277,23 @@ fn download_latest_model(output_path: &Path) -> Result<String, Box<dyn std::erro
                 // Download the model with retry logic
                 for download_attempt in 1..=3 {
                     println!("Model download attempt {}/3...", download_attempt);
-                    
+
                     let download_result = create_http_client()
                         .get(download_url)
                         .timeout(std::time::Duration::from_secs(60))
                         .set("User-Agent", "beaker-build-script/0.1.0")
                         .call();
-                        
+
                     let response = match download_result {
                         Ok(resp) => resp,
                         Err(e) => {
                             println!("Download attempt {} failed: {}", download_attempt, e);
                             if download_attempt == 3 {
-                                return Err(format!("Failed to download model after 3 attempts: {}", e).into());
+                                return Err(format!(
+                                    "Failed to download model after 3 attempts: {}",
+                                    e
+                                )
+                                .into());
                             }
                             std::thread::sleep(std::time::Duration::from_secs(2));
                             continue;
@@ -297,7 +302,7 @@ fn download_latest_model(output_path: &Path) -> Result<String, Box<dyn std::erro
 
                     let mut reader = response.into_reader();
                     let mut file = fs::File::create(output_path)?;
-                    
+
                     match std::io::copy(&mut reader, &mut file) {
                         Ok(_) => {
                             println!(
@@ -307,9 +312,16 @@ fn download_latest_model(output_path: &Path) -> Result<String, Box<dyn std::erro
                             return Ok(tag_name.to_string());
                         }
                         Err(e) => {
-                            println!("Failed to write model file on attempt {}: {}", download_attempt, e);
+                            println!(
+                                "Failed to write model file on attempt {}: {}",
+                                download_attempt, e
+                            );
                             if download_attempt == 3 {
-                                return Err(format!("Failed to write model file after 3 attempts: {}", e).into());
+                                return Err(format!(
+                                    "Failed to write model file after 3 attempts: {}",
+                                    e
+                                )
+                                .into());
                             }
                             std::thread::sleep(std::time::Duration::from_secs(2));
                         }
@@ -320,6 +332,6 @@ fn download_latest_model(output_path: &Path) -> Result<String, Box<dyn std::erro
 
         return Err("No bird-head-detector release found".into());
     }
-    
+
     unreachable!()
 }
