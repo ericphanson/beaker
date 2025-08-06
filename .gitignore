@@ -1,6 +1,6 @@
 data
 .venv
-yolov8n.pt
+*.pt
 runs
 crops
 models

@@ -28,6 +28,7 @@ from ultralytics import YOLO
 TRAINING_CONFIG = {
     "model": "yolov12n",
     "model_file": "yolov12n.pt",
+    "model_yaml": "yolov12-turbo.yaml",
     "data": "../data/yolo-4-class/dataset.yaml",
     "epochs": 100,
     "imgsz": 960,
@@ -40,7 +41,7 @@ TRAINING_CONFIG = {
     "dataset": "CUB-200-2011",
     "architecture": "YOLOv12n",
     # Debug Configuration
-    "debug_run": False,  # Set to True for quick testing
+    "debug_run": True,  # Set to True for quick testing
     "debug_epochs": 5,  # Reduced epochs for debug
     "debug_fraction": 0.1,  # Use 10% of data for debug (0.1 = 10%)
 }
@@ -181,7 +182,7 @@ def main():
 
     # Load a pretrained YOLO model
     print(f"📦 Loading {TRAINING_CONFIG['model']} pretrained model...")
-    model = YOLO(TRAINING_CONFIG["model_file"])
+    model = YOLO(TRAINING_CONFIG["model_yaml"]).load(TRAINING_CONFIG["model_file"])
 
     # Configure Comet.ml integration for YOLO
     if experiment:
