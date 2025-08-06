@@ -50,7 +50,6 @@ nn.BatchNorm2d.forward = _mps_safe_forward
 os.environ["TORCH_SHOW_CPP_STACKTRACES"] = "1"  # C++ sites as well
 torch.autograd.set_detect_anomaly(True)  # Python call chain
 
-
 # Training Configuration
 TRAINING_CONFIG = {
     "model": "yolov12n",
@@ -58,9 +57,9 @@ TRAINING_CONFIG = {
     "model_yaml": "yolov12-turbo.yaml",
     "data": "../data/yolo-4-class/dataset.yaml",
     "epochs": 100,
-    "imgsz": 640,
-    "batch": 8,  # Reduced batch size for debugging
-    "project": "../runs/detect-v2",
+    "imgsz": 960,
+    "batch": 8,
+    "project": "runs/multi-detect",
     "name": "bird_multi_yolov12n",
     "workers": 0,  # Prevent multiprocessing issues on M1
     "verbose": True,
@@ -68,9 +67,30 @@ TRAINING_CONFIG = {
     "dataset": "CUB-200-2011",
     "architecture": "YOLOv12n",
     # Debug Configuration
-    "debug_run": True,  # Set to True for quick testing
+    "debug_run": False,  # Set to True for quick testing
     "debug_epochs": 5,  # Reduced epochs for debug
     "debug_fraction": 0.1,  # Use 10% of data for debug (0.1 = 10%)
+}
+
+if TRAINING_CONFIG["debug_run"]:
+    print("DEBUG: Setting image size to 640 for debug run")
+    TRAINING_CONFIG["imgsz"] = 640  # Smaller size for debug
+
+
+def print_checkpoint_metrics(trainer):
+    """Print trainer metrics and loss details after each checkpoint is saved."""
+    print(
+        f"Model details\n"
+        f"Best fitness: {trainer.best_fitness}, "
+        f"Loss names: {trainer.loss_names}, "  # List of loss names
+        f"Metrics: {trainer.metrics}, "
+        f"Total loss: {trainer.tloss}"  # Total loss value
+    )
+
+
+CALLBACKS = {
+    "on_model_save": print_checkpoint_metrics,
+    # "on_train_batch_end": stop_training_callback,
 }
 
 
@@ -116,6 +136,12 @@ def create_debug_dataset():
     import yaml
 
     debug_dir = Path("../data/yolo-4-class-debug")
+
+    # Remove existing debug directory to prevent accumulation of old files
+    if debug_dir.exists():
+        shutil.rmtree(debug_dir)
+        print(f"🗑️  Removed existing debug directory: {debug_dir}")
+
     debug_dir.mkdir(exist_ok=True)
 
     # Create debug directories
@@ -212,6 +238,9 @@ def main():
     print(f"📦 Loading {TRAINING_CONFIG['model']} pretrained model...")
     model = YOLO(TRAINING_CONFIG["model_yaml"]).load(TRAINING_CONFIG["model_file"])
 
+    for name, value in CALLBACKS.items():
+        model.add_callback(name, value)
+
     # Configure Comet.ml integration for YOLO
     if experiment:
         # YOLO will automatically detect and use the active Comet experiment
@@ -230,11 +259,11 @@ def main():
         name=run_name,
         workers=TRAINING_CONFIG["workers"],
         verbose=TRAINING_CONFIG["verbose"],
-        amp=False,  # Disable automatic mixed precision for debugging
+        amp=True,
+        time=TRAINING_CONFIG["time"],
     )
-
     # Log final results to Comet.ml
-    if experiment:
+    if experiment and results:
         try:
             # Log final metrics
             final_metrics = (
