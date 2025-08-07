@@ -2,7 +2,7 @@
 
 - **Cutout Main Code**: 312 (Tests: 44)  
 - **Head Main Code**: 487 (Tests: 0)  
-- **Common Main Code**: 1569 (Tests: 1166)  
+- **Common Main Code**: 1569 (Tests: 1177)  
 - **Total Main Code (excluding build.rs)**: 2368  
 - **Total Main Code (including build.rs)**: 2518 (Reported: 2518)  
 ✅ Totals match.
@@ -140,10 +140,10 @@ Total| 51           | 10           | 0            | 9            | 70
 File name: ./beaker/src/output_manager.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 138          | 29           | 25           | 6            | 198         
+Main         | 138          | 29           | 25           | 7            | 199         
 Tests        | 112          | 26           | 0            | 0            | 138         
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 250          | 55           | 25           | 6            | 336         
+Total| 250          | 55           | 25           | 7            | 337         
 
 File name: ./beaker/build.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -165,9 +165,9 @@ File name: ./beaker/tests/metadata_test_framework.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
 Main         | 0            | 0            | 0            | 0            | 0           
-Tests        | 461          | 71           | 18           | 30           | 580         
+Tests        | 472          | 73           | 18           | 31           | 594         
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 461          | 71           | 18           | 30           | 580         
+Total| 472          | 73           | 18           | 31           | 594         
 
 File name: ./beaker/tests/metadata_based_tests.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -180,7 +180,7 @@ Total| 195          | 3            | 1            | 7            | 206
 File count: 21
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 2518         | 456          | 184          | 206          | 3364        
-Tests        | 1210         | 171          | 23           | 70           | 1474        
+Main         | 2518         | 456          | 184          | 207          | 3365        
+Tests        | 1221         | 173          | 23           | 71           | 1488        
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 3728         | 627          | 207          | 276          | 4838        
+Total| 3739         | 629          | 207          | 278          | 4853        

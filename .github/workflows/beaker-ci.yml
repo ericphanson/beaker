@@ -120,7 +120,8 @@ jobs:
     - name: Test CLI head detection with ORT logging (Unix)
       if: runner.os != 'Windows'
       env:
-        RUST_LOG: "ort=info"
+        RUST_LOG: "debug"
+        RUST_BACKTRACE: "1"
       run: |
         echo "🧪 Testing CLI head detection with ORT logging..."
         echo "Device: ${{ matrix.device }}, Target: ${{ matrix.target }}"
@@ -131,7 +132,8 @@ jobs:
     - name: Test CLI head detection with ORT logging (Windows)
       if: runner.os == 'Windows'
       env:
-        RUST_LOG: "ort=info"
+        RUST_LOG: "debug"
+        RUST_BACKTRACE: "1"
       run: |
         echo "Testing CLI head detection with ORT logging..."
         echo "Device: ${{ matrix.device }}, Target: ${{ matrix.target }}"
@@ -142,7 +144,8 @@ jobs:
     - name: Test execution provider details with debug logging (Unix)
       if: runner.os != 'Windows'
       env:
-        RUST_LOG: "ort=debug"
+        RUST_LOG: "debug"
+        RUST_BACKTRACE: "1"
       run: |
         echo "🔍 Testing execution provider details with debug logging..."
         echo "Platform: ${{ matrix.os }}, Target: ${{ matrix.target }}"
@@ -166,7 +169,8 @@ jobs:
     - name: Test execution provider details with debug logging (Windows)
       if: runner.os == 'Windows'
       env:
-        RUST_LOG: "ort=debug"
+        RUST_LOG: "debug"
+        RUST_BACKTRACE: "1"
       run: |
         echo "Testing execution provider details with debug logging..."
         echo "Platform: ${{ matrix.os }}, Target: ${{ matrix.target }}"
@@ -185,8 +189,9 @@ jobs:
 
     - name: Run integration tests
       env:
-        RUST_LOG: "warn"  # Reduce log noise for tests
-      run: cargo test --release --target ${{ matrix.target }}
+        RUST_LOG: "debug"
+        RUST_BACKTRACE: "1"
+      run: cargo test --release --target ${{ matrix.target }} --verbose
       working-directory: beaker
 
     - name: Upload binary artifact

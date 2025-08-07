@@ -186,7 +186,8 @@ impl<'a> OutputManager<'a> {
 pub fn make_path_relative_to_toml(file_path: &Path, toml_path: &Path) -> Result<String> {
     if let Some(toml_dir) = toml_path.parent() {
         if let Ok(rel_path) = file_path.strip_prefix(toml_dir) {
-            Ok(rel_path.to_string_lossy().to_string())
+            // Convert to forward slashes for cross-platform compatibility
+            Ok(rel_path.to_string_lossy().replace('\\', "/"))
         } else {
             // If we can't make it relative, use absolute path
             Ok(file_path.to_string_lossy().to_string())
