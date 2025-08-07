@@ -79,7 +79,7 @@ fn download_model(url: &str, output_path: &Path) -> Result<()> {
         .ok_or_else(|| anyhow!("No parent directory"))
     {
         if let Ok(_metadata) = fs::metadata(parent) {
-            log::debug!("📊 Parent directory exists, checking disk space...");
+            log::debug!("📊 Parent directory exists");
         }
     }
 
@@ -105,7 +105,7 @@ fn download_model(url: &str, output_path: &Path) -> Result<()> {
 
     if let Some(length) = content_length {
         let length_mb = length as f64 / (1024.0 * 1024.0);
-        log::info!("📏 Expected download size: {length} bytes ({length_mb:.2} MB)");
+        log::debug!("📏 Expected download size: {length} bytes ({length_mb:.2} MB)");
     } else {
         log::warn!("⚠️  Content-Length header missing, unable to determine file size");
     }
@@ -203,10 +203,8 @@ pub fn get_or_download_model(model_info: &ModelInfo) -> Result<PathBuf> {
                 let actual_checksum = calculate_md5(&model_path)
                     .unwrap_or_else(|e| format!("Error calculating checksum: {e}"));
 
-                log::warn!("⚠️  Cached model has invalid checksum, re-downloading");
-                log::warn!("   Expected checksum: {}", model_info.md5_checksum);
-                log::warn!("   Actual checksum:   {actual_checksum}");
-                log::warn!("   File info: {file_info}");
+                log::warn!("⚠️  Cached model has invalid checksum, re-downloading\n   Expected: {}\n   Actual:   {}\n   File info: {}",
+                          model_info.md5_checksum, actual_checksum, file_info);
 
                 fs::remove_file(&model_path)?;
             }
@@ -280,6 +278,9 @@ mod tests {
 
     #[test]
     fn test_cache_dir() {
+        // Save original environment variable state
+        let original_var = std::env::var("ONNX_MODEL_CACHE_DIR");
+
         // Test without ONNX_MODEL_CACHE_DIR set
         std::env::remove_var("ONNX_MODEL_CACHE_DIR");
         let cache_dir = get_cache_dir().unwrap();
@@ -292,8 +293,11 @@ mod tests {
         let cache_dir_custom = get_cache_dir().unwrap();
         assert_eq!(cache_dir_custom.to_string_lossy(), custom_cache);
 
-        // Clean up
-        std::env::remove_var("ONNX_MODEL_CACHE_DIR");
+        // Restore original environment variable state
+        match original_var {
+            Ok(val) => std::env::set_var("ONNX_MODEL_CACHE_DIR", val),
+            Err(_) => std::env::remove_var("ONNX_MODEL_CACHE_DIR"),
+        }
     }
 
     #[test]
