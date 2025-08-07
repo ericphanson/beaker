@@ -15,6 +15,9 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  RUST_LOG: "debug"
+  RUST_BACKTRACE: "1"
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
   test:
@@ -76,10 +79,14 @@ jobs:
     - name: Build (debug)
       run: cargo build --target ${{ matrix.target }}
       working-directory: beaker
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Build (release)
       run: cargo build --release --target ${{ matrix.target }}
       working-directory: beaker
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Show binary information (Unix)
       if: runner.os != 'Windows'
@@ -119,30 +126,24 @@ jobs:
 
     - name: Test CLI head detection with ORT logging (Unix)
       if: runner.os != 'Windows'
-      env:
-        RUST_LOG: "ort=info"
       run: |
         echo "🧪 Testing CLI head detection with ORT logging..."
         echo "Device: ${{ matrix.device }}, Target: ${{ matrix.target }}"
-        ./target/${{ matrix.target }}/release/beaker head example.jpg --confidence 0.5 --device ${{ matrix.device }}
+        ./target/${{ matrix.target }}/release/beaker head example.jpg --confidence 0.5 --device ${{ matrix.device }} --metadata
         echo "✅ CLI head detection works"
       working-directory: beaker
 
     - name: Test CLI head detection with ORT logging (Windows)
       if: runner.os == 'Windows'
-      env:
-        RUST_LOG: "ort=info"
       run: |
         echo "Testing CLI head detection with ORT logging..."
         echo "Device: ${{ matrix.device }}, Target: ${{ matrix.target }}"
-        ./target/${{ matrix.target }}/release/beaker.exe head example.jpg --confidence 0.5 --device ${{ matrix.device }}
+        ./target/${{ matrix.target }}/release/beaker.exe head example.jpg --confidence 0.5 --device ${{ matrix.device }} --metadata
         echo "CLI head detection works"
       working-directory: beaker
 
     - name: Test execution provider details with debug logging (Unix)
       if: runner.os != 'Windows'
-      env:
-        RUST_LOG: "ort=debug"
       run: |
         echo "🔍 Testing execution provider details with debug logging..."
         echo "Platform: ${{ matrix.os }}, Target: ${{ matrix.target }}"
@@ -156,37 +157,51 @@ jobs:
         fi
         echo ""
         echo "=== Running with --device auto ==="
-        ./target/${{ matrix.target }}/release/beaker head example.jpg --confidence 0.5 --device auto
+        ./target/${{ matrix.target }}/release/beaker head example.jpg --confidence 0.5 --device auto --metadata
         echo ""
         echo "=== Running with --device cpu ==="
-        ./target/${{ matrix.target }}/release/beaker head example.jpg --confidence 0.5 --device cpu
+        ./target/${{ matrix.target }}/release/beaker head example.jpg --confidence 0.5 --device cpu --metadata
         echo "✅ Execution provider testing complete"
       working-directory: beaker
 
     - name: Test execution provider details with debug logging (Windows)
       if: runner.os == 'Windows'
-      env:
-        RUST_LOG: "ort=debug"
       run: |
         echo "Testing execution provider details with debug logging..."
         echo "Platform: ${{ matrix.os }}, Target: ${{ matrix.target }}"
         echo "Expected: CoreML should not be available, fallback to CPU"
         echo ""
         echo "=== Running with --device auto ==="
-        ./target/${{ matrix.target }}/release/beaker.exe head example.jpg --confidence 0.5 --device auto
+        ./target/${{ matrix.target }}/release/beaker.exe head example.jpg --confidence 0.5 --device auto --metadata
         echo ""
         echo "=== Running with --device cpu ==="
-        ./target/${{ matrix.target }}/release/beaker.exe head example.jpg --confidence 0.5 --device cpu
+        ./target/${{ matrix.target }}/release/beaker.exe head example.jpg --confidence 0.5 --device cpu --metadata
         echo "Execution provider testing complete"
       working-directory: beaker
 
     - name: Copy second test image
       run: cp example-2-birds.jpg beaker/
 
+    - name: Pre-download models for testing (Unix)
+      if: runner.os != 'Windows'
+      run: |
+        echo "🔽 Pre-downloading models to avoid test concurrency issues..."
+        echo "Running cutout command to trigger model download:"
+        ./target/${{ matrix.target }}/release/beaker cutout example.jpg --device ${{ matrix.device }} || echo "Pre-download may have failed but continuing with tests"
+        echo "✅ Model pre-download attempt completed"
+      working-directory: beaker
+
+    - name: Pre-download models for testing (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        echo "Pre-downloading models to avoid test concurrency issues..."
+        echo "Running cutout command to trigger model download:"
+        ./target/${{ matrix.target }}/release/beaker.exe cutout example.jpg --device ${{ matrix.device }} || echo "Pre-download may have failed but continuing with tests"
+        echo "Model pre-download attempt completed"
+      working-directory: beaker
+
     - name: Run integration tests
-      env:
-        RUST_LOG: "warn"  # Reduce log noise for tests
-      run: cargo test --release --target ${{ matrix.target }}
+      run: cargo test --release --target ${{ matrix.target }} --verbose
       working-directory: beaker
 
     - name: Upload binary artifact

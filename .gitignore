@@ -12,3 +12,17 @@ beaker/target/
 beaker/Cargo.lock
 example-raw.rw2
 beaker/*-notes.md
+
+# Beaker output files - test artifacts that should not be committed
+*.beaker.toml
+*.beaker.json
+
+# Image files in beaker directory - examples should be at top-level
+beaker/*.jpg
+beaker/*.jpeg
+beaker/*.png
+beaker/*.bmp
+beaker/*.gif
+beaker/*.webp
+beaker/*.tiff
+beaker/*.tif

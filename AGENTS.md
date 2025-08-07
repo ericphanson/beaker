@@ -164,6 +164,7 @@ cp ../example.jpg .
 - **Small diff**: Minimize the number of changed lines
 - **Simple and targeted**: Address one specific issue per PR
 - **Breaking changes are acceptable**: Don't prioritize backwards compatibility at this development stage
+- **No test artifacts**: Do not commit test output files (*.beaker.toml, *.beaker.json), temporary files, or build artifacts
 
 ## Complete Pre-Commit Checklist
 
@@ -187,6 +188,7 @@ Before committing, ensure all these pass:
 - [ ] CLI help works: `./target/release/beaker --help`
 - [ ] Basic functionality: `./target/release/beaker head example.jpg --confidence 0.5`
 - [ ] Line counts updated: `bash scripts/run_warloc.sh`
+- [ ] **Check git status**: Verify no unintended files are staged (test artifacts, temporary files, etc.)
 
 ### Final Check
 ```bash
@@ -234,7 +236,12 @@ bash scripts/run_warloc.sh
 # 7. Run all pre-commit checks
 pre-commit run --all-files
 
-# 8. Commit your changes
+# 8. Check git status and clean up unintended files
+git status
+# Remove any test artifacts or temporary files before committing:
+# git rm *.beaker.toml *.beaker.json (if accidentally added)
+
+# 9. Commit your changes
 git add .
 git commit -m "Your commit message"
 ```
@@ -284,5 +291,14 @@ Contact your network administrator to allowlist the required URLs.
 - Reinstall hooks: `pre-commit clean && pre-commit install`
 - Update hooks: `pre-commit autoupdate`
 - Run specific hook: `pre-commit run <hook-name> --all-files`
+
+### PR Conflicts
+If your PR has conflicts with the main branch, merge the latest origin/main into the PR branch, resolving any conflicts. Then push to the PR branch.
+
+### Pushing Changes
+**Agents must push their changes before finishing work.** After making commits locally:
+- Use `report_progress` to push changes to the remote PR branch
+- If you have conflicts or other issues, resolve them and push your work to the remote PR branch
+- Never leave unpushed local commits - they will be lost
 
 Remember: **The goal is PRs that pass CI on the first attempt.**

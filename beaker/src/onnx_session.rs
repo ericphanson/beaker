@@ -8,8 +8,50 @@ use ort::{
 use serde::Serialize;
 use std::fs;
 
-// Import model cache function
-use crate::model_cache::get_coreml_cache_dir;
+/// Generate stable CoreML cache directory based on model content and ORT version
+fn get_stable_coreml_cache_dir(model_bytes: &[u8]) -> Result<std::path::PathBuf> {
+    let base_dir = crate::model_cache::get_coreml_cache_dir()?;
+
+    // Create MD5 hash of model content
+    let mut hasher = md5::Context::new();
+    hasher.consume(model_bytes);
+    let model_hash = format!("{:x}", hasher.finalize());
+
+    // Get ORT version for cache versioning
+    let ort_version = env!("CARGO_PKG_VERSION"); // Use beaker version as proxy
+
+    // Create stable cache key: model_hash + ort_version
+    let cache_key = format!("{}_{}", &model_hash[..8], ort_version.replace('.', "_"));
+    let stable_dir = base_dir.join(cache_key);
+
+    log::debug!(
+        "🔑 Generated stable CoreML cache key: {}",
+        stable_dir.display()
+    );
+    Ok(stable_dir)
+}
+
+/// Generate a unique CoreML cache directory to avoid conflicts (fallback only)
+fn get_unique_coreml_cache_dir() -> Result<std::path::PathBuf> {
+    use std::process;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let base_dir = crate::model_cache::get_coreml_cache_dir()?;
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let pid = process::id();
+
+    // Create a unique subdirectory using timestamp and process ID
+    let unique_dir = base_dir.join(format!("session_{pid}_{timestamp}"));
+
+    log::debug!(
+        "🆔 Generated unique CoreML cache directory: {}",
+        unique_dir.display()
+    );
+    Ok(unique_dir)
+}
 
 fn log_level_from_ort(level: LogLevel) -> Level {
     match level {
@@ -90,9 +132,34 @@ pub fn create_onnx_session(
     model_source: ModelSource,
     config: &SessionConfig,
 ) -> Result<(Session, ModelInfo)> {
-    // Set up CoreML cache directory if using CoreML
+    // Get model bytes for cache key generation and session creation
+    let (bytes, model_info_base) = match model_source {
+        ModelSource::EmbeddedBytes(bytes) => {
+            let model_info = ModelInfo {
+                model_source: "Embedded".to_string(),
+                model_path: None,
+                model_size_bytes: bytes.len(),
+                description: "Embedded model bytes".to_string(),
+                execution_providers: vec![], // Will be populated later
+            };
+            (bytes.to_vec(), model_info)
+        }
+        ModelSource::FilePath(path) => {
+            let bytes = fs::read(&path)?;
+            let model_info = ModelInfo {
+                model_source: "File".to_string(),
+                model_path: Some(path.clone()),
+                model_size_bytes: bytes.len(),
+                description: format!("Model loaded from: {path}"),
+                execution_providers: vec![], // Will be populated later
+            };
+            (bytes, model_info)
+        }
+    };
+
+    // Set up stable CoreML cache directory if using CoreML
     let coreml_cache_dir = if config.device == "coreml" {
-        match get_coreml_cache_dir() {
+        match get_stable_coreml_cache_dir(&bytes) {
             Ok(cache_dir) => {
                 // Create the cache directory if it doesn't exist
                 if let Err(e) = std::fs::create_dir_all(&cache_dir) {
@@ -101,7 +168,13 @@ pub fn create_onnx_session(
                     log::warn!("⚠️  Failed to create CoreML cache directory: {colored_error}");
                     None
                 } else {
-                    log::debug!("📂 Using CoreML cache directory: {}", cache_dir.display());
+                    // Check if cache already exists
+                    let compiled_model_path = cache_dir.join("compiled_model.mlmodelc");
+                    if compiled_model_path.exists() {
+                        log::debug!("♻️  Reusing existing CoreML cache: {}", cache_dir.display());
+                    } else {
+                        log::debug!("🆕 Creating new CoreML cache: {}", cache_dir.display());
+                    }
                     Some(cache_dir)
                 }
             }
@@ -116,7 +189,7 @@ pub fn create_onnx_session(
     };
 
     // Create execution providers (simplified from cutout pattern)
-    let execution_providers = match config.device {
+    let mut execution_providers = match config.device {
         "coreml" => match CoreMLExecutionProvider::default().is_available() {
             Ok(true) => {
                 let coreml_provider = if let Some(cache_dir) = &coreml_cache_dir {
@@ -169,56 +242,109 @@ pub fn create_onnx_session(
     .map(ort_level_from_log)
     .unwrap_or(LogLevel::Fatal);
 
-    let build_session = |bytes: &[u8]| {
-        Session::builder()
-            .map_err(|e| anyhow::anyhow!("Failed to create session builder: {}", e))?
-            .with_logger(Box::new(|level, _, _, _, msg| {
-                // we will just relog to our standard logger with `log!`
-                // after choosing the appropriate log level
-                let log_level = log_level_from_ort(level);
-                log::log!(log_level, "[onnx] {msg}")
-            }))
-            .map_err(|e| anyhow::anyhow!("Failed to set logger: {}", e))?
-            .with_log_level(ort_log_level)
-            .map_err(|e| anyhow::anyhow!("Failed to set log level: {}", e))?
-            .with_execution_providers(execution_providers)
-            .map_err(|e| anyhow::anyhow!("Failed to set execution providers: {}", e))?
-            .commit_from_memory(bytes)
-            .map_err(|e| anyhow::anyhow!("Failed to load model from memory: {}", e))
+    let mut build_session_with_retry = |bytes: &[u8]| -> Result<Session> {
+        for retry_count in 0..=3 {
+            let result = Session::builder()
+                .map_err(|e| anyhow::anyhow!("Failed to create session builder: {}", e))?
+                .with_logger(Box::new(|level, _, _, _, msg| {
+                    // we will just relog to our standard logger with `log!`
+                    // after choosing the appropriate log level
+                    let log_level = log_level_from_ort(level);
+                    log::log!(log_level, "[onnx] {msg}")
+                }))
+                .map_err(|e| anyhow::anyhow!("Failed to set logger: {}", e))?
+                .with_log_level(ort_log_level)
+                .map_err(|e| anyhow::anyhow!("Failed to set log level: {}", e))?
+                .with_execution_providers(execution_providers.clone())
+                .map_err(|e| anyhow::anyhow!("Failed to set execution providers: {}", e))?
+                .commit_from_memory(bytes);
+
+            match result {
+                Ok(session) => return Ok(session),
+                Err(e) => {
+                    let error_msg = e.to_string();
+
+                    // Check if this is a CoreML cache conflict and we can retry
+                    if error_msg.contains("item with the same name already exists")
+                        && error_msg.contains("compiled_model.mlmodelc")
+                        && retry_count < 3
+                    {
+                        log::warn!("🔄 CoreML cache conflict detected, switching to unique cache directory (attempt {}/3)", retry_count + 1);
+                        log::warn!("   Error: {error_msg}");
+
+                        // Generate a new unique cache directory for this retry
+                        match get_unique_coreml_cache_dir() {
+                            Ok(unique_cache_dir) => {
+                                log::debug!(
+                                    "🔄 Using unique cache directory: {}",
+                                    unique_cache_dir.display()
+                                );
+
+                                // Create the unique cache directory
+                                if let Err(e) = std::fs::create_dir_all(&unique_cache_dir) {
+                                    log::warn!("⚠️  Failed to create unique cache directory: {e}");
+                                    return Err(anyhow::anyhow!(
+                                        "Failed to create unique cache directory: {e}"
+                                    ));
+                                }
+
+                                // Update the execution providers with the new cache directory
+                                execution_providers = match config.device {
+                                    "coreml" => {
+                                        match CoreMLExecutionProvider::default().is_available() {
+                                            Ok(true) => {
+                                                if let Some(cache_path_str) =
+                                                    unique_cache_dir.to_str()
+                                                {
+                                                    log::debug!("🗂️  Configuring CoreML with unique cache: {cache_path_str}");
+                                                    vec![CoreMLExecutionProvider::default()
+                                                        .with_model_cache_dir(cache_path_str)
+                                                        .build()]
+                                                } else {
+                                                    vec![CoreMLExecutionProvider::default().build()]
+                                                }
+                                            }
+                                            Ok(false) => {
+                                                log::warn!("❌ CoreML is not available, falling back to CPU");
+                                                vec![CPUExecutionProvider::default().build()]
+                                            }
+                                            Err(e) => {
+                                                log::warn!("❌ Failed to check CoreML availability: {e}, falling back to CPU");
+                                                vec![CPUExecutionProvider::default().build()]
+                                            }
+                                        }
+                                    }
+                                    _ => vec![CPUExecutionProvider::default().build()],
+                                };
+
+                                // Add a small delay to avoid race conditions
+                                std::thread::sleep(std::time::Duration::from_millis(
+                                    100 + retry_count * 50,
+                                ));
+                                continue; // Retry the operation with new cache directory
+                            }
+                            Err(e) => {
+                                log::warn!("⚠️  Failed to generate unique cache directory: {e}");
+                                return Err(anyhow::anyhow!(
+                                    "Failed to generate unique cache directory: {e}"
+                                ));
+                            }
+                        }
+                    }
+
+                    // If not a retryable error or max retries reached
+                    return Err(anyhow::anyhow!("Failed to load model from memory: {}", e));
+                }
+            }
+        }
+        unreachable!("Loop should have returned before this point")
     };
 
-    let (session, model_info) = match model_source {
-        ModelSource::EmbeddedBytes(bytes) => {
-            let session = build_session(bytes)?;
-            let info: ModelInfo = ModelInfo {
-                model_source: "embedded".to_string(),
-                model_path: None,
-                model_size_bytes: bytes.len(),
-                description: format!(
-                    "embedded ONNX model ({:.2} MB)",
-                    bytes.len() as f64 / 1_048_576.0
-                ),
-                execution_providers: ep_names,
-            };
-            (session, info)
-        }
-        ModelSource::FilePath(path) => {
-            let model_bytes =
-                fs::read(&path).map_err(|e| anyhow::anyhow!("Failed to read model file: {}", e))?;
-            let session = build_session(&model_bytes)?;
-            let info = ModelInfo {
-                model_source: "file".to_string(),
-                model_path: Some(path.clone()),
-                model_size_bytes: model_bytes.len(),
-                description: format!(
-                    "ONNX model ({:.2} MB) from {path}",
-                    model_bytes.len() as f64 / 1_048_576.0
-                ),
-                execution_providers: ep_names,
-            };
-            (session, info)
-        }
-    };
+    let session = build_session_with_retry(&bytes)?;
+
+    // Update model info with execution providers
+    let mut model_info = model_info_base;
+    model_info.execution_providers = ep_names;
 
     // Log execution provider information
     log::debug!(

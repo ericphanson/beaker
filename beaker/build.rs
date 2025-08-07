@@ -108,10 +108,16 @@ fn get_latest_release_tag() -> Result<String, Box<dyn std::error::Error>> {
     let api_url = "https://api.github.com/repos/ericphanson/beaker/releases";
 
     let client = ureq::Agent::new();
-    let response = client
+    let mut request = client
         .get(api_url)
-        .set("User-Agent", "beaker-build-script/0.1.0")
-        .call()?;
+        .set("User-Agent", "beaker-build-script/0.1.0");
+
+    // Use GitHub token if available for higher rate limits
+    if let Ok(token) = env::var("GITHUB_TOKEN") {
+        request = request.set("Authorization", &format!("Bearer {token}"));
+    }
+
+    let response = request.call()?;
 
     let releases: serde_json::Value = response.into_json()?;
 
@@ -138,10 +144,19 @@ fn download_latest_model(output_path: &Path) -> Result<String, Box<dyn std::erro
     println!("Fetching releases from: {api_url}");
 
     let client = ureq::Agent::new();
-    let response = client
+    let mut request = client
         .get(api_url)
-        .set("User-Agent", "beaker-build-script/0.1.0")
-        .call()?;
+        .set("User-Agent", "beaker-build-script/0.1.0");
+
+    // Use GitHub token if available for higher rate limits
+    if let Ok(token) = env::var("GITHUB_TOKEN") {
+        request = request.set("Authorization", &format!("Bearer {token}"));
+        println!("Using authenticated GitHub API request");
+    } else {
+        println!("Using unauthenticated GitHub API request (rate limited)");
+    }
+
+    let response = request.call()?;
 
     let releases: serde_json::Value = response.into_json()?;
 

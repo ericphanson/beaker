@@ -96,7 +96,21 @@ pub fn run_beaker_command(args: &[&str]) -> i32 {
         .output()
         .expect("Failed to execute beaker command");
 
-    output.status.code().unwrap_or(-1)
+    let exit_code = output.status.code().unwrap_or(-1);
+
+    // Print stdout and stderr for debugging when command fails
+    if exit_code != 0 {
+        eprintln!("=== BEAKER COMMAND FAILED ===");
+        eprintln!("Command: beaker {}", args.join(" "));
+        eprintln!("Exit code: {exit_code}");
+        eprintln!("=== STDOUT ===");
+        eprintln!("{}", String::from_utf8_lossy(&output.stdout));
+        eprintln!("=== STDERR ===");
+        eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+        eprintln!("=== END BEAKER COMMAND OUTPUT ===");
+    }
+
+    exit_code
 }
 
 /// Parse metadata from TOML file
