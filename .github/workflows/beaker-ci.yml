@@ -187,7 +187,7 @@ jobs:
       run: |
         echo "🔽 Pre-downloading models to avoid test concurrency issues..."
         echo "Running cutout command to trigger model download:"
-        ./target/${{ matrix.target }}/release/beaker cutout example.jpg --confidence 0.8 --output example_predownload.png --device ${{ matrix.device }} || echo "Pre-download may have failed but continuing with tests"
+        ./target/${{ matrix.target }}/release/beaker cutout example.jpg --device ${{ matrix.device }} || echo "Pre-download may have failed but continuing with tests"
         echo "✅ Model pre-download attempt completed"
       working-directory: beaker
 
@@ -196,7 +196,7 @@ jobs:
       run: |
         echo "Pre-downloading models to avoid test concurrency issues..."
         echo "Running cutout command to trigger model download:"
-        ./target/${{ matrix.target }}/release/beaker.exe cutout example.jpg --confidence 0.8 --output example_predownload.png --device ${{ matrix.device }} || echo "Pre-download may have failed but continuing with tests"
+        ./target/${{ matrix.target }}/release/beaker.exe cutout example.jpg --device ${{ matrix.device }} || echo "Pre-download may have failed but continuing with tests"
         echo "Model pre-download attempt completed"
       working-directory: beaker
 
