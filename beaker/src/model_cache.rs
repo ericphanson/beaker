@@ -17,11 +17,18 @@ pub struct ModelInfo {
 pub fn get_cache_dir() -> Result<PathBuf> {
     // Check if ONNX_MODEL_CACHE_DIR environment variable is set (same as build.rs)
     if let Ok(cache_dir) = std::env::var("ONNX_MODEL_CACHE_DIR") {
+        // Handle tilde expansion for home directory
+        if let Some(stripped) = cache_dir.strip_prefix("~/") {
+            if let Some(home_dir) = dirs::home_dir() {
+                return Ok(home_dir.join(stripped));
+            }
+        }
         return Ok(PathBuf::from(cache_dir));
     }
 
+    // Fallback to default cache directory
     dirs::cache_dir()
-        .map(|dir| dir.join("beaker").join("models"))
+        .map(|dir| dir.join("onnx-models"))
         .ok_or_else(|| anyhow!("Unable to determine cache directory"))
 }
 
@@ -136,7 +143,7 @@ fn download_model(url: &str, output_path: &Path) -> Result<()> {
         }
     }
 
-    // Write to file
+    // Write to file with explicit flushing
     log::debug!("💾 Writing to file...");
     let mut file = fs::File::create(output_path).map_err(|e| {
         anyhow!(
@@ -148,6 +155,16 @@ fn download_model(url: &str, output_path: &Path) -> Result<()> {
 
     file.write_all(&content)
         .map_err(|e| anyhow!("Failed to write to file {}: {}", output_path.display(), e))?;
+
+    // Explicitly flush and sync to ensure data is written to disk
+    file.flush()
+        .map_err(|e| anyhow!("Failed to flush file {}: {}", output_path.display(), e))?;
+
+    file.sync_all()
+        .map_err(|e| anyhow!("Failed to sync file {}: {}", output_path.display(), e))?;
+
+    // Drop the file handle to ensure it's closed
+    drop(file);
 
     // Verify file was written correctly
     let written_metadata = fs::metadata(output_path)?;
@@ -285,7 +302,7 @@ fn download_with_concurrency_protection(
     let start_time = std::time::Instant::now();
 
     loop {
-        // Try to create lock file
+        // Try to create lock file atomically
         match fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -294,8 +311,20 @@ fn download_with_concurrency_protection(
             Ok(mut lock_file) => {
                 // We got the lock, proceed with download
                 log::debug!("🔒 Acquired download lock for {}", model_info.filename);
-                let _ = write!(lock_file, "locked by process {}", std::process::id());
 
+                // Write process info to lock file
+                let lock_info = format!(
+                    "locked by process {} at {}",
+                    std::process::id(),
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs()
+                );
+                let _ = write!(lock_file, "{lock_info}");
+                let _ = lock_file.flush();
+
+                // Download the model
                 let result = download_model(model_info.url, model_path);
 
                 // Clean up lock file
@@ -305,24 +334,57 @@ fn download_with_concurrency_protection(
                 return result;
             }
             Err(_) => {
-                // Lock file exists, check if model is now available
+                // Lock file exists, check if another process completed the download
                 if model_path.exists() {
-                    if let Ok(true) = verify_checksum(model_path, model_info.md5_checksum) {
-                        log::debug!("🎯 Model downloaded by another process, using cached version");
-                        return Ok(());
+                    log::debug!("🔍 Checking if concurrent download completed...");
+                    match verify_checksum(model_path, model_info.md5_checksum) {
+                        Ok(true) => {
+                            log::debug!(
+                                "🎯 Model downloaded by another process, using cached version"
+                            );
+                            return Ok(());
+                        }
+                        Ok(false) => {
+                            log::debug!(
+                                "⚠️  Concurrent download produced invalid checksum, will retry"
+                            );
+                            // Remove invalid file so we can retry
+                            let _ = fs::remove_file(model_path);
+                        }
+                        Err(e) => {
+                            log::debug!("⚠️  Error checking concurrent download: {e}, will retry");
+                        }
                     }
                 }
 
                 // Check timeout
                 if start_time.elapsed() > MAX_WAIT_TIME {
-                    // Force download after timeout, remove stale lock
-                    log::warn!("⏰ Download lock timeout, forcing download (removing stale lock)");
+                    // Force download after timeout, remove potentially stale lock
+                    log::warn!(
+                        "⏰ Download lock timeout ({}s), forcing download (removing stale lock)",
+                        MAX_WAIT_TIME.as_secs()
+                    );
+
+                    // Try to get info about the lock file
+                    if let Ok(lock_metadata) = fs::metadata(lock_path) {
+                        let lock_age = lock_metadata
+                            .modified()
+                            .ok()
+                            .and_then(|t| t.elapsed().ok())
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0);
+                        log::warn!("   Stale lock file age: {lock_age}s");
+                    }
+
                     let _ = fs::remove_file(lock_path);
                     return download_model(model_info.url, model_path);
                 }
 
                 // Wait and retry
-                log::debug!("⏳ Waiting for concurrent download to complete...");
+                log::debug!(
+                    "⏳ Waiting for concurrent download to complete... ({}s elapsed)",
+                    start_time.elapsed().as_secs()
+                );
                 std::thread::sleep(POLL_INTERVAL);
             }
         }
@@ -342,14 +404,23 @@ mod tests {
         // Test without ONNX_MODEL_CACHE_DIR set
         std::env::remove_var("ONNX_MODEL_CACHE_DIR");
         let cache_dir = get_cache_dir().unwrap();
-        assert!(cache_dir.to_string_lossy().contains("beaker"));
-        assert!(cache_dir.to_string_lossy().contains("models"));
+        assert!(cache_dir.to_string_lossy().contains("onnx-models"));
 
         // Test with ONNX_MODEL_CACHE_DIR set
         let custom_cache = "/tmp/custom-onnx-cache";
         std::env::set_var("ONNX_MODEL_CACHE_DIR", custom_cache);
         let cache_dir_custom = get_cache_dir().unwrap();
         assert_eq!(cache_dir_custom.to_string_lossy(), custom_cache);
+
+        // Test with tilde expansion
+        std::env::set_var("ONNX_MODEL_CACHE_DIR", "~/.cache/test-onnx");
+        let cache_dir_tilde = get_cache_dir().unwrap();
+        // Should not contain literal tilde
+        assert!(!cache_dir_tilde.to_string_lossy().contains("~"));
+        // Should contain the expanded path
+        assert!(cache_dir_tilde
+            .to_string_lossy()
+            .contains(".cache/test-onnx"));
 
         // Restore original environment variable state
         match original_var {

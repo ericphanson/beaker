@@ -79,10 +79,14 @@ jobs:
     - name: Build (debug)
       run: cargo build --target ${{ matrix.target }}
       working-directory: beaker
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Build (release)
       run: cargo build --release --target ${{ matrix.target }}
       working-directory: beaker
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Show binary information (Unix)
       if: runner.os != 'Windows'
