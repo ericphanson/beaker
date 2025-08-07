@@ -58,7 +58,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if force_download {
         println!("Downloading latest ONNX model from GitHub releases...");
-        
+
         // Try to download, but handle network failures gracefully
         match download_latest_model(&model_path) {
             Ok(release_tag) => {
@@ -86,11 +86,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             Err(e) => {
                 eprintln!("Failed to download model: {e}");
-                
+
                 // In CI environments, check if we have a cache directory setup
                 // If so, we can proceed with a placeholder for now
                 let has_cache_setup = env::var("ONNX_MODEL_CACHE_DIR").is_ok();
-                
+
                 if env::var("CI").is_ok() && !model_path.exists() && !has_cache_setup {
                     eprintln!("ERROR: In CI environment, model download failed and no existing model found.");
                     eprintln!("This is likely due to network restrictions or firewall issues.");
@@ -100,7 +100,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     eprintln!("  - objects.githubusercontent.com");
                     return Err(e);
                 }
-                
+
                 // For CI with cache setup or local development, create a placeholder model file if none exists
                 if !model_path.exists() {
                     if env::var("CI").is_ok() {
@@ -109,10 +109,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     } else {
                         println!("Creating placeholder model file for local development...");
                     }
-                    
+
                     fs::write(&model_path, b"placeholder")?;
                     fs::write(&version_path, "unknown-offline")?;
-                    
+
                     if env::var("CI").is_ok() {
                         println!("WARNING: Using placeholder model in CI. Tests may fail without real model.");
                     } else {
@@ -165,7 +165,9 @@ fn get_latest_release_tag() -> Result<String, Box<dyn std::error::Error>> {
     let response = match result {
         Ok(resp) => resp,
         Err(ureq::Error::Transport(transport_err)) => {
-            eprintln!("Warning: GitHub API access failed due to network/TLS issues: {transport_err}");
+            eprintln!(
+                "Warning: GitHub API access failed due to network/TLS issues: {transport_err}"
+            );
             eprintln!("This is commonly caused by firewall restrictions or certificate validation issues.");
             eprintln!("Falling back to default version handling...");
             return Err("Network access unavailable".into());
@@ -262,7 +264,9 @@ fn download_latest_model(output_path: &Path) -> Result<String, Box<dyn std::erro
             {
                 Ok(resp) => resp,
                 Err(ureq::Error::Transport(transport_err)) => {
-                    eprintln!("Error: Model download failed due to network/TLS issues: {transport_err}");
+                    eprintln!(
+                        "Error: Model download failed due to network/TLS issues: {transport_err}"
+                    );
                     return Err(format!("Model download failed: {transport_err}").into());
                 }
                 Err(e) => return Err(e.into()),
