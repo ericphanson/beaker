@@ -1,7 +1,9 @@
 use crate::cache_common;
+use crate::progress::{add_progress_bar, remove_progress_bar};
 use anyhow::{anyhow, Result};
+use indicatif::{ProgressBar, ProgressStyle};
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -39,7 +41,7 @@ fn get_file_info(path: &Path) -> Result<String> {
     cache_common::get_file_info(path)
 }
 
-/// Download a model from URL to the specified path
+/// Download a model from URL to the specified path with progress bar
 fn download_model(url: &str, output_path: &Path) -> Result<()> {
     log::info!("📥 Downloading model from: {url}");
 
@@ -55,7 +57,7 @@ fn download_model(url: &str, output_path: &Path) -> Result<()> {
         .redirect(reqwest::redirect::Policy::limited(10))
         .build()?;
 
-    let response = client
+    let mut response = client
         .get(url)
         .send()
         .map_err(|e| anyhow!("Failed to send HTTP request: {}", e))?;
@@ -69,40 +71,39 @@ fn download_model(url: &str, output_path: &Path) -> Result<()> {
 
     let content_length = response.content_length();
 
-    if let Some(length) = content_length {
+    // Create progress bar if we know the content length
+    let progress_bar = if let Some(length) = content_length {
         let length_mb = length as f64 / (1024.0 * 1024.0);
         log::info!("📏 Download size: {length_mb:.1} MB");
+
+        let pb = ProgressBar::new(length);
+        add_progress_bar(pb.clone());
+
+        // Simple no-color progress bar style
+        let style = ProgressStyle::default_bar()
+            .template(
+                "[{elapsed_precise}] [{bar:30}] {bytes}/{total_bytes} ({bytes_per_sec}, ETA {eta})",
+            )
+            .map_err(|e| anyhow!("Failed to create progress style: {}", e))?
+            .progress_chars("#> ");
+
+        pb.set_style(style);
+        pb.set_message("Downloading model");
+
+        Some(pb)
     } else {
-        log::warn!("⚠️  Content-Length header missing, unable to determine file size");
-    }
+        log::warn!("⚠️  Content-Length header missing, showing spinner instead of progress bar");
 
-    log::debug!("📦 Reading response bytes...");
-    let content = response
-        .bytes()
-        .map_err(|e| anyhow!("Failed to read response bytes: {}", e))?;
+        let pb = ProgressBar::new_spinner();
+        add_progress_bar(pb.clone());
+        pb.set_message("Downloading model (unknown size)...");
+        pb.enable_steady_tick(Duration::from_millis(100));
 
-    let actual_size = content.len();
-    let actual_size_mb = actual_size as f64 / (1024.0 * 1024.0);
+        Some(pb)
+    };
 
-    log::debug!("📦 Downloaded {actual_size} bytes ({actual_size_mb:.2} MB)");
-
-    if actual_size == 0 {
-        return Err(anyhow!(
-            "Downloaded file is empty (0 bytes). This usually indicates a network or server issue."
-        ));
-    }
-
-    // Validate content length if provided
-    if let Some(expected_length) = content_length {
-        if actual_size != expected_length as usize {
-            log::warn!(
-                "⚠️  Size mismatch: expected {expected_length} bytes, got {actual_size} bytes"
-            );
-        }
-    }
-
-    // Write to file with explicit flushing
-    log::debug!("💾 Writing to file...");
+    // Create output file
+    log::debug!("💾 Creating output file...");
     let mut file = fs::File::create(output_path).map_err(|e| {
         anyhow!(
             "Failed to create output file {}: {}",
@@ -111,8 +112,28 @@ fn download_model(url: &str, output_path: &Path) -> Result<()> {
         )
     })?;
 
-    file.write_all(&content)
-        .map_err(|e| anyhow!("Failed to write to file {}: {}", output_path.display(), e))?;
+    // Stream download with progress updates
+    let mut downloaded = 0u64;
+    let mut buffer = [0; 8192]; // 8KB buffer for streaming
+
+    loop {
+        let bytes_read = response
+            .read(&mut buffer)
+            .map_err(|e| anyhow!("Failed to read response data: {}", e))?;
+
+        if bytes_read == 0 {
+            break; // End of stream
+        }
+
+        file.write_all(&buffer[..bytes_read])
+            .map_err(|e| anyhow!("Failed to write to file {}: {}", output_path.display(), e))?;
+
+        downloaded += bytes_read as u64;
+
+        if let Some(ref pb) = progress_bar {
+            pb.set_position(downloaded);
+        }
+    }
 
     // Explicitly flush and sync to ensure data is written to disk
     file.flush()
@@ -124,6 +145,30 @@ fn download_model(url: &str, output_path: &Path) -> Result<()> {
     // Drop the file handle to ensure it's closed
     drop(file);
 
+    // Clean up progress bar
+    if let Some(pb) = progress_bar {
+        pb.finish_and_clear();
+        remove_progress_bar(&pb);
+    }
+
+    let actual_size_mb = downloaded as f64 / (1024.0 * 1024.0);
+    log::debug!("📦 Downloaded {downloaded} bytes ({actual_size_mb:.2} MB)");
+
+    if downloaded == 0 {
+        return Err(anyhow!(
+            "Downloaded file is empty (0 bytes). This usually indicates a network or server issue."
+        ));
+    }
+
+    // Validate content length if provided
+    if let Some(expected_length) = content_length {
+        if downloaded != expected_length {
+            log::warn!(
+                "⚠️  Size mismatch: expected {expected_length} bytes, got {downloaded} bytes"
+            );
+        }
+    }
+
     // Verify file was written correctly
     let written_metadata = fs::metadata(output_path)?;
     log::debug!(
@@ -131,10 +176,10 @@ fn download_model(url: &str, output_path: &Path) -> Result<()> {
         written_metadata.len()
     );
 
-    if written_metadata.len() != actual_size as u64 {
+    if written_metadata.len() != downloaded {
         return Err(anyhow!(
             "File size mismatch after writing: expected {} bytes, file has {} bytes",
-            actual_size,
+            downloaded,
             written_metadata.len()
         ));
     }
