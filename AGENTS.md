@@ -292,4 +292,7 @@ Contact your network administrator to allowlist the required URLs.
 - Update hooks: `pre-commit autoupdate`
 - Run specific hook: `pre-commit run <hook-name> --all-files`
 
+### PR Conflicts
+If your PR has conflicts with the main branch, merge the latest origin/main into the PR branch, resolving any conflicts. Then push to the PR branch.
+
 Remember: **The goal is PRs that pass CI on the first attempt.**
