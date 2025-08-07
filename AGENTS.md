@@ -131,34 +131,6 @@ cp ../example.jpg .
 ./target/release/beaker head example.jpg --confidence 0.5 --device auto
 ```
 
-## Network and Firewall Issues
-
-### Common Issues
-- ONNX model downloads may fail due to firewall restrictions
-- GitHub API access may be blocked
-- Certificate validation errors in restricted environments
-
-### Solutions
-If you encounter download or connection issues:
-1. **Request allowlisting** for these URLs:
-   - `api.github.com` (for GitHub API access)
-   - `github.com` (for repository access)
-   - `objects.githubusercontent.com` (for asset downloads)
-   - Any ONNX Runtime download URLs
-
-2. **Common Error Messages**:
-   - `tls connection init failed`
-   - `InvalidCertificate(UnknownIssuer)`
-   - `ConnectionFailed`
-   - `Transport { kind: ConnectionFailed }`
-
-3. **Workarounds**:
-   - Some commands like `cargo fmt --check` and `cargo clippy` may work without network access
-   - Use pre-built binaries if available
-   - Work in an environment with proper network access
-
-Contact your network administrator to allowlist the required URLs.
-
 ## Coding Standards
 
 ### DRY (Don't Repeat Yourself)
@@ -252,12 +224,36 @@ git commit -m "Your commit message"
 
 ## Troubleshooting
 
+### Network and Firewall Issues
+
+#### Common Issues
+- ONNX model downloads may fail due to firewall restrictions
+- GitHub API access may be blocked
+- Certificate validation errors in restricted environments
+
+#### Solutions
+If you encounter download or connection issues:
+1. **Request allowlisting** for these URLs:
+   - `api.github.com` (for GitHub API access)
+   - `github.com` (for repository access)
+   - `objects.githubusercontent.com` (for asset downloads)
+   - Any ONNX Runtime download URLs
+
+2. **Common Error Messages**:
+   - `tls connection init failed`
+   - `InvalidCertificate(UnknownIssuer)`
+   - `ConnectionFailed`
+   - `Transport { kind: ConnectionFailed }`
+
+3. **Workarounds**:
+   - Some commands like `cargo fmt --check` and `cargo clippy` may work without network access
+   - Use pre-built binaries if available
+   - Work in an environment with proper network access
+
+Contact your network administrator to allowlist the required URLs.
+
 ### Build Failures
-- **Network Issues**: The build script downloads ONNX models from GitHub. If builds fail with:
-  ```
-  Error: Transport(Transport { kind: ConnectionFailed, message: Some("tls connection init failed")
-  ```
-  This indicates network/firewall restrictions. Request allowlisting for `api.github.com` and `github.com`.
+- **Network Issues**: The build script downloads ONNX models from GitHub. If builds fail with network/firewall errors, see the Network and Firewall Issues section above.
 - Check Rust toolchain is up to date: `rustup update`
 - Clear target directory: `cargo clean` then rebuild
 - Set offline mode temporarily: `cargo build --offline` (may not work if dependencies are missing)
