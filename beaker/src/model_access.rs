@@ -427,7 +427,7 @@ mod tests {
         assert_eq!(runtime_info.filename, base_info.filename);
 
         // Test with env var overrides
-        env::set_var("TEST_URL", "https://example.com/custom.onnx");
+        env::set_var("TEST_URL", "https://custom-domain.test/custom.onnx");
         env::set_var("TEST_CHECKSUM", "abcd1234");
 
         let runtime_info = RuntimeModelInfo::from_model_info_with_overrides(
@@ -437,7 +437,7 @@ mod tests {
         );
 
         assert_eq!(runtime_info.name, base_info.name);
-        assert_eq!(runtime_info.url, "https://example.com/custom.onnx");
+        assert_eq!(runtime_info.url, "https://custom-domain.test/custom.onnx");
         assert_eq!(runtime_info.md5_checksum, "abcd1234");
         assert_eq!(runtime_info.filename, base_info.filename);
 
