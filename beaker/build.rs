@@ -21,24 +21,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let (Some(cached_path), Some(cached_version_path)) = (&cached_model, &cached_version) {
         if cached_path.exists() && cached_version_path.exists() {
             if let Ok(cached_tag) = fs::read_to_string(cached_version_path) {
-                if let Ok(latest_tag) = get_latest_release_tag() {
-                    if cached_tag.trim() == latest_tag.trim() {
-                        println!("Using cached ONNX model (version: {})", cached_tag.trim());
+                // Try to get latest tag, but don't fail if network is unavailable
+                match get_latest_release_tag() {
+                    Ok(latest_tag) => {
+                        if cached_tag.trim() == latest_tag.trim() {
+                            println!("Using cached ONNX model (version: {})", cached_tag.trim());
+                            fs::copy(cached_path, &model_path)?;
+                            fs::copy(cached_version_path, &version_path)?;
+                            use_cache = true;
+                        } else {
+                            println!(
+                                "Cache outdated (cached: {}, latest: {}), downloading new model",
+                                cached_tag.trim(),
+                                latest_tag.trim()
+                            );
+                        }
+                    }
+                    Err(_) => {
+                        println!("Could not check latest release (likely network/TLS issue), using cached model");
                         fs::copy(cached_path, &model_path)?;
                         fs::copy(cached_version_path, &version_path)?;
                         use_cache = true;
-                    } else {
-                        println!(
-                            "Cache outdated (cached: {}, latest: {}), downloading new model",
-                            cached_tag.trim(),
-                            latest_tag.trim()
-                        );
                     }
-                } else {
-                    println!("Could not check latest release, using cached model");
-                    fs::copy(cached_path, &model_path)?;
-                    fs::copy(cached_version_path, &version_path)?;
-                    use_cache = true;
                 }
             }
         }
@@ -54,27 +58,68 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if force_download {
         println!("Downloading latest ONNX model from GitHub releases...");
-        let release_tag = download_latest_model(&model_path)?;
+        
+        // Try to download, but handle network failures gracefully
+        match download_latest_model(&model_path) {
+            Ok(release_tag) => {
+                // Write version file
+                fs::write(&version_path, &release_tag)?;
 
-        // Write version file
-        fs::write(&version_path, &release_tag)?;
+                // Cache the model and version for CI if cache directory is set
+                if let Some(cached_path) = cached_model {
+                    if let Some(parent) = cached_path.parent() {
+                        fs::create_dir_all(parent)?;
+                        fs::copy(&model_path, &cached_path)?;
 
-        // Cache the model and version for CI if cache directory is set
-        if let Some(cached_path) = cached_model {
-            if let Some(parent) = cached_path.parent() {
-                fs::create_dir_all(parent)?;
-                fs::copy(&model_path, &cached_path)?;
+                        // Save the version information
+                        if let Some(cached_version_path) = cached_version {
+                            fs::copy(&version_path, &cached_version_path)?;
+                        }
 
-                // Save the version information
-                if let Some(cached_version_path) = cached_version {
-                    fs::copy(&version_path, &cached_version_path)?;
+                        println!(
+                            "Cached model (version: {}) for future builds at: {}",
+                            release_tag,
+                            cached_path.display()
+                        );
+                    }
                 }
-
-                println!(
-                    "Cached model (version: {}) for future builds at: {}",
-                    release_tag,
-                    cached_path.display()
-                );
+            }
+            Err(e) => {
+                eprintln!("Failed to download model: {e}");
+                
+                // In CI environments, check if we have a cache directory setup
+                // If so, we can proceed with a placeholder for now
+                let has_cache_setup = env::var("ONNX_MODEL_CACHE_DIR").is_ok();
+                
+                if env::var("CI").is_ok() && !model_path.exists() && !has_cache_setup {
+                    eprintln!("ERROR: In CI environment, model download failed and no existing model found.");
+                    eprintln!("This is likely due to network restrictions or firewall issues.");
+                    eprintln!("Please ensure the following URLs are accessible:");
+                    eprintln!("  - api.github.com");
+                    eprintln!("  - github.com");
+                    eprintln!("  - objects.githubusercontent.com");
+                    return Err(e);
+                }
+                
+                // For CI with cache setup or local development, create a placeholder model file if none exists
+                if !model_path.exists() {
+                    if env::var("CI").is_ok() {
+                        println!("CI environment detected with cache setup, creating placeholder model...");
+                        println!("NOTE: The actual model should be cached from a previous successful build.");
+                    } else {
+                        println!("Creating placeholder model file for local development...");
+                    }
+                    
+                    fs::write(&model_path, b"placeholder")?;
+                    fs::write(&version_path, "unknown-offline")?;
+                    
+                    if env::var("CI").is_ok() {
+                        println!("WARNING: Using placeholder model in CI. Tests may fail without real model.");
+                    } else {
+                        println!("WARNING: Using placeholder model file. The application may not work correctly.");
+                        println!("To get a real model, ensure network access and run with FORCE_DOWNLOAD=1");
+                    }
+                }
             }
         }
     } else {
@@ -82,10 +127,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // If we have an existing model but no version file, try to get version
         if !version_path.exists() {
-            if let Ok(latest_tag) = get_latest_release_tag() {
-                fs::write(&version_path, &latest_tag)?;
-            } else {
-                fs::write(&version_path, "unknown")?;
+            match get_latest_release_tag() {
+                Ok(latest_tag) => {
+                    fs::write(&version_path, &latest_tag)?;
+                }
+                Err(_) => {
+                    fs::write(&version_path, "unknown-offline")?;
+                }
             }
         }
     }
@@ -107,11 +155,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn get_latest_release_tag() -> Result<String, Box<dyn std::error::Error>> {
     let api_url = "https://api.github.com/repos/ericphanson/beaker/releases";
 
+    // Try with default TLS configuration first
     let client = ureq::Agent::new();
-    let response = client
+    let result = client
         .get(api_url)
         .set("User-Agent", "beaker-build-script/0.1.0")
-        .call()?;
+        .call();
+
+    let response = match result {
+        Ok(resp) => resp,
+        Err(ureq::Error::Transport(transport_err)) => {
+            eprintln!("Warning: GitHub API access failed due to network/TLS issues: {transport_err}");
+            eprintln!("This is commonly caused by firewall restrictions or certificate validation issues.");
+            eprintln!("Falling back to default version handling...");
+            return Err("Network access unavailable".into());
+        }
+        Err(e) => return Err(e.into()),
+    };
 
     let releases: serde_json::Value = response.into_json()?;
 
@@ -138,10 +198,25 @@ fn download_latest_model(output_path: &Path) -> Result<String, Box<dyn std::erro
     println!("Fetching releases from: {api_url}");
 
     let client = ureq::Agent::new();
-    let response = client
+    let result = client
         .get(api_url)
         .set("User-Agent", "beaker-build-script/0.1.0")
-        .call()?;
+        .call();
+
+    let response = match result {
+        Ok(resp) => resp,
+        Err(ureq::Error::Transport(transport_err)) => {
+            eprintln!("Error: GitHub API access failed due to network/TLS issues: {transport_err}");
+            eprintln!("This is commonly caused by firewall restrictions or certificate validation issues.");
+            eprintln!("Please check network connectivity and firewall settings.");
+            eprintln!("Required URLs to allowlist:");
+            eprintln!("  - api.github.com");
+            eprintln!("  - github.com");
+            eprintln!("  - objects.githubusercontent.com");
+            return Err(format!("Network access failed: {transport_err}").into());
+        }
+        Err(e) => return Err(e.into()),
+    };
 
     let releases: serde_json::Value = response.into_json()?;
 
@@ -179,11 +254,19 @@ fn download_latest_model(output_path: &Path) -> Result<String, Box<dyn std::erro
 
             println!("Downloading {model_name} (version: {tag_name}) from: {download_url}");
 
-            // Download the model
-            let response = client
+            // Download the model with better error handling
+            let response = match client
                 .get(download_url)
                 .set("User-Agent", "beaker-build-script/0.1.0")
-                .call()?;
+                .call()
+            {
+                Ok(resp) => resp,
+                Err(ureq::Error::Transport(transport_err)) => {
+                    eprintln!("Error: Model download failed due to network/TLS issues: {transport_err}");
+                    return Err(format!("Model download failed: {transport_err}").into());
+                }
+                Err(e) => return Err(e.into()),
+            };
 
             let mut reader = response.into_reader();
             let mut file = fs::File::create(output_path)?;
