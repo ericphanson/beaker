@@ -1,0 +1,46 @@
+[head]
+model_version = "bird-head-detector-v1.0.0"
+
+[[head.detections]]
+confidence = 0.7736971378326416
+x1 = 786.0853271484375
+x2 = 954.1998291015625
+y1 = 392.61273193359375
+y2 = 475.7848205566406
+
+[head.config]
+bounding_box = false
+confidence = 0.5
+crop = false
+iou_threshold = 0.44999998807907104
+
+[head.execution]
+timestamp = "2025-08-07T00:49:22.899618486Z"
+beaker_version = "0.1.1"
+command_line = [
+    "./target/release/beaker",
+    "head",
+    "../example.jpg",
+    "--confidence",
+    "0.5",
+    "--device",
+    "cpu",
+    "--metadata",
+]
+exit_code = 0
+model_processing_time_ms = 103.080793
+
+[head.system]
+device_requested = "cpu"
+device_selected = "cpu"
+device_selection_reason = "User explicitly chose cpu"
+execution_providers = ["CPUExecutionProvider { error_on_failure: false }"]
+model_source = "embedded"
+model_size_bytes = 12183794
+model_load_time_ms = 60.124655
+
+[head.input]
+image_path = "../example.jpg"
+source = "../example.jpg"
+source_type = "file"
+strict_mode = true

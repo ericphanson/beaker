@@ -124,7 +124,7 @@ jobs:
       run: |
         echo "🧪 Testing CLI head detection with ORT logging..."
         echo "Device: ${{ matrix.device }}, Target: ${{ matrix.target }}"
-        ./target/${{ matrix.target }}/release/beaker head example.jpg --confidence 0.5 --device ${{ matrix.device }}
+        ./target/${{ matrix.target }}/release/beaker head example.jpg --confidence 0.5 --device ${{ matrix.device }} --metadata
         echo "✅ CLI head detection works"
       working-directory: beaker
 
@@ -135,7 +135,7 @@ jobs:
       run: |
         echo "Testing CLI head detection with ORT logging..."
         echo "Device: ${{ matrix.device }}, Target: ${{ matrix.target }}"
-        ./target/${{ matrix.target }}/release/beaker.exe head example.jpg --confidence 0.5 --device ${{ matrix.device }}
+        ./target/${{ matrix.target }}/release/beaker.exe head example.jpg --confidence 0.5 --device ${{ matrix.device }} --metadata
         echo "CLI head detection works"
       working-directory: beaker
 
@@ -156,10 +156,10 @@ jobs:
         fi
         echo ""
         echo "=== Running with --device auto ==="
-        ./target/${{ matrix.target }}/release/beaker head example.jpg --confidence 0.5 --device auto
+        ./target/${{ matrix.target }}/release/beaker head example.jpg --confidence 0.5 --device auto --metadata
         echo ""
         echo "=== Running with --device cpu ==="
-        ./target/${{ matrix.target }}/release/beaker head example.jpg --confidence 0.5 --device cpu
+        ./target/${{ matrix.target }}/release/beaker head example.jpg --confidence 0.5 --device cpu --metadata
         echo "✅ Execution provider testing complete"
       working-directory: beaker
 
@@ -173,10 +173,10 @@ jobs:
         echo "Expected: CoreML should not be available, fallback to CPU"
         echo ""
         echo "=== Running with --device auto ==="
-        ./target/${{ matrix.target }}/release/beaker.exe head example.jpg --confidence 0.5 --device auto
+        ./target/${{ matrix.target }}/release/beaker.exe head example.jpg --confidence 0.5 --device auto --metadata
         echo ""
         echo "=== Running with --device cpu ==="
-        ./target/${{ matrix.target }}/release/beaker.exe head example.jpg --confidence 0.5 --device cpu
+        ./target/${{ matrix.target }}/release/beaker.exe head example.jpg --confidence 0.5 --device cpu --metadata
         echo "Execution provider testing complete"
       working-directory: beaker
 

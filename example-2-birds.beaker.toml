@@ -1,0 +1,46 @@
+[head]
+model_version = "bird-head-detector-v1.0.0"
+
+[[head.detections]]
+confidence = 0.6891272664070129
+x1 = 963.4945068359375
+x2 = 1171.9974365234375
+y1 = 585.73876953125
+y2 = 783.417236328125
+
+[head.config]
+bounding_box = false
+confidence = 0.5
+crop = false
+iou_threshold = 0.44999998807907104
+
+[head.execution]
+timestamp = "2025-08-07T00:49:54.767732907Z"
+beaker_version = "0.1.1"
+command_line = [
+    "./target/release/beaker",
+    "head",
+    "../example-2-birds.jpg",
+    "--confidence",
+    "0.5",
+    "--device",
+    "auto",
+    "--metadata",
+]
+exit_code = 0
+model_processing_time_ms = 110.578671
+
+[head.system]
+device_requested = "auto"
+device_selected = "cpu"
+device_selection_reason = "Auto-selected CPU (CoreML not available)"
+execution_providers = ["CPUExecutionProvider { error_on_failure: false }"]
+model_source = "embedded"
+model_size_bytes = 12183794
+model_load_time_ms = 59.260481
+
+[head.input]
+image_path = "../example-2-birds.jpg"
+source = "../example-2-birds.jpg"
+source_type = "file"
+strict_mode = true
