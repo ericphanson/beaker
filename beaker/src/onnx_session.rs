@@ -11,17 +11,26 @@ use std::fs;
 // Import model cache function
 use crate::model_cache::get_coreml_cache_dir;
 
-/// Clear the CoreML cache directory to resolve conflicts
-fn clear_coreml_cache(cache_dir: &std::path::Path) -> Result<()> {
-    if cache_dir.exists() {
-        log::debug!(
-            "🗑️  Removing CoreML cache directory: {}",
-            cache_dir.display()
-        );
-        fs::remove_dir_all(cache_dir)
-            .map_err(|e| anyhow::anyhow!("Failed to remove CoreML cache directory: {}", e))?;
-    }
-    Ok(())
+/// Generate a unique CoreML cache directory to avoid conflicts
+fn get_unique_coreml_cache_dir() -> Result<std::path::PathBuf> {
+    use std::process;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let base_dir = crate::model_cache::get_coreml_cache_dir()?;
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let pid = process::id();
+
+    // Create a unique subdirectory using timestamp and process ID
+    let unique_dir = base_dir.join(format!("session_{pid}_{timestamp}"));
+
+    log::debug!(
+        "🆔 Generated unique CoreML cache directory: {}",
+        unique_dir.display()
+    );
+    Ok(unique_dir)
 }
 
 fn log_level_from_ort(level: LogLevel) -> Level {
@@ -129,7 +138,7 @@ pub fn create_onnx_session(
     };
 
     // Create execution providers (simplified from cutout pattern)
-    let execution_providers = match config.device {
+    let mut execution_providers = match config.device {
         "coreml" => match CoreMLExecutionProvider::default().is_available() {
             Ok(true) => {
                 let coreml_provider = if let Some(cache_dir) = &coreml_cache_dir {
@@ -182,7 +191,7 @@ pub fn create_onnx_session(
     .map(ort_level_from_log)
     .unwrap_or(LogLevel::Fatal);
 
-    let build_session_with_retry = |bytes: &[u8]| -> Result<Session> {
+    let mut build_session_with_retry = |bytes: &[u8]| -> Result<Session> {
         for retry_count in 0..=3 {
             let result = Session::builder()
                 .map_err(|e| anyhow::anyhow!("Failed to create session builder: {}", e))?
@@ -209,22 +218,66 @@ pub fn create_onnx_session(
                         && error_msg.contains("compiled_model.mlmodelc")
                         && retry_count < 3
                     {
-                        log::warn!("🔄 CoreML cache conflict detected, attempting cache invalidation (attempt {}/3)", retry_count + 1);
+                        log::warn!("🔄 CoreML cache conflict detected, switching to unique cache directory (attempt {}/3)", retry_count + 1);
                         log::warn!("   Error: {error_msg}");
 
-                        // Try to clear the CoreML cache and retry
-                        if let Some(cache_dir) = &coreml_cache_dir {
-                            if let Err(clear_err) = clear_coreml_cache(cache_dir) {
-                                log::warn!("⚠️  Failed to clear CoreML cache: {clear_err}");
-                            } else {
-                                log::debug!("🗑️  Cleared CoreML cache directory");
-                            }
+                        // Generate a new unique cache directory for this retry
+                        match get_unique_coreml_cache_dir() {
+                            Ok(unique_cache_dir) => {
+                                log::debug!(
+                                    "🔄 Using unique cache directory: {}",
+                                    unique_cache_dir.display()
+                                );
 
-                            // Add a small delay to avoid race conditions
-                            std::thread::sleep(std::time::Duration::from_millis(
-                                100 + retry_count * 50,
-                            ));
-                            continue; // Retry the operation
+                                // Create the unique cache directory
+                                if let Err(e) = std::fs::create_dir_all(&unique_cache_dir) {
+                                    log::warn!("⚠️  Failed to create unique cache directory: {e}");
+                                    return Err(anyhow::anyhow!(
+                                        "Failed to create unique cache directory: {e}"
+                                    ));
+                                }
+
+                                // Update the execution providers with the new cache directory
+                                execution_providers = match config.device {
+                                    "coreml" => {
+                                        match CoreMLExecutionProvider::default().is_available() {
+                                            Ok(true) => {
+                                                if let Some(cache_path_str) =
+                                                    unique_cache_dir.to_str()
+                                                {
+                                                    log::debug!("🗂️  Configuring CoreML with unique cache: {cache_path_str}");
+                                                    vec![CoreMLExecutionProvider::default()
+                                                        .with_model_cache_dir(cache_path_str)
+                                                        .build()]
+                                                } else {
+                                                    vec![CoreMLExecutionProvider::default().build()]
+                                                }
+                                            }
+                                            Ok(false) => {
+                                                log::warn!("❌ CoreML is not available, falling back to CPU");
+                                                vec![CPUExecutionProvider::default().build()]
+                                            }
+                                            Err(e) => {
+                                                log::warn!("❌ Failed to check CoreML availability: {e}, falling back to CPU");
+                                                vec![CPUExecutionProvider::default().build()]
+                                            }
+                                        }
+                                    }
+                                    _ => vec![CPUExecutionProvider::default().build()],
+                                };
+
+                                // Add a small delay to avoid race conditions
+                                std::thread::sleep(std::time::Duration::from_millis(
+                                    100 + retry_count * 50,
+                                ));
+                                continue; // Retry the operation with new cache directory
+                            }
+                            Err(e) => {
+                                log::warn!("⚠️  Failed to generate unique cache directory: {e}");
+                                return Err(anyhow::anyhow!(
+                                    "Failed to generate unique cache directory: {e}"
+                                ));
+                            }
                         }
                     }
 

@@ -2,9 +2,9 @@
 
 - **Cutout Main Code**: 312 (Tests: 44)  
 - **Head Main Code**: 487 (Tests: 0)  
-- **Common Main Code**: 1724 (Tests: 1187)  
-- **Total Main Code (excluding build.rs)**: 2523  
-- **Total Main Code (including build.rs)**: 2673 (Reported: 2673)  
+- **Common Main Code**: 1768 (Tests: 1187)  
+- **Total Main Code (excluding build.rs)**: 2567  
+- **Total Main Code (including build.rs)**: 2717 (Reported: 2717)  
 ✅ Totals match.
 
 ## Raw Counts
@@ -12,10 +12,10 @@
 File name: ./beaker/src/onnx_session.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 235          | 23           | 6            | 16           | 280         
+Main         | 279          | 29           | 6            | 19           | 333         
 Tests        | 0            | 0            | 0            | 0            | 0           
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 235          | 23           | 6            | 16           | 280         
+Total| 279          | 29           | 6            | 19           | 333         
 
 File name: ./beaker/src/model_processing.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -180,7 +180,7 @@ Total| 195          | 3            | 1            | 7            | 206
 File count: 21
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 2673         | 489          | 186          | 217          | 3565        
+Main         | 2717         | 495          | 186          | 220          | 3618        
 Tests        | 1231         | 176          | 23           | 75           | 1505        
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 3904         | 665          | 209          | 292          | 5070        
+Total| 3948         | 671          | 209          | 295          | 5123        
