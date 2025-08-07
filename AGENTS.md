@@ -6,6 +6,34 @@ This document outlines the checks and procedures that must pass before committin
 
 **Primary Development Target**: All development work should focus on the `beaker/` subdirectory, which contains the main Rust codebase and CI workflows. This is where agents should look for work that needs to be done.
 
+## API Tool Usage Guidelines
+
+### GitHub API vs Browser Tools
+
+When accessing GitHub information, **always prioritize GitHub API tools over browser automation** when available:
+
+**Use GitHub API tools for:**
+- GitHub Actions workflows and logs (e.g., `github.com/.../actions/runs/...`)
+- Pull requests and their details (`github.com/.../pull/...`)
+- Issues and comments (`github.com/.../issues/...`)
+- Repository contents and commits
+- Code scanning and security alerts
+- Any other GitHub URLs or data
+
+**Benefits of API tools:**
+- More reliable and faster data access
+- Structured data that's easier to process
+- Reduced dependencies on browser automation
+- Better error handling and rate limiting
+- No risk of UI changes breaking functionality
+
+**Only use browser tools (like Playwright) when:**
+- The required information is not available via GitHub API
+- Working with non-GitHub websites
+- Testing actual user interface functionality
+
+This approach ensures more robust and maintainable automation workflows.
+
 ## Pre-Commit Setup
 
 ### Installation
