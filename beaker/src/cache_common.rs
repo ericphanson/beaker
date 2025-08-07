@@ -27,10 +27,7 @@ pub fn get_cache_dir_with_env_override(env_var: &str, default_subdir: &str) -> R
 /// Calculate MD5 hash of a file
 pub fn calculate_md5(path: &Path) -> Result<String> {
     let contents = fs::read(path)?;
-    let mut hasher = md5::Context::new();
-    hasher.consume(&contents);
-    let result = hasher.finalize();
-    Ok(format!("{result:x}"))
+    Ok(calculate_md5_bytes(&contents))
 }
 
 /// Calculate MD5 hash of bytes

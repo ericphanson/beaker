@@ -1,4 +1,5 @@
 use crate::cache_common;
+use crate::color_utils::symbols;
 use anyhow::Result;
 use log::Level;
 use ort::{
@@ -164,7 +165,10 @@ pub fn create_onnx_session(
                 if let Err(e) = std::fs::create_dir_all(&cache_dir) {
                     let colored_error: String =
                         crate::color_utils::colors::error_level(&e.to_string());
-                    log::warn!("⚠️  Failed to create CoreML cache directory: {colored_error}");
+                    log::warn!(
+                        "{}Failed to create CoreML cache directory: {colored_error}",
+                        symbols::warning()
+                    );
                     None
                 } else {
                     // Check if cache already exists
@@ -179,7 +183,10 @@ pub fn create_onnx_session(
             }
             Err(e) => {
                 let colored_error: String = crate::color_utils::colors::error_level(&e.to_string());
-                log::warn!("⚠️  Failed to get CoreML cache directory: {colored_error}");
+                log::warn!(
+                    "{}Failed to get CoreML cache directory: {colored_error}",
+                    symbols::warning()
+                );
                 None
             }
         }
@@ -208,7 +215,10 @@ pub fn create_onnx_session(
                 ]
             }
             _ => {
-                log::warn!("⚠️  CoreML not available, falling back to CPU");
+                log::warn!(
+                    "{}CoreML not available, falling back to CPU",
+                    symbols::warning()
+                );
                 vec![CPUExecutionProvider::default().build()]
             }
         },
@@ -217,7 +227,11 @@ pub fn create_onnx_session(
             vec![CPUExecutionProvider::default().build()]
         }
         _ => {
-            log::warn!("⚠️  Unknown device '{}', using CPU", config.device);
+            log::warn!(
+                "{}Unknown device '{}', using CPU",
+                symbols::warning(),
+                config.device
+            );
             vec![CPUExecutionProvider::default().build()]
         }
     };
@@ -281,7 +295,10 @@ pub fn create_onnx_session(
 
                                 // Create the unique cache directory
                                 if let Err(e) = std::fs::create_dir_all(&unique_cache_dir) {
-                                    log::warn!("⚠️  Failed to create unique cache directory: {e}");
+                                    log::warn!(
+                                        "{}Failed to create unique cache directory: {e}",
+                                        symbols::warning()
+                                    );
                                     return Err(anyhow::anyhow!(
                                         "Failed to create unique cache directory: {e}"
                                     ));
@@ -304,11 +321,11 @@ pub fn create_onnx_session(
                                                 }
                                             }
                                             Ok(false) => {
-                                                log::warn!("❌ CoreML is not available, falling back to CPU");
+                                                log::warn!("{} CoreML is not available, falling back to CPU", symbols::operation_failed());
                                                 vec![CPUExecutionProvider::default().build()]
                                             }
                                             Err(e) => {
-                                                log::warn!("❌ Failed to check CoreML availability: {e}, falling back to CPU");
+                                                log::warn!("{} Failed to check CoreML availability: {e}, falling back to CPU", symbols::operation_failed());
                                                 vec![CPUExecutionProvider::default().build()]
                                             }
                                         }
@@ -319,7 +336,10 @@ pub fn create_onnx_session(
                                 continue; // Retry the operation with new cache directory
                             }
                             Err(e) => {
-                                log::warn!("⚠️  Failed to generate unique cache directory: {e}");
+                                log::warn!(
+                                    "{}Failed to generate unique cache directory: {e}",
+                                    symbols::warning()
+                                );
                                 return Err(anyhow::anyhow!(
                                     "Failed to generate unique cache directory: {e}"
                                 ));

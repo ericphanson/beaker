@@ -1,4 +1,5 @@
 use crate::cache_common;
+use crate::color_utils::symbols;
 use crate::progress::{add_progress_bar, remove_progress_bar};
 use anyhow::{anyhow, Result};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -24,16 +25,6 @@ pub fn get_cache_dir() -> Result<PathBuf> {
 /// Get the CoreML cache directory for storing compiled CoreML models
 pub fn get_coreml_cache_dir() -> Result<PathBuf> {
     cache_common::get_cache_base_dir().map(|dir| dir.join("beaker").join("coreml"))
-}
-
-/// Calculate MD5 hash of a file
-fn calculate_md5(path: &Path) -> Result<String> {
-    cache_common::calculate_md5(path)
-}
-
-/// Verify the checksum of a downloaded model
-fn verify_checksum(path: &Path, expected_md5: &str) -> Result<bool> {
-    cache_common::verify_checksum(path, expected_md5)
 }
 
 /// Get detailed file information for debugging
@@ -92,7 +83,10 @@ fn download_model(url: &str, output_path: &Path) -> Result<()> {
 
         Some(pb)
     } else {
-        log::warn!("⚠️  Content-Length header missing, showing spinner instead of progress bar");
+        log::warn!(
+            "{}Content-Length header missing, showing spinner instead of progress bar",
+            symbols::warning()
+        );
 
         let pb = ProgressBar::new_spinner();
         add_progress_bar(pb.clone());
@@ -103,7 +97,7 @@ fn download_model(url: &str, output_path: &Path) -> Result<()> {
     };
 
     // Create output file
-    log::debug!("💾 Creating output file...");
+    log::debug!("{} Creating output file...", symbols::save_file());
     let mut file = fs::File::create(output_path).map_err(|e| {
         anyhow!(
             "Failed to create output file {}: {}",
@@ -164,7 +158,8 @@ fn download_model(url: &str, output_path: &Path) -> Result<()> {
     if let Some(expected_length) = content_length {
         if downloaded != expected_length {
             log::warn!(
-                "⚠️  Size mismatch: expected {expected_length} bytes, got {downloaded} bytes"
+                "{}Size mismatch: expected {expected_length} bytes, got {downloaded} bytes",
+                symbols::warning()
             );
         }
     }
@@ -172,7 +167,8 @@ fn download_model(url: &str, output_path: &Path) -> Result<()> {
     // Verify file was written correctly
     let written_metadata = fs::metadata(output_path)?;
     log::debug!(
-        "💾 File written successfully: {} bytes",
+        "{} File written successfully: {} bytes",
+        symbols::save_file(),
         written_metadata.len()
     );
 
@@ -214,11 +210,14 @@ pub fn get_or_download_model(model_info: &ModelInfo) -> Result<PathBuf> {
         if let Ok(metadata) = fs::metadata(&model_path) {
             let file_size = metadata.len();
             if file_size == 0 {
-                log::warn!("⚠️  Cached model file is empty, re-downloading");
+                log::warn!(
+                    "{}Cached model file is empty, re-downloading",
+                    symbols::warning()
+                );
                 fs::remove_file(&model_path)?;
             } else {
                 // File exists and has content, now verify checksum
-                match verify_checksum(&model_path, model_info.md5_checksum) {
+                match cache_common::verify_checksum(&model_path, model_info.md5_checksum) {
                     Ok(true) => {
                         // Fast path: model is cached and valid
                         log::info!(
@@ -232,10 +231,11 @@ pub fn get_or_download_model(model_info: &ModelInfo) -> Result<PathBuf> {
                         // Get detailed info about the file for debugging
                         let file_info = get_file_info(&model_path)
                             .unwrap_or_else(|e| format!("Error getting file info: {e}"));
-                        let actual_checksum = calculate_md5(&model_path)
+                        let actual_checksum = cache_common::calculate_md5(&model_path)
                             .unwrap_or_else(|e| format!("Error calculating checksum: {e}"));
 
-                        log::warn!("⚠️  Cached model has invalid checksum, re-downloading\n   Expected: {}\n   Actual:   {}\n   File info: {}",
+                        log::warn!("{}Cached model has invalid checksum, re-downloading\n   Expected: {}\n   Actual:   {}\n   File info: {}",
+                            symbols::warning(),
                                   model_info.md5_checksum, actual_checksum, file_info);
 
                         fs::remove_file(&model_path)?;
@@ -246,7 +246,10 @@ pub fn get_or_download_model(model_info: &ModelInfo) -> Result<PathBuf> {
                         let file_info = get_file_info(&model_path)
                             .unwrap_or_else(|e| format!("Error getting file info: {e}"));
 
-                        log::warn!("⚠️  Error verifying checksum: {colored_error}, re-downloading");
+                        log::warn!(
+                            "{}Error verifying checksum: {colored_error}, re-downloading",
+                            symbols::warning()
+                        );
                         log::warn!("   File info: {file_info}");
 
                         fs::remove_file(&model_path)?;
@@ -254,15 +257,21 @@ pub fn get_or_download_model(model_info: &ModelInfo) -> Result<PathBuf> {
                 }
             }
         } else {
-            log::debug!("⚠️  Cannot read file metadata, treating as missing");
+            log::debug!(
+                "{}Cannot read file metadata, treating as missing",
+                symbols::warning()
+            );
         }
     }
     // Handle concurrent downloads with lock file
     download_with_concurrency_protection(&model_path, &lock_path, model_info)?;
 
     // Verify the downloaded model
-    log::debug!("🔍 Verifying downloaded model checksum...");
-    let actual_checksum = calculate_md5(&model_path)?;
+    log::debug!(
+        "{} Verifying downloaded model checksum...",
+        symbols::checking()
+    );
+    let actual_checksum = cache_common::calculate_md5(&model_path)?;
     let file_info = get_file_info(&model_path)?;
 
     log::debug!("   Expected checksum: {}", model_info.md5_checksum);
@@ -329,7 +338,11 @@ fn download_with_concurrency_protection(
         {
             Ok(mut lock_file) => {
                 // We got the lock, proceed with download
-                log::debug!("🔒 Acquired download lock for {}", model_info.filename);
+                log::debug!(
+                    "{} Acquired download lock for {}",
+                    symbols::lock_acquired(),
+                    model_info.filename
+                );
 
                 // Write process info to lock file
                 let lock_info = format!(
@@ -348,30 +361,42 @@ fn download_with_concurrency_protection(
 
                 // Clean up lock file
                 let _ = fs::remove_file(lock_path);
-                log::debug!("🔓 Released download lock for {}", model_info.filename);
+                log::debug!(
+                    "{} Released download lock for {}",
+                    symbols::lock_released(),
+                    model_info.filename
+                );
 
                 return result;
             }
             Err(_) => {
                 // Lock file exists, check if another process completed the download
                 if model_path.exists() {
-                    log::debug!("🔍 Checking if concurrent download completed...");
-                    match verify_checksum(model_path, model_info.md5_checksum) {
+                    log::debug!(
+                        "{} Checking if concurrent download completed...",
+                        symbols::checking()
+                    );
+                    match cache_common::verify_checksum(model_path, model_info.md5_checksum) {
                         Ok(true) => {
                             log::debug!(
-                                "🎯 Model downloaded by another process, using cached version"
+                                "{} Model downloaded by another process, using cached version",
+                                symbols::resources_found()
                             );
                             return Ok(());
                         }
                         Ok(false) => {
                             log::debug!(
-                                "⚠️  Concurrent download produced invalid checksum, will retry"
+                                "{}Concurrent download produced invalid checksum, will retry",
+                                symbols::warning()
                             );
                             // Remove invalid file so we can retry
                             let _ = fs::remove_file(model_path);
                         }
                         Err(e) => {
-                            log::debug!("⚠️  Error checking concurrent download: {e}, will retry");
+                            log::debug!(
+                                "{}Error checking concurrent download: {e}, will retry",
+                                symbols::warning()
+                            );
                         }
                     }
                 }
@@ -380,7 +405,8 @@ fn download_with_concurrency_protection(
                 if start_time.elapsed() > MAX_WAIT_TIME {
                     // Force download after timeout, remove potentially stale lock
                     log::warn!(
-                        "⏰ Download lock timeout ({}s), forcing download (removing stale lock)",
+                        "{} Download lock timeout ({}s), forcing download (removing stale lock)",
+                        symbols::timeout(),
                         MAX_WAIT_TIME.as_secs()
                     );
 
@@ -400,10 +426,26 @@ fn download_with_concurrency_protection(
                 }
 
                 // Wait with exponential backoff before retry
+                let lock_info = fs::read_to_string(lock_path).ok().and_then(|content| {
+                    // Extract PID from "locked by process {pid} at {timestamp}"
+                    content
+                        .split_whitespace()
+                        .nth(3) // "locked", "by", "process", "{pid}", ...
+                        .and_then(|pid_str| pid_str.parse::<u32>().ok())
+                });
+
+                let lock_msg = if let Some(pid) = lock_info {
+                    format!("(lock held by PID {pid})")
+                } else {
+                    "(lock details unavailable)".to_string()
+                };
+
                 log::debug!(
-                    "⏳ Waiting for concurrent download to complete... ({}s elapsed, next check in {}ms)",
+                    "{} Waiting for concurrent download to complete... ({}s elapsed, next check in {}ms) {}",
+                    symbols::waiting(),
                     start_time.elapsed().as_secs(),
-                    wait_duration.as_millis()
+                    wait_duration.as_millis(),
+                    lock_msg
                 );
                 std::thread::sleep(wait_duration);
 
