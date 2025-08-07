@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  setup-environment:
+  copilot-setup-steps:
     name: Setup Development Environment for Copilot Agents
     runs-on: ubuntu-latest
 
