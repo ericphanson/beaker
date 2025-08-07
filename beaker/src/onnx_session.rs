@@ -8,10 +8,30 @@ use ort::{
 use serde::Serialize;
 use std::fs;
 
-// Import model cache function
-use crate::model_cache::get_coreml_cache_dir;
+/// Generate stable CoreML cache directory based on model content and ORT version
+fn get_stable_coreml_cache_dir(model_bytes: &[u8]) -> Result<std::path::PathBuf> {
+    let base_dir = crate::model_cache::get_coreml_cache_dir()?;
 
-/// Generate a unique CoreML cache directory to avoid conflicts
+    // Create MD5 hash of model content
+    let mut hasher = md5::Context::new();
+    hasher.consume(model_bytes);
+    let model_hash = format!("{:x}", hasher.finalize());
+
+    // Get ORT version for cache versioning
+    let ort_version = env!("CARGO_PKG_VERSION"); // Use beaker version as proxy
+
+    // Create stable cache key: model_hash + ort_version
+    let cache_key = format!("{}_{}", &model_hash[..8], ort_version.replace('.', "_"));
+    let stable_dir = base_dir.join(cache_key);
+
+    log::debug!(
+        "🔑 Generated stable CoreML cache key: {}",
+        stable_dir.display()
+    );
+    Ok(stable_dir)
+}
+
+/// Generate a unique CoreML cache directory to avoid conflicts (fallback only)
 fn get_unique_coreml_cache_dir() -> Result<std::path::PathBuf> {
     use std::process;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -112,9 +132,34 @@ pub fn create_onnx_session(
     model_source: ModelSource,
     config: &SessionConfig,
 ) -> Result<(Session, ModelInfo)> {
-    // Set up CoreML cache directory if using CoreML
+    // Get model bytes for cache key generation and session creation
+    let (bytes, model_info_base) = match model_source {
+        ModelSource::EmbeddedBytes(bytes) => {
+            let model_info = ModelInfo {
+                model_source: "Embedded".to_string(),
+                model_path: None,
+                model_size_bytes: bytes.len(),
+                description: "Embedded model bytes".to_string(),
+                execution_providers: vec![], // Will be populated later
+            };
+            (bytes.to_vec(), model_info)
+        }
+        ModelSource::FilePath(path) => {
+            let bytes = fs::read(&path)?;
+            let model_info = ModelInfo {
+                model_source: "File".to_string(),
+                model_path: Some(path.clone()),
+                model_size_bytes: bytes.len(),
+                description: format!("Model loaded from: {path}"),
+                execution_providers: vec![], // Will be populated later
+            };
+            (bytes, model_info)
+        }
+    };
+
+    // Set up stable CoreML cache directory if using CoreML
     let coreml_cache_dir = if config.device == "coreml" {
-        match get_coreml_cache_dir() {
+        match get_stable_coreml_cache_dir(&bytes) {
             Ok(cache_dir) => {
                 // Create the cache directory if it doesn't exist
                 if let Err(e) = std::fs::create_dir_all(&cache_dir) {
@@ -123,7 +168,13 @@ pub fn create_onnx_session(
                     log::warn!("⚠️  Failed to create CoreML cache directory: {colored_error}");
                     None
                 } else {
-                    log::debug!("📂 Using CoreML cache directory: {}", cache_dir.display());
+                    // Check if cache already exists
+                    let compiled_model_path = cache_dir.join("compiled_model.mlmodelc");
+                    if compiled_model_path.exists() {
+                        log::debug!("♻️  Reusing existing CoreML cache: {}", cache_dir.display());
+                    } else {
+                        log::debug!("🆕 Creating new CoreML cache: {}", cache_dir.display());
+                    }
                     Some(cache_dir)
                 }
             }
@@ -289,38 +340,11 @@ pub fn create_onnx_session(
         unreachable!("Loop should have returned before this point")
     };
 
-    let (session, model_info) = match model_source {
-        ModelSource::EmbeddedBytes(bytes) => {
-            let session = build_session_with_retry(bytes)?;
-            let info: ModelInfo = ModelInfo {
-                model_source: "embedded".to_string(),
-                model_path: None,
-                model_size_bytes: bytes.len(),
-                description: format!(
-                    "embedded ONNX model ({:.2} MB)",
-                    bytes.len() as f64 / 1_048_576.0
-                ),
-                execution_providers: ep_names,
-            };
-            (session, info)
-        }
-        ModelSource::FilePath(path) => {
-            let model_bytes =
-                fs::read(&path).map_err(|e| anyhow::anyhow!("Failed to read model file: {}", e))?;
-            let session = build_session_with_retry(&model_bytes)?;
-            let info = ModelInfo {
-                model_source: "file".to_string(),
-                model_path: Some(path.clone()),
-                model_size_bytes: model_bytes.len(),
-                description: format!(
-                    "ONNX model ({:.2} MB) from {path}",
-                    model_bytes.len() as f64 / 1_048_576.0
-                ),
-                execution_providers: ep_names,
-            };
-            (session, info)
-        }
-    };
+    let session = build_session_with_retry(&bytes)?;
+
+    // Update model info with execution providers
+    let mut model_info = model_info_base;
+    model_info.execution_providers = ep_names;
 
     // Log execution provider information
     log::debug!(

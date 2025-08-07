@@ -2,9 +2,9 @@
 
 - **Cutout Main Code**: 312 (Tests: 44)  
 - **Head Main Code**: 487 (Tests: 0)  
-- **Common Main Code**: 1857 (Tests: 1192)  
-- **Total Main Code (excluding build.rs)**: 2656  
-- **Total Main Code (including build.rs)**: 2815 (Reported: 2815)  
+- **Common Main Code**: 1869 (Tests: 1192)  
+- **Total Main Code (excluding build.rs)**: 2668  
+- **Total Main Code (including build.rs)**: 2827 (Reported: 2827)  
 ✅ Totals match.
 
 ## Raw Counts
@@ -12,10 +12,10 @@
 File name: ./beaker/src/onnx_session.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 279          | 29           | 6            | 19           | 333         
+Main         | 291          | 35           | 7            | 24           | 357         
 Tests        | 0            | 0            | 0            | 0            | 0           
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 279          | 29           | 6            | 19           | 333         
+Total| 291          | 35           | 7            | 24           | 357         
 
 File name: ./beaker/src/model_processing.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -180,7 +180,7 @@ Total| 195          | 3            | 1            | 7            | 206
 File count: 21
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 2815         | 514          | 187          | 237          | 3753        
+Main         | 2827         | 520          | 188          | 242          | 3777        
 Tests        | 1236         | 177          | 23           | 78           | 1514        
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 4051         | 691          | 210          | 315          | 5267        
+Total| 4063         | 697          | 211          | 320          | 5291        

@@ -295,4 +295,10 @@ Contact your network administrator to allowlist the required URLs.
 ### PR Conflicts
 If your PR has conflicts with the main branch, merge the latest origin/main into the PR branch, resolving any conflicts. Then push to the PR branch.
 
+### Pushing Changes
+**Agents must push their changes before finishing work.** After making commits locally:
+- Use `report_progress` to push changes to the remote PR branch
+- If you have conflicts or other issues, resolve them and push your work to the remote PR branch
+- Never leave unpushed local commits - they will be lost
+
 Remember: **The goal is PRs that pass CI on the first attempt.**
