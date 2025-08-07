@@ -17,6 +17,7 @@ env:
   CARGO_TERM_COLOR: always
   RUST_LOG: "debug"
   RUST_BACKTRACE: "1"
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
   test:
@@ -176,6 +177,24 @@ jobs:
 
     - name: Copy second test image
       run: cp example-2-birds.jpg beaker/
+
+    - name: Pre-download models for testing (Unix)
+      if: runner.os != 'Windows'
+      run: |
+        echo "🔽 Pre-downloading models to avoid test concurrency issues..."
+        echo "Running cutout command to trigger model download:"
+        ./target/${{ matrix.target }}/release/beaker cutout example.jpg --confidence 0.8 --output example_predownload.png --device ${{ matrix.device }} || echo "Pre-download may have failed but continuing with tests"
+        echo "✅ Model pre-download attempt completed"
+      working-directory: beaker
+
+    - name: Pre-download models for testing (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        echo "Pre-downloading models to avoid test concurrency issues..."
+        echo "Running cutout command to trigger model download:"
+        ./target/${{ matrix.target }}/release/beaker.exe cutout example.jpg --confidence 0.8 --output example_predownload.png --device ${{ matrix.device }} || echo "Pre-download may have failed but continuing with tests"
+        echo "Model pre-download attempt completed"
+      working-directory: beaker
 
     - name: Run integration tests
       run: cargo test --release --target ${{ matrix.target }} --verbose

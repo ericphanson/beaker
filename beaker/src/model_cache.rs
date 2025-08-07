@@ -2,6 +2,7 @@ use anyhow::{anyhow, Result};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 /// Model information for caching and verification
 #[derive(Debug)]
@@ -176,6 +177,7 @@ fn download_model(url: &str, output_path: &Path) -> Result<()> {
 pub fn get_or_download_model(model_info: &ModelInfo) -> Result<PathBuf> {
     let cache_dir = get_cache_dir()?;
     let model_path = cache_dir.join(model_info.filename);
+    let lock_path = cache_dir.join(format!("{}.lock", model_info.filename));
 
     log::debug!("🗂️  Cache directory: {}", cache_dir.display());
     log::debug!("📄 Model path: {}", model_path.display());
@@ -221,8 +223,8 @@ pub fn get_or_download_model(model_info: &ModelInfo) -> Result<PathBuf> {
         }
     }
 
-    // Download the model
-    download_model(model_info.url, &model_path)?;
+    // Handle concurrent downloads with lock file
+    download_with_concurrency_protection(&model_path, &lock_path, model_info)?;
 
     // Verify the downloaded model
     log::debug!("🔍 Verifying downloaded model checksum...");
@@ -269,6 +271,62 @@ pub fn get_or_download_model(model_info: &ModelInfo) -> Result<PathBuf> {
     );
 
     Ok(model_path)
+}
+
+/// Download model with concurrency protection using lock files
+fn download_with_concurrency_protection(
+    model_path: &Path,
+    lock_path: &Path,
+    model_info: &ModelInfo,
+) -> Result<()> {
+    const MAX_WAIT_TIME: Duration = Duration::from_secs(300); // 5 minutes max wait
+    const POLL_INTERVAL: Duration = Duration::from_millis(500);
+
+    let start_time = std::time::Instant::now();
+
+    loop {
+        // Try to create lock file
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(lock_path)
+        {
+            Ok(mut lock_file) => {
+                // We got the lock, proceed with download
+                log::debug!("🔒 Acquired download lock for {}", model_info.filename);
+                let _ = write!(lock_file, "locked by process {}", std::process::id());
+
+                let result = download_model(model_info.url, model_path);
+
+                // Clean up lock file
+                let _ = fs::remove_file(lock_path);
+                log::debug!("🔓 Released download lock for {}", model_info.filename);
+
+                return result;
+            }
+            Err(_) => {
+                // Lock file exists, check if model is now available
+                if model_path.exists() {
+                    if let Ok(true) = verify_checksum(model_path, model_info.md5_checksum) {
+                        log::debug!("🎯 Model downloaded by another process, using cached version");
+                        return Ok(());
+                    }
+                }
+
+                // Check timeout
+                if start_time.elapsed() > MAX_WAIT_TIME {
+                    // Force download after timeout, remove stale lock
+                    log::warn!("⏰ Download lock timeout, forcing download (removing stale lock)");
+                    let _ = fs::remove_file(lock_path);
+                    return download_model(model_info.url, model_path);
+                }
+
+                // Wait and retry
+                log::debug!("⏳ Waiting for concurrent download to complete...");
+                std::thread::sleep(POLL_INTERVAL);
+            }
+        }
+    }
 }
 
 #[cfg(test)]

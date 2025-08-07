@@ -2,9 +2,9 @@
 
 - **Cutout Main Code**: 312 (Tests: 44)  
 - **Head Main Code**: 487 (Tests: 0)  
-- **Common Main Code**: 1768 (Tests: 1187)  
-- **Total Main Code (excluding build.rs)**: 2567  
-- **Total Main Code (including build.rs)**: 2717 (Reported: 2717)  
+- **Common Main Code**: 1809 (Tests: 1187)  
+- **Total Main Code (excluding build.rs)**: 2608  
+- **Total Main Code (including build.rs)**: 2767 (Reported: 2767)  
 ✅ Totals match.
 
 ## Raw Counts
@@ -124,10 +124,10 @@ Total| 174          | 37           | 6            | 24           | 241
 File name: ./beaker/src/model_cache.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 208          | 45           | 8            | 12           | 273         
+Main         | 249          | 54           | 9            | 19           | 331         
 Tests        | 35           | 7            | 0            | 4            | 46          
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 243          | 52           | 8            | 16           | 319         
+Total| 284          | 61           | 9            | 23           | 377         
 
 File name: ./beaker/src/yolo_preprocessing.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -148,10 +148,10 @@ Total| 250          | 55           | 25           | 7            | 337
 File name: ./beaker/build.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 150          | 37           | 0            | 15           | 202         
+Main         | 159          | 41           | 0            | 17           | 217         
 Tests        | 0            | 0            | 0            | 0            | 0           
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 150          | 37           | 0            | 15           | 202         
+Total| 159          | 41           | 0            | 17           | 217         
 
 File name: ./beaker/tests/test_performance_tracker.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -180,7 +180,7 @@ Total| 195          | 3            | 1            | 7            | 206
 File count: 21
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 2717         | 495          | 186          | 220          | 3618        
+Main         | 2767         | 508          | 187          | 229          | 3691        
 Tests        | 1231         | 176          | 23           | 75           | 1505        
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 3948         | 671          | 209          | 295          | 5123        
+Total| 3998         | 684          | 210          | 304          | 5196        
