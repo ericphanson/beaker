@@ -158,11 +158,18 @@ cp ../example.jpg .
 - Extract common functionality into reusable functions/modules
 - Avoid duplicating code across files
 - Use configuration files for repeated values
+- **Implement functions ergonomically**: When possible, implement path-based functions via byte-based versions (e.g., `calculate_md5(path)` via `calculate_md5_bytes()`)
 
 ### YAGNI (You Aren't Gonna Need It)
 - Implement only what's currently needed
 - Avoid over-engineering solutions
 - Keep interfaces simple and focused
+- **Inline trivial wrappers**: Replace 1-line wrapper functions with direct calls to avoid unnecessary indirection
+
+### Code Style Standards
+- **Emoji handling**: All emojis must go through `color_utils::symbols` functions to respect no-color settings
+- **Consistent formatting**: Use `cargo fmt` for automatic code formatting
+- **Clear error messages**: Include context and suggestions in error messages
 
 ### Good PR Characteristics
 - **Small diff**: Minimize the number of changed lines

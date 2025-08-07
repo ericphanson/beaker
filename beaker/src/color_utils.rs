@@ -200,6 +200,51 @@ pub mod symbols {
             ""
         }
     }
+
+    /// Symbol for waiting operations
+    pub fn waiting() -> &'static str {
+        if colors_enabled() {
+            "⏳"
+        } else {
+            "[WAIT]"
+        }
+    }
+
+    /// Symbol for lock operations
+    pub fn lock_acquired() -> &'static str {
+        if colors_enabled() {
+            "🔒"
+        } else {
+            "[LOCK]"
+        }
+    }
+
+    /// Symbol for unlock operations
+    pub fn lock_released() -> &'static str {
+        if colors_enabled() {
+            "🔓"
+        } else {
+            "[UNLOCK]"
+        }
+    }
+
+    /// Symbol for timeout operations
+    pub fn timeout() -> &'static str {
+        if colors_enabled() {
+            "⏰"
+        } else {
+            "[TIMEOUT]"
+        }
+    }
+
+    /// Symbol for file save operations
+    pub fn save_file() -> &'static str {
+        if colors_enabled() {
+            "💾"
+        } else {
+            "[SAVE]"
+        }
+    }
 }
 
 /// Progress bar utilities that respect TTY state
