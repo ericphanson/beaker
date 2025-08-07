@@ -12,3 +12,7 @@ beaker/target/
 beaker/Cargo.lock
 example-raw.rw2
 beaker/*-notes.md
+
+# Beaker output files - test artifacts that should not be committed
+*.beaker.toml
+*.beaker.json
