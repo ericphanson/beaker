@@ -3,6 +3,7 @@ Validate quantized models against original models.
 """
 
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -155,17 +156,52 @@ def collect_test_images(test_images_dir: Path) -> list[Path]:
     return image_paths
 
 
-def validate_models(
+def measure_inference_time(
+    model_path: Path, input_data: np.ndarray, num_runs: int = 5
+) -> dict[str, float]:
+    """Measure inference time for a single model and input."""
+    try:
+        # Create inference session
+        providers = ["CPUExecutionProvider"]
+        session = ort.InferenceSession(str(model_path), providers=providers)
+        input_name = session.get_inputs()[0].name
+
+        times = []
+
+        # Warm up
+        session.run(None, {input_name: input_data})
+
+        # Measure inference times
+        for _ in range(num_runs):
+            start_time = time.time()
+            session.run(None, {input_name: input_data})
+            end_time = time.time()
+            times.append((end_time - start_time) * 1000)  # Convert to ms
+
+        return {
+            "mean_ms": float(np.mean(times)),
+            "std_ms": float(np.std(times)),
+            "min_ms": float(np.min(times)),
+            "max_ms": float(np.max(times)),
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to measure inference time for {model_path}: {e}")
+        return {"mean_ms": 0.0, "std_ms": 0.0, "min_ms": 0.0, "max_ms": 0.0}
+
+
+def validate_models_with_timing(
     original_model: Path,
     quantized_model: Path,
     test_images_dir: Path,
     tolerance: float = 0.01,
-) -> tuple[bool, float]:
+    num_timing_runs: int = 5,
+) -> tuple[bool, float, dict[str, Any]]:
     """
-    Validate quantized model against original model.
+    Validate quantized model against original model with timing measurements.
 
     Returns:
-        Tuple of (is_valid, max_difference)
+        Tuple of (is_valid, max_difference, detailed_metrics)
     """
     try:
         logger.info(f"Validating {quantized_model.name} against {original_model.name}")
@@ -190,8 +226,10 @@ def validate_models(
         if not test_images:
             raise ValueError("No test images found for validation")
 
-        # Validate on each test image
+        # Validate on each test image and collect metrics
         all_metrics = []
+        all_timing_original = []
+        all_timing_quantized = []
         max_diff = 0.0
 
         for image_path in test_images:
@@ -200,6 +238,19 @@ def validate_models(
                     original_model, quantized_model, image_path
                 )
                 all_metrics.append(metrics)
+
+                # Measure timing for both models
+                input_data = load_and_preprocess_image(image_path)
+
+                timing_original = measure_inference_time(
+                    original_model, input_data, num_timing_runs
+                )
+                timing_quantized = measure_inference_time(
+                    quantized_model, input_data, num_timing_runs
+                )
+
+                all_timing_original.append(timing_original)
+                all_timing_quantized.append(timing_quantized)
 
                 # Track maximum difference
                 current_max = metrics["max_absolute_diff"]
@@ -220,6 +271,40 @@ def validate_models(
             avg_metrics[f"avg_{key}"] = np.mean(values)
             avg_metrics[f"max_{key}"] = np.max(values)
 
+        # Calculate timing averages
+        original_timing = {
+            "mean_ms": np.mean([t["mean_ms"] for t in all_timing_original]),
+            "std_ms": np.mean([t["std_ms"] for t in all_timing_original]),
+        }
+        quantized_timing = {
+            "mean_ms": np.mean([t["mean_ms"] for t in all_timing_quantized]),
+            "std_ms": np.mean([t["std_ms"] for t in all_timing_quantized]),
+        }
+
+        # Get model sizes
+        original_size = original_model.stat().st_size
+        quantized_size = quantized_model.stat().st_size
+        size_reduction = (
+            ((original_size - quantized_size) / original_size * 100)
+            if original_size
+            else 0
+        )
+
+        detailed_metrics = {
+            **avg_metrics,
+            "original_timing": original_timing,
+            "quantized_timing": quantized_timing,
+            "model_sizes": {
+                "original_bytes": original_size,
+                "quantized_bytes": quantized_size,
+                "size_reduction_percent": size_reduction,
+            },
+            "test_info": {
+                "num_test_images": len(all_metrics),
+                "test_images": [str(img) for img in test_images],
+            },
+        }
+
         logger.info("Validation results:")
         logger.info(f"  Images tested: {len(all_metrics)}")
         logger.info(f"  Max absolute difference: {max_diff:.6f}")
@@ -228,20 +313,41 @@ def validate_models(
         )
         logger.info(f"  RMSE: {avg_metrics['avg_rmse']:.6f}")
         logger.info(f"  Cosine similarity: {avg_metrics['avg_cosine_similarity']:.6f}")
+        logger.info(
+            f"  Original inference: {original_timing['mean_ms']:.1f} ± {original_timing['std_ms']:.1f} ms"
+        )
+        logger.info(
+            f"  Quantized inference: {quantized_timing['mean_ms']:.1f} ± {quantized_timing['std_ms']:.1f} ms"
+        )
+        logger.info(f"  Size reduction: {size_reduction:.1f}%")
 
         # Check if validation passes
         is_valid = max_diff <= tolerance
 
-        return is_valid, max_diff
+        return is_valid, max_diff, detailed_metrics
 
     except Exception as e:
         logger.error(f"Validation failed: {e}")
         raise
 
 
-def generate_validation_report(
-    original_model: Path, quantized_model: Path, test_images_dir: Path
-) -> dict[str, Any]:
+# Keep the original validate_models function for backward compatibility
+def validate_models(
+    original_model: Path,
+    quantized_model: Path,
+    test_images_dir: Path,
+    tolerance: float = 0.01,
+) -> tuple[bool, float]:
+    """
+    Validate quantized model against original model (backward compatibility).
+
+    Returns:
+        Tuple of (is_valid, max_difference)
+    """
+    is_valid, max_diff, _ = validate_models_with_timing(
+        original_model, quantized_model, test_images_dir, tolerance
+    )
+    return is_valid, max_diff
     """Generate a detailed validation report."""
     try:
         # Run validation

@@ -97,29 +97,64 @@ def calculate_file_checksum(file_path: Path) -> str:
 
 def collect_quantized_models(quantized_dir: Path, model_type: str) -> list[Path]:
     """Collect quantized model files for a specific model type."""
-    pattern = f"*{model_type}*.onnx"
-    model_files = list(quantized_dir.glob(pattern))
+    # Look for models with the specific type in the name
+    pattern_variants = [f"{model_type}-*.onnx", f"*{model_type}*.onnx"]
+
+    model_files = []
+    for pattern in pattern_variants:
+        model_files.extend(quantized_dir.glob(pattern))
 
     # Filter out files that don't contain quantization indicators
-    quantization_indicators = ["dynamic", "static", "int8"]
+    quantization_indicators = ["dynamic", "static", "int8", "fp16"]
     quantized_files = []
 
     for model_file in model_files:
         if any(indicator in model_file.name for indicator in quantization_indicators):
             quantized_files.append(model_file)
 
+    # Remove duplicates and sort
+    quantized_files = list(set(quantized_files))
+    quantized_files.sort(key=lambda x: x.name)
+
     logger.info(f"Found {len(quantized_files)} quantized {model_type} models")
     return quantized_files
 
 
-def generate_release_notes(model_files: list[Path], model_type: str) -> str:
-    """Generate release notes with model information and checksums."""
+def generate_release_notes(
+    model_files: list[Path],
+    model_type: str,
+    performance_table: str = "",
+    base_model_info: str = "",
+) -> str:
+    """Generate release notes with model information, checksums, and performance metrics."""
     notes = [f"# {model_type.title()} Model Quantizations"]
     notes.append("")
     notes.append(
-        "This release contains quantized versions of the Beaker bird detection models."
+        f"This release contains quantized versions of the Beaker {model_type} detection models "
+        "with optimizations and multiple quantization techniques."
     )
     notes.append("")
+
+    if base_model_info:
+        notes.append("## Base Model Information")
+        notes.append("")
+        notes.append(base_model_info)
+        notes.append("")
+
+    if performance_table:
+        notes.append("## Performance Metrics")
+        notes.append("")
+        notes.append(
+            "Performance measured on 4 example images with 5 inference runs each:"
+        )
+        notes.append("")
+        notes.append(performance_table)
+        notes.append("")
+        notes.append(
+            "**Note**: These metrics are based on a limited set of example images and may not be representative of general performance on diverse datasets."
+        )
+        notes.append("")
+
     notes.append("## Models Included")
     notes.append("")
 
@@ -128,8 +163,14 @@ def generate_release_notes(model_files: list[Path], model_type: str) -> str:
         size_mb = model_file.stat().st_size / (1024 * 1024)
 
         # Extract quantization type from filename
-        quantization_type = "unknown"
-        if "dynamic" in model_file.name:
+        quantization_type = "Unknown"
+        if "fp16" in model_file.name:
+            quantization_type = "FP16"
+        elif "dynamic-int8" in model_file.name:
+            quantization_type = "Dynamic INT8"
+        elif "static-int8" in model_file.name:
+            quantization_type = "Static INT8"
+        elif "dynamic" in model_file.name:
             quantization_type = "Dynamic"
         elif "static" in model_file.name:
             quantization_type = "Static"
@@ -148,21 +189,38 @@ def generate_release_notes(model_files: list[Path], model_type: str) -> str:
     notes.append("You can use them by setting the appropriate environment variables:")
     notes.append("")
     notes.append("```bash")
-    notes.append("# For head detection")
-    notes.append("export BEAKER_HEAD_MODEL_URL=<download_url>")
-    notes.append("beaker head image.jpg --crop")
-    notes.append("")
-    notes.append("# For cutout processing")
-    notes.append("export BEAKER_CUTOUT_MODEL_URL=<download_url>")
-    notes.append("beaker cutout image.jpg")
+    if model_type == "head":
+        notes.append("# For head detection")
+        notes.append("export BEAKER_HEAD_MODEL_URL=<download_url>")
+        notes.append("beaker head image.jpg --crop")
+    elif model_type == "cutout":
+        notes.append("# For cutout processing")
+        notes.append("export BEAKER_CUTOUT_MODEL_URL=<download_url>")
+        notes.append("beaker cutout image.jpg")
     notes.append("```")
     notes.append("")
-    notes.append("## Performance")
+
+    notes.append("## Optimizations Applied")
+    notes.append("")
+    notes.append("All models include the following optimizations:")
+    notes.append(
+        "- **ONNX Simplification**: Models are optimized using onnx-simplifier"
+    )
+    notes.append(
+        "- **Graph Optimization**: Redundant operations removed and computation graphs simplified"
+    )
+    notes.append(
+        "- **Quantization**: Multiple quantization levels available (FP16, Dynamic INT8, Static INT8)"
+    )
+    notes.append("")
+
+    notes.append("## Model Comparison")
     notes.append("")
     notes.append("Quantized models typically provide:")
-    notes.append("- Reduced model size (50-75% smaller)")
-    notes.append("- Faster inference on CPU")
-    notes.append("- Minimal accuracy loss (<1% in most cases)")
+    notes.append("- **Reduced model size**: 50-75% smaller file size")
+    notes.append("- **Faster CPU inference**: Improved performance on CPU-only systems")
+    notes.append("- **Maintained accuracy**: Minimal accuracy loss (typically <1%)")
+    notes.append("- **Better compatibility**: Optimized for deployment environments")
 
     return "\n".join(notes)
 
@@ -172,17 +230,24 @@ def create_github_release(
     title: str,
     notes: str,
     model_files: list[Path],
+    comparison_images: list[Path] = None,
     dry_run: bool = False,
 ) -> bool:
-    """Create a GitHub release with the specified models."""
+    """Create a GitHub release with the specified models and comparison images."""
     try:
         if dry_run:
             logger.info(
                 f"DRY RUN: Would create release '{tag_name}' with title '{title}'"
             )
-            logger.info(f"DRY RUN: Would upload {len(model_files)} files:")
+            logger.info(f"DRY RUN: Would upload {len(model_files)} model files:")
             for model_file in model_files:
                 logger.info(f"  - {model_file.name}")
+            if comparison_images:
+                logger.info(
+                    f"DRY RUN: Would upload {len(comparison_images)} comparison images:"
+                )
+                for img_file in comparison_images:
+                    logger.info(f"  - {img_file.name}")
             logger.info("DRY RUN: Release notes:")
             for line in notes.split("\n")[:10]:  # Show first 10 lines
                 logger.info(f"    {line}")
@@ -207,6 +272,11 @@ def create_github_release(
         # Add model files
         for model_file in model_files:
             cmd.append(str(model_file))
+
+        # Add comparison images if provided
+        if comparison_images:
+            for img_file in comparison_images:
+                cmd.append(str(img_file))
 
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
 
@@ -246,7 +316,13 @@ def check_release_exists(tag_name: str) -> bool:
 
 
 def upload_quantizations(
-    quantized_dir: Path, model_type: str, version: str, dry_run: bool = False
+    quantized_dir: Path,
+    model_type: str,
+    version: str,
+    dry_run: bool = False,
+    performance_table: str = "",
+    comparison_images: list[Path] = None,
+    base_model_info: str = "",
 ) -> bool:
     """Upload quantized models to GitHub releases."""
     try:
@@ -270,7 +346,9 @@ def upload_quantizations(
         # Generate release information
         tag_name = f"{model_type}-quantizations-{version}"
         title = f"{model_type.title()} Model Quantizations {version}"
-        notes = generate_release_notes(model_files, model_type)
+        notes = generate_release_notes(
+            model_files, model_type, performance_table, base_model_info
+        )
 
         # Check if release already exists
         if check_release_exists(tag_name):
@@ -293,12 +371,18 @@ def upload_quantizations(
                 )
 
         # Create the release
-        success = create_github_release(tag_name, title, notes, model_files, dry_run)
+        success = create_github_release(
+            tag_name, title, notes, model_files, comparison_images, dry_run
+        )
 
         if success:
             logger.info(
                 f"Successfully {'would upload' if dry_run else 'uploaded'} {len(model_files)} quantized models"
             )
+            if comparison_images:
+                logger.info(
+                    f"{'Would include' if dry_run else 'Included'} {len(comparison_images)} comparison images"
+                )
 
         return success
 

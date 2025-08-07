@@ -4,12 +4,14 @@ Quantize ONNX models using different techniques.
 
 import logging
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
 import cv2
 import numpy as np
 import onnx
+import onnxsim
 from onnxruntime.quantization import QuantType, quantize_dynamic, quantize_static
 from onnxruntime.quantization.calibrate import CalibrationDataReader
 
@@ -63,7 +65,85 @@ class ImageCalibrationDataReader(CalibrationDataReader):
             return self.get_next()  # Try next image
 
 
-def get_model_input_name(model_path: Path) -> str:
+def optimize_model(model_path: Path, output_path: Path) -> bool:
+    """Optimize and simplify an ONNX model using onnx-simplifier."""
+    try:
+        logger.info(f"Optimizing model {model_path.name}")
+
+        # Load the model
+        model = onnx.load(str(model_path))
+
+        # Simplify the model
+        model_simplified, check = onnxsim.simplify(model)
+
+        if check:
+            # Save the optimized model
+            onnx.save(model_simplified, str(output_path))
+            logger.info(f"Model optimized and saved: {output_path}")
+            return True
+        else:
+            logger.warning(f"Model simplification check failed for {model_path.name}")
+            # Copy original if simplification fails
+            import shutil
+
+            shutil.copy2(model_path, output_path)
+            return False
+
+    except Exception as e:
+        logger.error(f"Model optimization failed: {e}")
+        # Copy original if optimization fails
+        import shutil
+
+        shutil.copy2(model_path, output_path)
+        return False
+
+
+def quantize_fp16_model(model_path: Path, output_path: Path) -> bool:
+    """Apply FP16 quantization to a model by converting weights to float16."""
+    try:
+        logger.info(f"Applying FP16 quantization to {model_path.name}")
+
+        # Load the model
+        model = onnx.load(str(model_path))
+
+        # Convert model to FP16
+        from onnx import numpy_helper
+
+        # Create a copy for modification
+        model_fp16 = onnx.ModelProto()
+        model_fp16.CopyFrom(model)
+
+        # Convert initializers (weights) to FP16
+        for initializer in model_fp16.graph.initializer:
+            if initializer.data_type == onnx.TensorProto.FLOAT:
+                # Convert float32 to float16
+                float32_data = numpy_helper.to_array(initializer)
+                float16_data = float32_data.astype(np.float16)
+
+                # Create new initializer with FP16 data
+                new_initializer = numpy_helper.from_array(
+                    float16_data, initializer.name
+                )
+
+                # Replace the initializer
+                initializer.ClearField("float_data")
+                initializer.ClearField("raw_data")
+                initializer.data_type = onnx.TensorProto.FLOAT16
+                initializer.raw_data = new_initializer.raw_data
+
+        # Convert value info types
+        for value_info in model_fp16.graph.value_info:
+            if value_info.type.tensor_type.elem_type == onnx.TensorProto.FLOAT:
+                value_info.type.tensor_type.elem_type = onnx.TensorProto.FLOAT16
+
+        # Save the FP16 model
+        onnx.save(model_fp16, str(output_path))
+        logger.info(f"FP16 quantization complete: {output_path}")
+        return True
+
+    except Exception as e:
+        logger.error(f"FP16 quantization failed: {e}")
+        return False
     """Get the input tensor name from an ONNX model."""
     try:
         model = onnx.load(str(model_path))
@@ -143,14 +223,44 @@ def quantize_model(model_path: Path, output_dir: Path, quantization_level: str) 
     """Quantize a model at the specified level."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Generate output filename
+    # Generate output filename with better naming
     stem = model_path.stem
     suffix = model_path.suffix
-    output_name = f"{stem}-{quantization_level}{suffix}"
+
+    # Determine model type from path or filename
+    model_type = "unknown"
+    if "head" in str(model_path).lower() or "best" in stem.lower():
+        model_type = "head"
+    elif "cutout" in str(model_path).lower():
+        model_type = "cutout"
+
+    # Create descriptive filename
+    if quantization_level == "fp16":
+        output_name = f"{model_type}-fp16{suffix}"
+    elif quantization_level == "dynamic":
+        output_name = f"{model_type}-dynamic-int8{suffix}"
+    elif quantization_level == "static":
+        output_name = f"{model_type}-static-int8{suffix}"
+    elif quantization_level == "int8":
+        output_name = f"{model_type}-static-int8{suffix}"
+    else:
+        output_name = f"{model_type}-{quantization_level}{suffix}"
+
     output_path = output_dir / output_name
 
-    if quantization_level == "dynamic":
-        success = quantize_dynamic_model(model_path, output_path)
+    # First optimize the model if not already optimized
+    if "optimized" not in stem:
+        optimized_path = output_dir / f"{stem}-optimized{suffix}"
+        optimize_model(model_path, optimized_path)
+        working_model = optimized_path
+    else:
+        working_model = model_path
+
+    if quantization_level == "fp16":
+        success = quantize_fp16_model(working_model, output_path)
+
+    elif quantization_level == "dynamic":
+        success = quantize_dynamic_model(working_model, output_path)
 
     elif quantization_level == "static":
         # Find calibration images
@@ -161,15 +271,17 @@ def quantize_model(model_path: Path, output_dir: Path, quantization_level: str) 
             logger.warning(
                 "No calibration images found, falling back to dynamic quantization"
             )
-            output_name = f"{stem}-dynamic{suffix}"
+            output_name = f"{model_type}-dynamic-int8{suffix}"
             output_path = output_dir / output_name
-            success = quantize_dynamic_model(model_path, output_path)
+            success = quantize_dynamic_model(working_model, output_path)
         else:
-            input_name = get_model_input_name(model_path)
+            input_name = get_model_input_name(working_model)
             calibration_reader = ImageCalibrationDataReader(
                 calibration_images, input_name
             )
-            success = quantize_static_model(model_path, output_path, calibration_reader)
+            success = quantize_static_model(
+                working_model, output_path, calibration_reader
+            )
 
     elif quantization_level == "int8":
         # For now, int8 quantization is the same as static quantization
@@ -181,15 +293,17 @@ def quantize_model(model_path: Path, output_dir: Path, quantization_level: str) 
             logger.warning(
                 "No calibration images found, falling back to dynamic quantization"
             )
-            output_name = f"{stem}-dynamic{suffix}"
+            output_name = f"{model_type}-dynamic-int8{suffix}"
             output_path = output_dir / output_name
-            success = quantize_dynamic_model(model_path, output_path)
+            success = quantize_dynamic_model(working_model, output_path)
         else:
-            input_name = get_model_input_name(model_path)
+            input_name = get_model_input_name(working_model)
             calibration_reader = ImageCalibrationDataReader(
                 calibration_images, input_name
             )
-            success = quantize_static_model(model_path, output_path, calibration_reader)
+            success = quantize_static_model(
+                working_model, output_path, calibration_reader
+            )
 
     else:
         raise ValueError(f"Unsupported quantization level: {quantization_level}")
@@ -220,3 +334,57 @@ def get_quantization_info(original_path: Path, quantized_path: Path) -> dict[str
         if quantized_size > 0
         else 0,
     }
+
+
+def measure_inference_time(
+    model_path: Path, test_images: list[Path], num_runs: int = 5
+) -> dict[str, float]:
+    """Measure inference time for a model on test images."""
+    import onnxruntime as ort
+
+    try:
+        # Create inference session
+        providers = ["CPUExecutionProvider"]
+        session = ort.InferenceSession(str(model_path), providers=providers)
+        input_name = session.get_inputs()[0].name
+
+        times = []
+
+        for image_path in test_images:
+            image_times = []
+
+            # Preprocess image once
+            try:
+                image = cv2.imread(str(image_path))
+                if image is None:
+                    continue
+                image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                image = cv2.resize(image, (640, 640), interpolation=cv2.INTER_LINEAR)
+                image = image.astype(np.float32) / 255.0
+                image = np.transpose(image, (2, 0, 1))
+                image = np.expand_dims(image, axis=0)
+            except:
+                continue
+
+            # Run multiple times for this image
+            for _ in range(num_runs):
+                start_time = time.time()
+                session.run(None, {input_name: image})
+                end_time = time.time()
+                image_times.append((end_time - start_time) * 1000)  # Convert to ms
+
+            times.extend(image_times)
+
+        if not times:
+            return {"mean_ms": 0.0, "std_ms": 0.0, "min_ms": 0.0, "max_ms": 0.0}
+
+        return {
+            "mean_ms": float(np.mean(times)),
+            "std_ms": float(np.std(times)),
+            "min_ms": float(np.min(times)),
+            "max_ms": float(np.max(times)),
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to measure inference time for {model_path}: {e}")
+        return {"mean_ms": 0.0, "std_ms": 0.0, "min_ms": 0.0, "max_ms": 0.0}
