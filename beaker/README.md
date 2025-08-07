@@ -106,7 +106,15 @@ after installing `rembg`. The full results on a M1 macbook pro are in [benchmark
 
 The following environment variables can be used to customize model behavior:
 
+### Head Detection Model
 - `BEAKER_HEAD_MODEL_PATH`: Override the embedded head detection model with a custom ONNX model file
+
+### Cutout Model
+- `BEAKER_CUTOUT_MODEL_PATH`: Override the default cutout model with a custom ONNX model file
+- `BEAKER_CUTOUT_MODEL_URL`: Use a custom download URL for the cutout model
+- `BEAKER_CUTOUT_MODEL_CHECKSUM`: Specify custom MD5 checksum for the cutout model
+
+### General Configuration
 - `ONNX_MODEL_CACHE_DIR`: Set custom cache directory for downloaded models (default: system cache directory)
 - `RUST_LOG`: Control log level (e.g., `RUST_LOG=debug` for detailed logging)
 
@@ -114,11 +122,19 @@ The following environment variables can be used to customize model behavior:
 
 ```bash
 # Use custom head detection model
-BEAKER_HEAD_MODEL_PATH=/path/to/my/model.onnx ./target/release/beaker head example.jpg
+BEAKER_HEAD_MODEL_PATH=/path/to/my/head_model.onnx ./target/release/beaker head example.jpg
+
+# Use custom cutout model from local file
+BEAKER_CUTOUT_MODEL_PATH=/path/to/my/cutout_model.onnx ./target/release/beaker cutout example.jpg
+
+# Use custom cutout model from alternative URL with custom checksum
+BEAKER_CUTOUT_MODEL_URL=https://example.com/my_cutout_model.onnx \
+BEAKER_CUTOUT_MODEL_CHECKSUM=abcd1234567890abcd1234567890abcd \
+./target/release/beaker cutout example.jpg
 
 # Set custom cache directory
 ONNX_MODEL_CACHE_DIR=~/.my_cache ./target/release/beaker cutout example.jpg
 
-# Enable debug logging
+# Enable debug logging to see model loading details
 RUST_LOG=debug ./target/release/beaker head example.jpg --crop
 ```

@@ -3,7 +3,8 @@ use crate::cutout_postprocessing::{
     apply_alpha_matting, create_cutout, create_cutout_with_background, postprocess_mask,
 };
 use crate::cutout_preprocessing::preprocess_image_for_isnet_v2;
-use crate::model_cache::{get_or_download_model, ModelInfo};
+use crate::model_access::CutoutModelAccess;
+use crate::model_cache::ModelInfo;
 use crate::onnx_session::ModelSource;
 use crate::output_manager::OutputManager;
 use anyhow::Result;
@@ -12,7 +13,7 @@ use log::debug;
 use ort::{session::Session, value::Value};
 use serde::Serialize;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Instant;
 
 /// ISNet General Use model information
@@ -73,13 +74,9 @@ impl ModelProcessor for CutoutProcessor {
     type Result = CutoutResult;
 
     fn get_model_source<'a>() -> Result<ModelSource<'a>> {
-        let model_path: PathBuf = get_or_download_model(&CUTOUT_MODEL_INFO)?;
-        let path_str = model_path
-            .to_str()
-            .ok_or_else(|| anyhow::anyhow!("Model path is not valid UTF-8"))?;
-
-        let model_source = ModelSource::FilePath(path_str.to_string());
-        Ok(model_source)
+        // Use the new model access interface for cutout models
+        use crate::model_access::ModelAccess;
+        CutoutModelAccess::get_model_source()
     }
 
     fn process_single_image(
