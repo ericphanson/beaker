@@ -11,6 +11,19 @@ use std::fs;
 // Import model cache function
 use crate::model_cache::get_coreml_cache_dir;
 
+/// Clear the CoreML cache directory to resolve conflicts
+fn clear_coreml_cache(cache_dir: &std::path::Path) -> Result<()> {
+    if cache_dir.exists() {
+        log::debug!(
+            "🗑️  Removing CoreML cache directory: {}",
+            cache_dir.display()
+        );
+        fs::remove_dir_all(cache_dir)
+            .map_err(|e| anyhow::anyhow!("Failed to remove CoreML cache directory: {}", e))?;
+    }
+    Ok(())
+}
+
 fn log_level_from_ort(level: LogLevel) -> Level {
     match level {
         LogLevel::Verbose => Level::Trace,
@@ -169,27 +182,63 @@ pub fn create_onnx_session(
     .map(ort_level_from_log)
     .unwrap_or(LogLevel::Fatal);
 
-    let build_session = |bytes: &[u8]| {
-        Session::builder()
-            .map_err(|e| anyhow::anyhow!("Failed to create session builder: {}", e))?
-            .with_logger(Box::new(|level, _, _, _, msg| {
-                // we will just relog to our standard logger with `log!`
-                // after choosing the appropriate log level
-                let log_level = log_level_from_ort(level);
-                log::log!(log_level, "[onnx] {msg}")
-            }))
-            .map_err(|e| anyhow::anyhow!("Failed to set logger: {}", e))?
-            .with_log_level(ort_log_level)
-            .map_err(|e| anyhow::anyhow!("Failed to set log level: {}", e))?
-            .with_execution_providers(execution_providers)
-            .map_err(|e| anyhow::anyhow!("Failed to set execution providers: {}", e))?
-            .commit_from_memory(bytes)
-            .map_err(|e| anyhow::anyhow!("Failed to load model from memory: {}", e))
+    let build_session_with_retry = |bytes: &[u8]| -> Result<Session> {
+        for retry_count in 0..=3 {
+            let result = Session::builder()
+                .map_err(|e| anyhow::anyhow!("Failed to create session builder: {}", e))?
+                .with_logger(Box::new(|level, _, _, _, msg| {
+                    // we will just relog to our standard logger with `log!`
+                    // after choosing the appropriate log level
+                    let log_level = log_level_from_ort(level);
+                    log::log!(log_level, "[onnx] {msg}")
+                }))
+                .map_err(|e| anyhow::anyhow!("Failed to set logger: {}", e))?
+                .with_log_level(ort_log_level)
+                .map_err(|e| anyhow::anyhow!("Failed to set log level: {}", e))?
+                .with_execution_providers(execution_providers.clone())
+                .map_err(|e| anyhow::anyhow!("Failed to set execution providers: {}", e))?
+                .commit_from_memory(bytes);
+
+            match result {
+                Ok(session) => return Ok(session),
+                Err(e) => {
+                    let error_msg = e.to_string();
+
+                    // Check if this is a CoreML cache conflict and we can retry
+                    if error_msg.contains("item with the same name already exists")
+                        && error_msg.contains("compiled_model.mlmodelc")
+                        && retry_count < 3
+                    {
+                        log::warn!("🔄 CoreML cache conflict detected, attempting cache invalidation (attempt {}/3)", retry_count + 1);
+                        log::warn!("   Error: {error_msg}");
+
+                        // Try to clear the CoreML cache and retry
+                        if let Some(cache_dir) = &coreml_cache_dir {
+                            if let Err(clear_err) = clear_coreml_cache(cache_dir) {
+                                log::warn!("⚠️  Failed to clear CoreML cache: {clear_err}");
+                            } else {
+                                log::debug!("🗑️  Cleared CoreML cache directory");
+                            }
+
+                            // Add a small delay to avoid race conditions
+                            std::thread::sleep(std::time::Duration::from_millis(
+                                100 + retry_count * 50,
+                            ));
+                            continue; // Retry the operation
+                        }
+                    }
+
+                    // If not a retryable error or max retries reached
+                    return Err(anyhow::anyhow!("Failed to load model from memory: {}", e));
+                }
+            }
+        }
+        unreachable!("Loop should have returned before this point")
     };
 
     let (session, model_info) = match model_source {
         ModelSource::EmbeddedBytes(bytes) => {
-            let session = build_session(bytes)?;
+            let session = build_session_with_retry(bytes)?;
             let info: ModelInfo = ModelInfo {
                 model_source: "embedded".to_string(),
                 model_path: None,
@@ -205,7 +254,7 @@ pub fn create_onnx_session(
         ModelSource::FilePath(path) => {
             let model_bytes =
                 fs::read(&path).map_err(|e| anyhow::anyhow!("Failed to read model file: {}", e))?;
-            let session = build_session(&model_bytes)?;
+            let session = build_session_with_retry(&model_bytes)?;
             let info = ModelInfo {
                 model_source: "file".to_string(),
                 model_path: Some(path.clone()),
