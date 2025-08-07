@@ -1,3 +1,7 @@
+> Vigorous writing is concise. A sentence should contain no unnecessary words, a paragraph no unnecessary sentences, for the same reason that a drawing should have no unnecessary lines and a machine no unnecessary parts. This requires not that the writer make all his sentences short, or that he avoid all detail and treat his subjects only in outline, but that he make every word tell.
+
+— "Elementary Principles of Composition", _The Elements of Style_
+
 # Agent Development Guide
 
 This document outlines the checks and procedures that must pass before committing changes to ensure PRs pass CI on the first attempt.
