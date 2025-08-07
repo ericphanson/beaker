@@ -101,3 +101,24 @@ after installing `rembg`. The full results on a M1 macbook pro are in [benchmark
 - Small head model is 4x slower to load with CoreML (156ms vs 40ms) but 2.3x faster (25ms vs 57ms). Worth it for batches, not single images
 - Larger `isnet-general-use` model for background removal is worth loading with CoreML even for single images. And CoreML provides 2-3x speedup for batches.
 - rembg here is only configured with ONNX on CPU. It has some overhead relative to beaker but that overhead is amortized over batches, so it comes out to the approximately the same time as beaker on CPU in the batch case.
+
+## Environment Variables
+
+The following environment variables can be used to customize model behavior:
+
+- `BEAKER_HEAD_MODEL_PATH`: Override the embedded head detection model with a custom ONNX model file
+- `ONNX_MODEL_CACHE_DIR`: Set custom cache directory for downloaded models (default: system cache directory)
+- `RUST_LOG`: Control log level (e.g., `RUST_LOG=debug` for detailed logging)
+
+### Example Usage
+
+```bash
+# Use custom head detection model
+BEAKER_HEAD_MODEL_PATH=/path/to/my/model.onnx ./target/release/beaker head example.jpg
+
+# Set custom cache directory
+ONNX_MODEL_CACHE_DIR=~/.my_cache ./target/release/beaker cutout example.jpg
+
+# Enable debug logging
+RUST_LOG=debug ./target/release/beaker head example.jpg --crop
+```

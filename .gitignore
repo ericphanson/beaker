@@ -26,3 +26,6 @@ beaker/*.gif
 beaker/*.webp
 beaker/*.tiff
 beaker/*.tif
+*.png
+*_bounding-box.jpg
+*_cutout.*

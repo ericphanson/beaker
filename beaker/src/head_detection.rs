@@ -7,6 +7,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use crate::config::HeadDetectionConfig;
+use crate::model_access::{HeadModelAccess, ModelAccess};
 use crate::model_processing::{ModelProcessor, ModelResult};
 use crate::onnx_session::ModelSource;
 use crate::output_manager::OutputManager;
@@ -17,7 +18,7 @@ use crate::yolo_preprocessing::preprocess_image;
 use log::debug;
 
 // Embed the ONNX model at compile time
-const MODEL_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/bird-head-detector.onnx"));
+pub const MODEL_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/bird-head-detector.onnx"));
 
 // Get model version from build script
 pub const MODEL_VERSION: &str =
@@ -169,7 +170,7 @@ impl ModelProcessor for HeadProcessor {
     type Result = HeadDetectionResult;
 
     fn get_model_source<'a>() -> Result<ModelSource<'a>> {
-        Ok(ModelSource::EmbeddedBytes(MODEL_BYTES))
+        HeadModelAccess::get_model_source()
     }
 
     fn process_single_image(

@@ -1,10 +1,10 @@
 ## Summary
 
 - **Cutout Main Code**: 312 (Tests: 44)  
-- **Head Main Code**: 487 (Tests: 0)  
-- **Common Main Code**: 1869 (Tests: 1192)  
-- **Total Main Code (excluding build.rs)**: 2668  
-- **Total Main Code (including build.rs)**: 2827 (Reported: 2827)  
+- **Head Main Code**: 488 (Tests: 0)  
+- **Common Main Code**: 1924 (Tests: 1253)  
+- **Total Main Code (excluding build.rs)**: 2724  
+- **Total Main Code (including build.rs)**: 2883 (Reported: 2883)  
 ✅ Totals match.
 
 ## Raw Counts
@@ -36,10 +36,10 @@ Total| 132          | 28           | 4            | 13           | 177
 File name: ./beaker/src/lib.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 15           | 1            | 4            | 0            | 20          
+Main         | 16           | 1            | 4            | 0            | 21          
 Tests        | 0            | 0            | 0            | 0            | 0           
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 15           | 1            | 4            | 0            | 20          
+Total| 16           | 1            | 4            | 0            | 21          
 
 File name: ./beaker/src/image_input.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -76,10 +76,10 @@ Total| 250          | 51           | 42           | 6            | 349
 File name: ./beaker/src/main.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 187          | 25           | 3            | 16           | 231         
+Main         | 188          | 25           | 3            | 16           | 232         
 Tests        | 0            | 0            | 0            | 0            | 0           
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 187          | 25           | 3            | 16           | 231         
+Total| 188          | 25           | 3            | 16           | 232         
 
 File name: ./beaker/src/yolo_postprocessing.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -97,6 +97,14 @@ Tests        | 14           | 3            | 0            | 2            | 19
 Examples     | 0            | 0            | 0            | 0            | 0           
 Total| 50           | 13           | 1            | 9            | 73          
 
+File name: ./beaker/src/model_access.rs
+Type         | Code         | Blank        | Doc comments | Comments     | Total       
+-------------|--------------|--------------|--------------|--------------|-------------
+Main         | 53           | 17           | 15           | 10           | 95          
+Tests        | 61           | 14           | 0            | 6            | 81          
+Examples     | 0            | 0            | 0            | 0            | 0           
+Total| 114          | 31           | 15           | 16           | 176         
+
 File name: ./beaker/src/color_utils.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
@@ -108,10 +116,10 @@ Total| 215          | 39           | 32           | 9            | 295
 File name: ./beaker/src/head_detection.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 187          | 37           | 5            | 16           | 245         
+Main         | 188          | 37           | 5            | 16           | 246         
 Tests        | 0            | 0            | 0            | 0            | 0           
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 187          | 37           | 5            | 16           | 245         
+Total| 188          | 37           | 5            | 16           | 246         
 
 File name: ./beaker/src/cutout_postprocessing.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -177,10 +185,10 @@ Tests        | 195          | 3            | 1            | 7            | 206
 Examples     | 0            | 0            | 0            | 0            | 0           
 Total| 195          | 3            | 1            | 7            | 206         
 
-File count: 21
+File count: 22
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 2827         | 520          | 188          | 242          | 3777        
-Tests        | 1236         | 177          | 23           | 78           | 1514        
+Main         | 2883         | 537          | 203          | 252          | 3875        
+Tests        | 1297         | 191          | 23           | 84           | 1595        
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 4063         | 697          | 211          | 320          | 5291        
+Total| 4180         | 728          | 226          | 336          | 5470        
