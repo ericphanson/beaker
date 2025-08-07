@@ -2,9 +2,9 @@
 
 - **Cutout Main Code**: 312 (Tests: 44)  
 - **Head Main Code**: 487 (Tests: 0)  
-- **Common Main Code**: 1569 (Tests: 1177)  
-- **Total Main Code (excluding build.rs)**: 2368  
-- **Total Main Code (including build.rs)**: 2518 (Reported: 2518)  
+- **Common Main Code**: 1689 (Tests: 1183)  
+- **Total Main Code (excluding build.rs)**: 2488  
+- **Total Main Code (including build.rs)**: 2638 (Reported: 2638)  
 ✅ Totals match.
 
 ## Raw Counts
@@ -124,10 +124,10 @@ Total| 174          | 37           | 6            | 24           | 241
 File name: ./beaker/src/model_cache.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 90           | 19           | 7            | 6            | 122         
-Tests        | 25           | 4            | 0            | 0            | 29          
+Main         | 210          | 45           | 8            | 12           | 275         
+Tests        | 31           | 6            | 0            | 3            | 40          
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 115          | 23           | 7            | 6            | 151         
+Total| 241          | 51           | 8            | 15           | 315         
 
 File name: ./beaker/src/yolo_preprocessing.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -180,7 +180,7 @@ Total| 195          | 3            | 1            | 7            | 206
 File count: 21
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 2518         | 456          | 184          | 207          | 3365        
-Tests        | 1221         | 173          | 23           | 71           | 1488        
+Main         | 2638         | 482          | 185          | 213          | 3518        
+Tests        | 1227         | 175          | 23           | 74           | 1499        
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 3739         | 629          | 207          | 278          | 4853        
+Total| 3865         | 657          | 208          | 287          | 5017        
