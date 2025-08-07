@@ -3,8 +3,7 @@ use crate::cutout_postprocessing::{
     apply_alpha_matting, create_cutout, create_cutout_with_background, postprocess_mask,
 };
 use crate::cutout_preprocessing::preprocess_image_for_isnet_v2;
-use crate::model_access::CutoutModelAccess;
-use crate::model_cache::ModelInfo;
+use crate::model_access::{get_model_source_with_env_override, ModelAccess, ModelInfo};
 use crate::onnx_session::ModelSource;
 use crate::output_manager::OutputManager;
 use anyhow::Result;
@@ -17,12 +16,44 @@ use std::path::Path;
 use std::time::Instant;
 
 /// ISNet General Use model information
-pub const CUTOUT_MODEL_INFO: ModelInfo = ModelInfo {
-    name: "isnet-general-use-v1",
-    url: "https://github.com/ericphanson/beaker/releases/download/beaker-cutout-model-v1/isnet-general-use.onnx",
-    md5_checksum: "fc16ebd8b0c10d971d3513d564d01e29",
-    filename: "isnet-general-use.onnx",
-};
+pub fn get_cutout_model_info() -> ModelInfo {
+    ModelInfo {
+        name: "isnet-general-use-v1".to_string(),
+        url: "https://github.com/ericphanson/beaker/releases/download/beaker-cutout-model-v1/isnet-general-use.onnx".to_string(),
+        md5_checksum: "fc16ebd8b0c10d971d3513d564d01e29".to_string(),
+        filename: "isnet-general-use.onnx".to_string(),
+    }
+}
+
+/// Cutout model access implementation.
+pub struct CutAccess;
+
+impl ModelAccess for CutAccess {
+    fn get_model_source<'a>() -> Result<ModelSource<'a>> {
+        get_model_source_with_env_override::<Self>()
+    }
+
+    fn get_embedded_bytes() -> Option<&'static [u8]> {
+        // Cutout models are not embedded, they are downloaded
+        None
+    }
+
+    fn get_env_var_name() -> &'static str {
+        "BEAKER_CUTOUT_MODEL_PATH"
+    }
+
+    fn get_url_env_var_name() -> Option<&'static str> {
+        Some("BEAKER_CUTOUT_MODEL_URL")
+    }
+
+    fn get_checksum_env_var_name() -> Option<&'static str> {
+        Some("BEAKER_CUTOUT_MODEL_CHECKSUM")
+    }
+
+    fn get_base_model_info() -> Option<ModelInfo> {
+        Some(get_cutout_model_info())
+    }
+}
 
 /// Core results for enhanced metadata (without config duplication)
 #[derive(Serialize)]
@@ -75,8 +106,7 @@ impl ModelProcessor for CutoutProcessor {
 
     fn get_model_source<'a>() -> Result<ModelSource<'a>> {
         // Use the new model access interface for cutout models
-        use crate::model_access::ModelAccess;
-        CutoutModelAccess::get_model_source()
+        CutAccess::get_model_source()
     }
 
     fn process_single_image(
@@ -160,7 +190,7 @@ impl ModelProcessor for CutoutProcessor {
         // Create result with timing information
         let cutout_result = CutoutResult {
             output_path: output_path.to_string_lossy().to_string(),
-            model_version: CUTOUT_MODEL_INFO.name.to_string(),
+            model_version: get_cutout_model_info().name,
             processing_time_ms: processing_time,
             mask_path: mask_path.map(|p| p.to_string_lossy().to_string()),
         };
@@ -170,5 +200,151 @@ impl ModelProcessor for CutoutProcessor {
 
     fn serialize_config(config: &Self::Config) -> Result<toml::Value> {
         Ok(toml::Value::try_from(config)?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn test_cut_access_env_vars() {
+        // Test environment variable names
+        assert_eq!(CutAccess::get_env_var_name(), "BEAKER_CUTOUT_MODEL_PATH");
+        assert_eq!(
+            CutAccess::get_url_env_var_name(),
+            Some("BEAKER_CUTOUT_MODEL_URL")
+        );
+        assert_eq!(
+            CutAccess::get_checksum_env_var_name(),
+            Some("BEAKER_CUTOUT_MODEL_CHECKSUM")
+        );
+    }
+
+    #[test]
+    fn test_cut_access_no_embedded_bytes() {
+        let bytes = CutAccess::get_embedded_bytes();
+        assert!(
+            bytes.is_none(),
+            "Cutout model should not have embedded bytes"
+        );
+    }
+
+    #[test]
+    fn test_cut_access_has_base_info() {
+        let model_info = CutAccess::get_base_model_info();
+        assert!(
+            model_info.is_some(),
+            "Cutout model should have base model info"
+        );
+
+        let info = model_info.unwrap();
+        assert_eq!(info.name, "isnet-general-use-v1");
+        assert!(info.url.contains("isnet-general-use.onnx"));
+        assert!(!info.md5_checksum.is_empty());
+        assert_eq!(info.filename, "isnet-general-use.onnx");
+    }
+
+    #[test]
+    fn test_cut_access_path_override() {
+        // Clean up any existing env vars
+        env::remove_var("BEAKER_CUTOUT_MODEL_PATH");
+        env::remove_var("BEAKER_CUTOUT_MODEL_URL");
+        env::remove_var("BEAKER_CUTOUT_MODEL_CHECKSUM");
+
+        // Create a temporary file to act as a model
+        let temp_file = NamedTempFile::new().unwrap();
+        let temp_path = temp_file.path().to_str().unwrap();
+
+        // Set environment variable for path override
+        env::set_var("BEAKER_CUTOUT_MODEL_PATH", temp_path);
+
+        let source = CutAccess::get_model_source().unwrap();
+
+        match source {
+            ModelSource::FilePath(path) => {
+                assert_eq!(path, temp_path);
+            }
+            _ => panic!("Expected file path when env var is set"),
+        }
+
+        // Clean up
+        env::remove_var("BEAKER_CUTOUT_MODEL_PATH");
+    }
+
+    #[test]
+    fn test_cut_access_invalid_path() {
+        // Clean up any existing env vars
+        env::remove_var("BEAKER_CUTOUT_MODEL_PATH");
+        env::remove_var("BEAKER_CUTOUT_MODEL_URL");
+        env::remove_var("BEAKER_CUTOUT_MODEL_CHECKSUM");
+
+        // Set environment variable to non-existent path
+        env::set_var("BEAKER_CUTOUT_MODEL_PATH", "/non/existent/path.onnx");
+
+        let result = CutAccess::get_model_source();
+        assert!(result.is_err(), "Should fail with non-existent path");
+
+        let error_msg = result.err().unwrap().to_string();
+        assert!(
+            error_msg.contains("does not exist"),
+            "Error should mention non-existent path"
+        );
+
+        // Clean up
+        env::remove_var("BEAKER_CUTOUT_MODEL_PATH");
+    }
+
+    #[test]
+    fn test_get_cutout_model_info() {
+        let model_info = get_cutout_model_info();
+        assert_eq!(model_info.name, "isnet-general-use-v1");
+        assert!(model_info.url.contains("isnet-general-use.onnx"));
+        assert!(!model_info.md5_checksum.is_empty());
+        assert_eq!(model_info.filename, "isnet-general-use.onnx");
+    }
+
+    #[test]
+    fn test_runtime_model_info_with_cutout_overrides() {
+        use crate::model_access::RuntimeModelInfo;
+
+        // Test RuntimeModelInfo creation with env var overrides
+        let base_info = get_cutout_model_info();
+
+        // Test without any env vars (should use base info)
+        env::remove_var("TEST_URL");
+        env::remove_var("TEST_CHECKSUM");
+
+        let runtime_info = RuntimeModelInfo::from_model_info_with_overrides(
+            &base_info,
+            Some("TEST_URL"),
+            Some("TEST_CHECKSUM"),
+        );
+
+        assert_eq!(runtime_info.name, base_info.name);
+        assert_eq!(runtime_info.url, base_info.url);
+        assert_eq!(runtime_info.md5_checksum, base_info.md5_checksum);
+        assert_eq!(runtime_info.filename, base_info.filename);
+
+        // Test with env var overrides
+        env::set_var("TEST_URL", "https://custom-domain.test/custom.onnx");
+        env::set_var("TEST_CHECKSUM", "abcd1234");
+
+        let runtime_info = RuntimeModelInfo::from_model_info_with_overrides(
+            &base_info,
+            Some("TEST_URL"),
+            Some("TEST_CHECKSUM"),
+        );
+
+        assert_eq!(runtime_info.name, base_info.name);
+        assert_eq!(runtime_info.url, "https://custom-domain.test/custom.onnx");
+        assert_eq!(runtime_info.md5_checksum, "abcd1234");
+        assert_eq!(runtime_info.filename, base_info.filename);
+
+        // Clean up
+        env::remove_var("TEST_URL");
+        env::remove_var("TEST_CHECKSUM");
     }
 }

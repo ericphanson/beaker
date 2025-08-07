@@ -166,6 +166,14 @@ cp ../example.jpg .
 - **Breaking changes are acceptable**: Don't prioritize backwards compatibility at this development stage
 - **No test artifacts**: Do not commit test output files (*.beaker.toml, *.beaker.json), temporary files, or build artifacts
 
+### PR Summary Guidelines
+When summarizing updates and changes, provide:
+- **Factual technical details**: What was implemented and how it works
+- **Pros and cons**: Honest assessment of benefits and limitations of the approach taken
+- **Alternative approaches considered**: Brief mention of other options that were evaluated and why they were not chosen
+- **Engineering rationale**: Context-driven decisions considering use cases, constraints, and pragmatic trade-offs
+- **Avoid "selling"**: Focus on rational engineering decisions rather than promotional language
+
 ## Complete Pre-Commit Checklist
 
 Before committing, ensure all these pass:

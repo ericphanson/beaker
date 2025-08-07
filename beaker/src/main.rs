@@ -11,7 +11,6 @@ mod cutout_processing;
 mod head_detection;
 mod image_input;
 mod model_access;
-mod model_cache;
 mod model_processing;
 mod onnx_session;
 mod output_manager;
@@ -22,7 +21,7 @@ mod yolo_preprocessing;
 
 use color_utils::{colors, symbols};
 use config::{CutoutCommand, CutoutConfig, GlobalArgs, HeadCommand, HeadDetectionConfig};
-use cutout_processing::{run_cutout_processing, CUTOUT_MODEL_INFO};
+use cutout_processing::{get_cutout_model_info, run_cutout_processing};
 use head_detection::{run_head_detection, MODEL_VERSION};
 use progress::global_mp;
 use std::io::Write;
@@ -219,7 +218,10 @@ fn main() {
             // Print version information
             println!("beaker v{}", env!("CARGO_PKG_VERSION"));
             println!("Head model version: {}", MODEL_VERSION.trim());
-            println!("Cutout model version: {}", CUTOUT_MODEL_INFO.name.trim());
+            println!(
+                "Cutout model version: {}",
+                get_cutout_model_info().name.trim()
+            );
             println!("Repository: {}", env!("CARGO_PKG_REPOSITORY"));
         }
         None => {

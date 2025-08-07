@@ -11,7 +11,6 @@ pub mod cutout_processing;
 pub mod head_detection;
 pub mod image_input;
 pub mod model_access;
-pub mod model_cache;
 pub mod model_processing;
 pub mod onnx_session;
 pub mod output_manager;

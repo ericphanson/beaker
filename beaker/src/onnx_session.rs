@@ -10,7 +10,7 @@ use std::fs;
 
 /// Generate stable CoreML cache directory based on model content and ORT version
 fn get_stable_coreml_cache_dir(model_bytes: &[u8]) -> Result<std::path::PathBuf> {
-    let base_dir = crate::model_cache::get_coreml_cache_dir()?;
+    let base_dir = crate::model_access::get_coreml_cache_dir()?;
 
     // Create MD5 hash of model content
     let mut hasher = md5::Context::new();
@@ -36,7 +36,7 @@ fn get_unique_coreml_cache_dir() -> Result<std::path::PathBuf> {
     use std::process;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    let base_dir = crate::model_cache::get_coreml_cache_dir()?;
+    let base_dir = crate::model_access::get_coreml_cache_dir()?;
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
