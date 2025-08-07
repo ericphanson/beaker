@@ -1,0 +1,275 @@
+# Agent Development Guide
+
+This document outlines the checks and procedures that must pass before committing changes to ensure PRs pass CI on the first attempt.
+
+## Focus Areas
+
+**Primary Development Target**: All development work should focus on the `beaker/` subdirectory, which contains the main Rust codebase and CI workflows. This is where agents should look for work that needs to be done.
+
+## Pre-Commit Setup
+
+### Installation
+```bash
+pip install pre-commit ruff
+pre-commit install
+```
+
+### Manual Execution
+Run all pre-commit hooks manually before committing:
+```bash
+pre-commit run --all-files
+```
+
+Run specific hooks:
+```bash
+pre-commit run ruff --all-files          # Python linting
+pre-commit run ruff-format --all-files   # Python formatting
+pre-commit run clippy-cpu --all-files    # Rust linting
+pre-commit run fmt --all-files           # Rust formatting
+```
+
+**Note**: If pre-commit is not available in your environment, you can run the individual tools manually as documented in the sections below.
+
+## Required Checks
+
+### Rust Code (beaker/ directory)
+
+All Rust code **MUST** pass these checks:
+
+#### 1. Code Formatting
+```bash
+cd beaker
+cargo fmt --check
+```
+Fix formatting issues:
+```bash
+cargo fmt
+```
+
+#### 2. Linting (Clippy)
+```bash
+cd beaker
+cargo clippy -- -D warnings -D clippy::uninlined_format_args
+```
+This treats all warnings as errors. Fix all clippy warnings before committing.
+
+#### 3. Build (Debug & Release)
+```bash
+cd beaker
+cargo build
+cargo build --release
+```
+
+#### 4. Tests
+```bash
+cd beaker
+cargo test
+cargo test --release
+```
+
+#### 5. Line Count Analysis
+```bash
+# Install cargo-warloc if not available
+cargo install cargo-warloc
+
+# Run from repository root
+bash scripts/run_warloc.sh
+```
+This updates `beaker/line_counts.md` with current code statistics.
+
+**Note**: If cargo-warloc is not available, you can skip this step as it will be run automatically by the pre-commit hook.
+
+### Python Code
+
+Python code uses Ruff for linting and formatting:
+
+#### 1. Linting
+```bash
+# Install ruff if not available
+pip install ruff
+
+# Run linting
+ruff check --config=ruff.toml --fix .
+```
+
+#### 2. Formatting
+```bash
+ruff format --config=ruff.toml .
+```
+
+**Note**: Some legacy Python code may not pass all checks. This is acceptable, but new Python code should follow current standards.
+
+### General File Checks
+
+These apply to all files:
+- No trailing whitespace (except in `beaker/line_counts.md`)
+- Proper end-of-file handling
+- Valid YAML syntax
+- No large files added
+- No merge conflict markers
+
+## CI Workflow Validation
+
+The CI runs on multiple platforms (Linux, macOS, Windows) and architectures. Ensure your changes work across platforms:
+
+### Platform-Specific Considerations
+- **macOS**: Uses CoreML execution provider
+- **Linux/Windows**: Falls back to CPU execution
+- **Cross-compilation**: Currently disabled due to ONNX Runtime complexity
+
+### CLI Testing
+The CI tests basic CLI functionality:
+```bash
+cd beaker
+# Copy test image
+cp ../example.jpg .
+
+# Test help
+./target/release/beaker --help
+
+# Test head detection
+./target/release/beaker head example.jpg --confidence 0.5 --device auto
+```
+
+## Network and Firewall Issues
+
+### Common Issues
+- ONNX model downloads may fail due to firewall restrictions
+- GitHub API access may be blocked
+- Certificate validation errors in restricted environments
+
+### Solutions
+If you encounter download or connection issues:
+1. **Request allowlisting** for these URLs:
+   - `api.github.com` (for GitHub API access)
+   - `github.com` (for repository access)
+   - `objects.githubusercontent.com` (for asset downloads)
+   - Any ONNX Runtime download URLs
+
+2. **Common Error Messages**:
+   - `tls connection init failed`
+   - `InvalidCertificate(UnknownIssuer)`
+   - `ConnectionFailed`
+   - `Transport { kind: ConnectionFailed }`
+
+3. **Workarounds**:
+   - Some commands like `cargo fmt --check` and `cargo clippy` may work without network access
+   - Use pre-built binaries if available
+   - Work in an environment with proper network access
+
+Contact your network administrator to allowlist the required URLs.
+
+## Coding Standards
+
+### DRY (Don't Repeat Yourself)
+- Extract common functionality into reusable functions/modules
+- Avoid duplicating code across files
+- Use configuration files for repeated values
+
+### YAGNI (You Aren't Gonna Need It)
+- Implement only what's currently needed
+- Avoid over-engineering solutions
+- Keep interfaces simple and focused
+
+### Good PR Characteristics
+- **Small diff**: Minimize the number of changed lines
+- **Simple and targeted**: Address one specific issue per PR
+- **Breaking changes are acceptable**: Don't prioritize backwards compatibility at this development stage
+
+## Complete Pre-Commit Checklist
+
+Before committing, ensure all these pass:
+
+### Automated Checks
+- [ ] `cargo fmt --check` (in beaker/)
+- [ ] `cargo clippy -- -D warnings` (in beaker/)
+- [ ] `cargo build` (in beaker/)
+- [ ] `cargo build --release` (in beaker/)
+- [ ] `cargo test --release` (in beaker/)
+- [ ] `ruff check --fix` (Python files)
+- [ ] `ruff format` (Python files)
+- [ ] No trailing whitespace
+- [ ] Proper end-of-file handling
+- [ ] Valid YAML files
+- [ ] No large files
+- [ ] No merge conflicts
+
+### Manual Verification
+- [ ] CLI help works: `./target/release/beaker --help`
+- [ ] Basic functionality: `./target/release/beaker head example.jpg --confidence 0.5`
+- [ ] Line counts updated: `bash scripts/run_warloc.sh`
+
+### Final Check
+```bash
+# If pre-commit is available, run everything at once
+pre-commit run --all-files
+
+# If pre-commit is not available, run individual checks:
+cd beaker
+cargo fmt --check
+cargo clippy -- -D warnings
+cargo build --release
+cargo test --release
+cd ..
+# Run Python checks if ruff is available
+ruff check --config=ruff.toml . || echo "Ruff not available, skipping Python checks"
+```
+
+## Quick Start Command Sequence
+
+For a typical development session:
+
+```bash
+# 1. Navigate to beaker directory
+cd beaker
+
+# 2. Make your changes
+# ... edit files ...
+
+# 3. Format and fix issues
+cargo fmt
+cargo clippy --fix --allow-dirty -- -D warnings
+
+# 4. Build and test
+cargo build --release
+cargo test --release
+
+# 5. Test CLI
+cp ../example.jpg .
+./target/release/beaker head example.jpg --confidence 0.5
+
+# 6. Update line counts (from repo root)
+cd ..
+bash scripts/run_warloc.sh
+
+# 7. Run all pre-commit checks
+pre-commit run --all-files
+
+# 8. Commit your changes
+git add .
+git commit -m "Your commit message"
+```
+
+## Troubleshooting
+
+### Build Failures
+- **Network Issues**: The build script downloads ONNX models from GitHub. If builds fail with:
+  ```
+  Error: Transport(Transport { kind: ConnectionFailed, message: Some("tls connection init failed")
+  ```
+  This indicates network/firewall restrictions. Request allowlisting for `api.github.com` and `github.com`.
+- Check Rust toolchain is up to date: `rustup update`
+- Clear target directory: `cargo clean` then rebuild
+- Set offline mode temporarily: `cargo build --offline` (may not work if dependencies are missing)
+
+### Test Failures
+- Ensure test images are present (`example.jpg`, `example-2-birds.jpg`)
+- Check available disk space for model caching
+- Verify ONNX_MODEL_CACHE_DIR environment variable if set
+
+### Pre-commit Issues
+- Reinstall hooks: `pre-commit clean && pre-commit install`
+- Update hooks: `pre-commit autoupdate`
+- Run specific hook: `pre-commit run <hook-name> --all-files`
+
+Remember: **The goal is PRs that pass CI on the first attempt.**
