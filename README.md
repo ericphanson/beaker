@@ -1,5 +1,7 @@
 # Beaker
 
+[![CI](https://github.com/ericphanson/beaker/workflows/Beaker%20CI/badge.svg)](https://github.com/ericphanson/beaker/actions)
+
 A tool to apply ML models to bird images. `beaker head` crops bird images to around their heads using a finetuned YOLOv8n model trained on the CUB-200-2011 dataset, and `beaker cutout` performs background removal using an off-the-shelf model.
 
 ## 1. License & Usage
