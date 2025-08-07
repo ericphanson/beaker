@@ -2,9 +2,9 @@
 
 - **Cutout Main Code**: 312 (Tests: 44)  
 - **Head Main Code**: 487 (Tests: 0)  
-- **Common Main Code**: 1869 (Tests: 1192)  
-- **Total Main Code (excluding build.rs)**: 2668  
-- **Total Main Code (including build.rs)**: 2827 (Reported: 2827)  
+- **Common Main Code**: 1897 (Tests: 1222)  
+- **Total Main Code (excluding build.rs)**: 2696  
+- **Total Main Code (including build.rs)**: 2855 (Reported: 2855)  
 ✅ Totals match.
 
 ## Raw Counts
@@ -12,10 +12,10 @@
 File name: ./beaker/src/onnx_session.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 291          | 35           | 7            | 24           | 357         
+Main         | 287          | 35           | 7            | 23           | 352         
 Tests        | 0            | 0            | 0            | 0            | 0           
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 291          | 35           | 7            | 24           | 357         
+Total| 287          | 35           | 7            | 23           | 352         
 
 File name: ./beaker/src/model_processing.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -36,10 +36,10 @@ Total| 132          | 28           | 4            | 13           | 177
 File name: ./beaker/src/lib.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 15           | 1            | 4            | 0            | 20          
+Main         | 16           | 1            | 4            | 0            | 21          
 Tests        | 0            | 0            | 0            | 0            | 0           
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 15           | 1            | 4            | 0            | 20          
+Total| 16           | 1            | 4            | 0            | 21          
 
 File name: ./beaker/src/image_input.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -65,6 +65,14 @@ Tests        | 63           | 6            | 0            | 4            | 73
 Examples     | 0            | 0            | 0            | 0            | 0           
 Total| 208          | 24           | 9            | 10           | 251         
 
+File name: ./beaker/src/cache_common.rs
+Type         | Code         | Blank        | Doc comments | Comments     | Total       
+-------------|--------------|--------------|--------------|--------------|-------------
+Main         | 48           | 9            | 6            | 3            | 66          
+Tests        | 39           | 8            | 0            | 7            | 54          
+Examples     | 0            | 0            | 0            | 0            | 0           
+Total| 87           | 17           | 6            | 10           | 120         
+
 File name: ./beaker/src/config.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
@@ -76,10 +84,10 @@ Total| 250          | 51           | 42           | 6            | 349
 File name: ./beaker/src/main.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 187          | 25           | 3            | 16           | 231         
+Main         | 188          | 25           | 3            | 16           | 232         
 Tests        | 0            | 0            | 0            | 0            | 0           
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 187          | 25           | 3            | 16           | 231         
+Total| 188          | 25           | 3            | 16           | 232         
 
 File name: ./beaker/src/yolo_postprocessing.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -124,10 +132,10 @@ Total| 174          | 37           | 6            | 24           | 241
 File name: ./beaker/src/model_cache.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 297          | 60           | 9            | 27           | 393         
-Tests        | 40           | 8            | 0            | 7            | 55          
+Main         | 279          | 56           | 9            | 27           | 371         
+Tests        | 31           | 6            | 0            | 7            | 44          
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 337          | 68           | 9            | 34           | 448         
+Total| 310          | 62           | 9            | 34           | 415         
 
 File name: ./beaker/src/yolo_preprocessing.rs
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
@@ -177,10 +185,10 @@ Tests        | 195          | 3            | 1            | 7            | 206
 Examples     | 0            | 0            | 0            | 0            | 0           
 Total| 195          | 3            | 1            | 7            | 206         
 
-File count: 21
+File count: 22
 Type         | Code         | Blank        | Doc comments | Comments     | Total       
 -------------|--------------|--------------|--------------|--------------|-------------
-Main         | 2827         | 520          | 188          | 242          | 3777        
-Tests        | 1236         | 177          | 23           | 78           | 1514        
+Main         | 2855         | 525          | 194          | 244          | 3818        
+Tests        | 1266         | 183          | 23           | 85           | 1557        
 Examples     | 0            | 0            | 0            | 0            | 0           
-Total| 4063         | 697          | 211          | 320          | 5291        
+Total| 4121         | 708          | 217          | 329          | 5375        

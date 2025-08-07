@@ -1,3 +1,4 @@
+use crate::cache_common;
 use anyhow::Result;
 use log::Level;
 use ort::{
@@ -12,10 +13,8 @@ use std::fs;
 fn get_stable_coreml_cache_dir(model_bytes: &[u8]) -> Result<std::path::PathBuf> {
     let base_dir = crate::model_cache::get_coreml_cache_dir()?;
 
-    // Create MD5 hash of model content
-    let mut hasher = md5::Context::new();
-    hasher.consume(model_bytes);
-    let model_hash = format!("{:x}", hasher.finalize());
+    // Create MD5 hash of model content using shared function
+    let model_hash = cache_common::calculate_md5_bytes(model_bytes);
 
     // Get ORT version for cache versioning
     let ort_version = env!("CARGO_PKG_VERSION"); // Use beaker version as proxy
@@ -317,10 +316,6 @@ pub fn create_onnx_session(
                                     _ => vec![CPUExecutionProvider::default().build()],
                                 };
 
-                                // Add a small delay to avoid race conditions
-                                std::thread::sleep(std::time::Duration::from_millis(
-                                    100 + retry_count * 50,
-                                ));
                                 continue; // Retry the operation with new cache directory
                             }
                             Err(e) => {

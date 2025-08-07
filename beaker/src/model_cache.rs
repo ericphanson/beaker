@@ -1,3 +1,4 @@
+use crate::cache_common;
 use anyhow::{anyhow, Result};
 use std::fs;
 use std::io::Write;
@@ -15,60 +16,27 @@ pub struct ModelInfo {
 
 /// Get the cache directory for storing downloaded models
 pub fn get_cache_dir() -> Result<PathBuf> {
-    // Check if ONNX_MODEL_CACHE_DIR environment variable is set (same as build.rs)
-    if let Ok(cache_dir) = std::env::var("ONNX_MODEL_CACHE_DIR") {
-        // Handle tilde expansion for home directory
-        if let Some(stripped) = cache_dir.strip_prefix("~/") {
-            if let Some(home_dir) = dirs::home_dir() {
-                return Ok(home_dir.join(stripped));
-            }
-        }
-        return Ok(PathBuf::from(cache_dir));
-    }
-
-    // Fallback to default cache directory
-    dirs::cache_dir()
-        .map(|dir| dir.join("onnx-models"))
-        .ok_or_else(|| anyhow!("Unable to determine cache directory"))
+    cache_common::get_cache_dir_with_env_override("ONNX_MODEL_CACHE_DIR", "onnx-models")
 }
 
 /// Get the CoreML cache directory for storing compiled CoreML models
 pub fn get_coreml_cache_dir() -> Result<PathBuf> {
-    dirs::cache_dir()
-        .map(|dir| dir.join("beaker").join("coreml"))
-        .ok_or_else(|| anyhow!("Unable to determine CoreML cache directory"))
+    cache_common::get_cache_base_dir().map(|dir| dir.join("beaker").join("coreml"))
 }
 
 /// Calculate MD5 hash of a file
 fn calculate_md5(path: &Path) -> Result<String> {
-    let contents = fs::read(path)?;
-    let mut hasher = md5::Context::new();
-    hasher.consume(&contents);
-    let result = hasher.finalize();
-    Ok(format!("{result:x}"))
+    cache_common::calculate_md5(path)
 }
 
 /// Verify the checksum of a downloaded model
 fn verify_checksum(path: &Path, expected_md5: &str) -> Result<bool> {
-    let actual_md5 = calculate_md5(path)?;
-    Ok(actual_md5 == expected_md5)
+    cache_common::verify_checksum(path, expected_md5)
 }
 
 /// Get detailed file information for debugging
 fn get_file_info(path: &Path) -> Result<String> {
-    let metadata = fs::metadata(path)?;
-    let size = metadata.len();
-    let size_mb = size as f64 / (1024.0 * 1024.0);
-
-    Ok(format!(
-        "size: {} bytes ({:.2} MB), permissions: {:?}, modified: {:?}",
-        size,
-        size_mb,
-        metadata.permissions(),
-        metadata
-            .modified()
-            .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
-    ))
+    cache_common::get_file_info(path)
 }
 
 /// Download a model from URL to the specified path
@@ -79,16 +47,6 @@ fn download_model(url: &str, output_path: &Path) -> Result<()> {
     if let Some(parent) = output_path.parent() {
         fs::create_dir_all(parent)?;
         log::debug!("📁 Created parent directory: {}", parent.display());
-    }
-
-    // Check available disk space before download
-    if let Ok(parent) = output_path
-        .parent()
-        .ok_or_else(|| anyhow!("No parent directory"))
-    {
-        if let Ok(_metadata) = fs::metadata(parent) {
-            log::debug!("📊 Parent directory exists");
-        }
     }
 
     // Download the file with better error handling and redirect support
@@ -113,7 +71,7 @@ fn download_model(url: &str, output_path: &Path) -> Result<()> {
 
     if let Some(length) = content_length {
         let length_mb = length as f64 / (1024.0 * 1024.0);
-        log::debug!("📏 Expected download size: {length} bytes ({length_mb:.2} MB)");
+        log::info!("📏 Download size: {length_mb:.1} MB");
     } else {
         log::warn!("⚠️  Content-Length header missing, unable to determine file size");
     }
@@ -126,7 +84,7 @@ fn download_model(url: &str, output_path: &Path) -> Result<()> {
     let actual_size = content.len();
     let actual_size_mb = actual_size as f64 / (1024.0 * 1024.0);
 
-    log::info!("📦 Downloaded {actual_size} bytes ({actual_size_mb:.2} MB)");
+    log::debug!("📦 Downloaded {actual_size} bytes ({actual_size_mb:.2} MB)");
 
     if actual_size == 0 {
         return Err(anyhow!(
@@ -207,39 +165,53 @@ pub fn get_or_download_model(model_info: &ModelInfo) -> Result<PathBuf> {
             model_path.display()
         );
 
-        match verify_checksum(&model_path, model_info.md5_checksum) {
-            Ok(true) => {
-                log::debug!(
-                    "{} Using cached model with valid checksum",
-                    crate::color_utils::symbols::completed_successfully()
-                );
-                return Ok(model_path);
-            }
-            Ok(false) => {
-                // Get detailed info about the file for debugging
-                let file_info = get_file_info(&model_path)
-                    .unwrap_or_else(|e| format!("Error getting file info: {e}"));
-                let actual_checksum = calculate_md5(&model_path)
-                    .unwrap_or_else(|e| format!("Error calculating checksum: {e}"));
-
-                log::warn!("⚠️  Cached model has invalid checksum, re-downloading\n   Expected: {}\n   Actual:   {}\n   File info: {}",
-                          model_info.md5_checksum, actual_checksum, file_info);
-
+        // Quick sanity check: verify file is not empty before expensive MD5
+        if let Ok(metadata) = fs::metadata(&model_path) {
+            let file_size = metadata.len();
+            if file_size == 0 {
+                log::warn!("⚠️  Cached model file is empty, re-downloading");
                 fs::remove_file(&model_path)?;
-            }
-            Err(e) => {
-                let colored_error: String = crate::color_utils::colors::error_level(&e.to_string());
-                let file_info = get_file_info(&model_path)
-                    .unwrap_or_else(|e| format!("Error getting file info: {e}"));
+            } else {
+                // File exists and has content, now verify checksum
+                match verify_checksum(&model_path, model_info.md5_checksum) {
+                    Ok(true) => {
+                        // Fast path: model is cached and valid
+                        log::info!(
+                            "{} Using cached model: {}",
+                            crate::color_utils::symbols::completed_successfully(),
+                            model_info.filename
+                        );
+                        return Ok(model_path);
+                    }
+                    Ok(false) => {
+                        // Get detailed info about the file for debugging
+                        let file_info = get_file_info(&model_path)
+                            .unwrap_or_else(|e| format!("Error getting file info: {e}"));
+                        let actual_checksum = calculate_md5(&model_path)
+                            .unwrap_or_else(|e| format!("Error calculating checksum: {e}"));
 
-                log::warn!("⚠️  Error verifying checksum: {colored_error}, re-downloading");
-                log::warn!("   File info: {file_info}");
+                        log::warn!("⚠️  Cached model has invalid checksum, re-downloading\n   Expected: {}\n   Actual:   {}\n   File info: {}",
+                                  model_info.md5_checksum, actual_checksum, file_info);
 
-                fs::remove_file(&model_path)?;
+                        fs::remove_file(&model_path)?;
+                    }
+                    Err(e) => {
+                        let colored_error: String =
+                            crate::color_utils::colors::error_level(&e.to_string());
+                        let file_info = get_file_info(&model_path)
+                            .unwrap_or_else(|e| format!("Error getting file info: {e}"));
+
+                        log::warn!("⚠️  Error verifying checksum: {colored_error}, re-downloading");
+                        log::warn!("   File info: {file_info}");
+
+                        fs::remove_file(&model_path)?;
+                    }
+                }
             }
+        } else {
+            log::debug!("⚠️  Cannot read file metadata, treating as missing");
         }
     }
-
     // Handle concurrent downloads with lock file
     download_with_concurrency_protection(&model_path, &lock_path, model_info)?;
 
@@ -297,9 +269,11 @@ fn download_with_concurrency_protection(
     model_info: &ModelInfo,
 ) -> Result<()> {
     const MAX_WAIT_TIME: Duration = Duration::from_secs(300); // 5 minutes max wait
-    const POLL_INTERVAL: Duration = Duration::from_millis(500);
+    const INITIAL_WAIT: Duration = Duration::from_millis(50);
+    const MAX_WAIT_INTERVAL: Duration = Duration::from_millis(1000);
 
     let start_time = std::time::Instant::now();
+    let mut wait_duration = INITIAL_WAIT;
 
     loop {
         // Try to create lock file atomically
@@ -380,12 +354,16 @@ fn download_with_concurrency_protection(
                     return download_model(model_info.url, model_path);
                 }
 
-                // Wait and retry
+                // Wait with exponential backoff before retry
                 log::debug!(
-                    "⏳ Waiting for concurrent download to complete... ({}s elapsed)",
-                    start_time.elapsed().as_secs()
+                    "⏳ Waiting for concurrent download to complete... ({}s elapsed, next check in {}ms)",
+                    start_time.elapsed().as_secs(),
+                    wait_duration.as_millis()
                 );
-                std::thread::sleep(POLL_INTERVAL);
+                std::thread::sleep(wait_duration);
+
+                // Exponential backoff up to maximum
+                wait_duration = std::cmp::min(wait_duration * 2, MAX_WAIT_INTERVAL);
             }
         }
     }
@@ -394,7 +372,6 @@ fn download_with_concurrency_protection(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
 
     #[test]
     fn test_cache_dir() {
@@ -427,16 +404,6 @@ mod tests {
             Ok(val) => std::env::set_var("ONNX_MODEL_CACHE_DIR", val),
             Err(_) => std::env::remove_var("ONNX_MODEL_CACHE_DIR"),
         }
-    }
-
-    #[test]
-    fn test_md5_calculation() {
-        let temp_dir = tempdir().unwrap();
-        let file_path = temp_dir.path().join("test.txt");
-        fs::write(&file_path, "hello world").unwrap();
-
-        let md5 = calculate_md5(&file_path).unwrap();
-        assert_eq!(md5, "5eb63bbbe01eeed093cb22bb8f5acdc3");
     }
 
     #[test]
