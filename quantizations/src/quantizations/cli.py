@@ -102,9 +102,21 @@ def validate(
     """Validate quantized model against original."""
     # Use default test images if not specified
     if test_images is None:
-        test_images = Path(__file__).parent.parent.parent.parent.parent / "test_images"
-        if not test_images.exists():
-            test_images = Path(__file__).parent.parent.parent.parent.parent
+        # Try to find the beaker repository root
+        current_path = Path(__file__).parent
+        repo_root = None
+        
+        # Search up the directory tree for the beaker repository
+        for _ in range(6):  # Reasonable limit
+            if (current_path / "example.jpg").exists() or current_path.name == "beaker":
+                repo_root = current_path
+                break
+            current_path = current_path.parent
+            
+        if repo_root and (repo_root / "example.jpg").exists():
+            test_images = repo_root
+        else:
+            test_images = Path.cwd()  # Default to current directory
 
     logger.info(f"Validating {quantized_model.name} against {original_model.name}...")
 
@@ -289,7 +301,20 @@ def full_pipeline(
 
     # Validate quantized models with enhanced metrics
     logger.info("Step 3: Validating quantized models...")
-    test_images_dir = Path("../")
+    
+    # Find test images using the same logic as validate command
+    current_path = Path(__file__).parent
+    test_images_dir = None
+    
+    for _ in range(6):
+        if (current_path / "example.jpg").exists() or current_path.name == "beaker":
+            test_images_dir = current_path
+            break
+        current_path = current_path.parent
+        
+    if not test_images_dir:
+        test_images_dir = Path.cwd()
+    
     validation_results = {}
     timing_results = {}
 
@@ -317,10 +342,10 @@ def full_pipeline(
     # Generate comparison images and performance tables
     logger.info("Step 4: Generating comparisons and metrics...")
 
-    # Find test images
+    # Find test images using same logic
     test_images = []
     for pattern in ["example*.jpg", "example*.png"]:
-        test_images.extend(Path("../").glob(pattern))
+        test_images.extend(test_images_dir.glob(pattern))
     test_images = test_images[:4]  # Limit to 4 images
 
     # Process each model type
