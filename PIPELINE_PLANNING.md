@@ -616,25 +616,57 @@ impl OutputManager {
 
 ## Performance Expectations
 
-### Baseline Performance (Current)
+Based on actual measurements from the current system, we can now provide data-driven estimates of potential improvements.
 
-For 100 images through cutout → head pipeline:
-- **Current approach**: ~2x session creation overhead + I/O overhead
-- **File I/O**: Write 100 cutout images, read 100 for head detection
-- **Memory**: Peak usage: single image + model weights
+### Current Performance Bottlenecks (Measured)
 
-### Expected Performance (Pipeline)
+From real benchmark data and TOML metadata analysis:
 
-- **Session overhead**: Eliminated (reuse sessions across batches)
-- **File I/O**: Reduced by ~50% (no intermediate file writes)
-- **Memory**: Controlled peak usage through batch management
-- **Overall speedup**: 30-50% improvement expected
+| Component | Head Detection | Cutout Processing | Analysis |
+|-----------|----------------|-------------------|----------|
+| **Model Loading** | 63-64ms | 837-842ms | One-time cost per session, already amortized in batch processing |
+| **Model Inference** | ~96ms | ~1900ms | Core processing time, cannot be optimized by pipeline |
+| **File I/O Read** | ~6ms | ~5ms | Time to load input images - minimal cost |
+| **File I/O Write** | 0-46ms | 11-12ms | Time to save outputs - varies by options |
+| **Session Reuse** | ✓ Already implemented | ✓ Already implemented | No additional gains available |
 
-### Memory Usage Targets
+**Key Findings**:
+1. **File I/O is not the bottleneck**: Read operations take only ~5-6ms, write operations 0-46ms depending on outputs
+2. **Model loading costs are already amortized**: Sessions are reused within batches for each model type
+3. **Different models require separate sessions**: Head vs cutout cannot share ONNX sessions
+4. **Main pipeline benefit**: Eliminating intermediate file writes between steps (~11-46ms per step)
 
-- **Conservative mode**: 4GB peak memory usage
-- **Aggressive mode**: 8GB peak memory usage
-- **Batch sizes**: 10-50 images depending on resolution and memory limit
+### Pipeline Performance Analysis
+
+**Potential Savings Per Image** (cutout → head pipeline):
+- **Current approach**: Write cutout (~11ms) + Read cutout for head (~6ms) = ~17ms overhead
+- **Pipeline approach**: Eliminate intermediate file I/O = ~17ms saved
+- **Percentage improvement**: ~17ms / (1900ms + 96ms + 17ms) ≈ **0.8% improvement**
+
+**Realistic Performance Expectations**:
+- **File I/O elimination**: 0.8-1.5% improvement for typical pipelines
+- **Memory management benefits**: Batch processing already optimized
+- **Session reuse**: No additional benefits (already implemented)
+- **Overall improvement**: Primarily ergonomic with minimal performance gains
+
+*Note: Performance improvements scale with pipeline length and file I/O overhead, but current bottlenecks are dominated by model inference time rather than file operations.*
+
+### Memory Usage Analysis
+
+**Current Memory Consumption** (measured):
+- **Cutout processing**: ~748MB peak memory usage (766,240 KB measured)
+- **Head detection**: ~50-100MB estimated (12MB model + inference overhead)
+- **Sequential pipeline**: Sum of peak usage = ~800-850MB total
+
+**Pipeline Memory Targets** (calibrated to current usage):
+- **Conservative batch mode**: 1GB peak memory limit (accommodates current usage + modest batch)
+- **Standard batch mode**: 2GB peak memory limit (allows larger batches or higher resolution images)  
+- **Batch sizes**: 1-5 images for cutout, 5-20 images for head detection (based on model memory requirements)
+
+**Memory Management Strategy**:
+- Monitor peak usage per model and adjust batch sizes dynamically
+- Release sessions under memory pressure (fall back to file-based processing)
+- Use model-specific memory estimates for batch size calculation
 
 ## Testing Strategy
 
@@ -670,19 +702,21 @@ The existing `benchmarks.py` in the beaker subdirectory provides our current per
 
 **New Benchmark Categories**:
 - Pipeline vs sequential manual execution comparison
-- Memory usage validation under different batch sizes
-- File I/O timing analysis (see appendix)
+- Memory usage validation under different batch sizes  
+- File I/O timing analysis validation
 - Session reuse efficiency validation
 
-**Metadata Integration**:
-To support easy performance testing without log parsing, pipeline metadata TOMLs should emit structured timing data:
-- `pipeline.total_execution_time_ms`: Overall pipeline execution time
-- `pipeline.steps[].execution_time_ms`: Per-step execution times
-- `pipeline.steps[].file_io_time_ms`: File I/O time breakdown (see implementation below)
-- `pipeline.batch_processing.batch_size`: Actual batch size used
-- `pipeline.batch_processing.memory_peak_mb`: Peak memory usage during execution
+**Metadata Integration for Easy Performance Testing**:
+Pipeline metadata TOMLs now emit structured timing data to avoid log parsing:
+- `execution.file_io_read_time_ms` / `execution.file_io_write_time_ms`: File I/O breakdown (implemented)
+- `execution.model_processing_time_ms`: Core inference time (already implemented)
+- Proposed pipeline extensions:
+  - `pipeline.total_execution_time_ms`: Overall pipeline execution time
+  - `pipeline.steps[].execution_time_ms`: Per-step execution times
+  - `pipeline.batch_processing.batch_size`: Actual batch size used
+  - `pipeline.batch_processing.memory_peak_mb`: Peak memory usage during execution
 
-This structured approach allows benchmarks.py to parse TOML metadata files directly rather than parsing console output, making performance analysis more reliable and automatable.
+This structured approach allows benchmarks.py to parse TOML metadata files directly rather than parsing console output, making performance analysis more reliable and automatable. The existing file I/O timing implementation demonstrates this approach is feasible and provides useful data.
 
 ### 4. Compatibility Tests
 
@@ -752,7 +786,7 @@ Advanced pipeline features for future consideration:
 
 ### Performance Success
 
-1. **Speed**: 30-50% improvement over manual pipeline execution
+1. **Speed**: Measurable improvement (0.8-1.5%) over manual pipeline execution through file I/O elimination
 2. **Memory**: Peak usage stays within configured limits
 3. **Reliability**: No memory leaks or crashes under normal usage
 
@@ -764,12 +798,76 @@ Advanced pipeline features for future consideration:
 
 ## Conclusion
 
-The proposed pipeline subcommand represents a significant enhancement to beaker's capabilities, providing both user convenience and performance improvements. The hybrid file-memory approach offers an optimal balance of benefits and implementation complexity.
+The proposed pipeline subcommand represents a valuable enhancement to beaker's capabilities, providing primarily ergonomic convenience with modest performance improvements. The hybrid file-memory approach offers an optimal balance of benefits and implementation complexity based on realistic performance analysis.
 
 Key success factors:
 1. **Phased implementation** reduces risk and enables early validation
 2. **Memory management** ensures reliable operation on large datasets
 3. **Extensible design** supports future models and features
 4. **Comprehensive testing** validates correctness and performance
+5. **Honest performance expectations** based on real measurements rather than theoretical claims
 
-The implementation plan provides a clear path from basic functionality to an optimized, production-ready pipeline system that will significantly improve beaker's utility for computer vision workflows.
+The implementation plan provides a clear path from basic functionality to a production-ready pipeline system that will improve beaker's utility for computer vision workflows, with benefits primarily in usability and workflow simplification rather than dramatic performance gains.
+
+## Appendix: Current Performance Bottlenecks Analysis
+
+To provide accurate pipeline performance estimates, we instrumented the codebase to measure file I/O timing and analyzed current performance characteristics using real benchmark data.
+
+### Methodology
+
+1. **Added I/O timing instrumentation** to metadata TOMLs:
+   - `file_io_read_time_ms`: Time spent reading input images  
+   - `file_io_write_time_ms`: Time spent saving output images
+2. **Collected timing data** across different processing scenarios
+3. **Analyzed existing benchmark results** from `benchmark_results.json`
+4. **Compared session reuse patterns** in current batch processing
+
+### Detailed Measurements
+
+**Head Detection (example.jpg, CPU)**:
+```
+Model loading: 63.4ms (one-time per session)
+Model inference: 96.0ms 
+File I/O read: 5.9ms
+File I/O write: 0ms (no outputs) to 46.1ms (crop + bounding box)
+```
+
+**Cutout Processing (example.jpg, CPU)**:
+```
+Model loading: 842.3ms (one-time per session)  
+Model inference: 1908.9ms
+File I/O read: 5.2ms
+File I/O write: 11.4ms (cutout) to 12.5ms (cutout + mask)
+```
+
+**Batch Processing Analysis** (from benchmark_results.json):
+- Session loading time is amortized across batch: 10 images show same load time as 1 image
+- File I/O scales linearly with batch size
+- Memory usage remains stable within batches
+
+### Performance Bottleneck Conclusions
+
+1. **Model inference dominates**: 96ms (head) + 1909ms (cutout) = 2005ms total
+2. **File I/O is minimal**: ~17ms total (read + intermediate write + read)  
+3. **Improvement potential**: 17ms / 2022ms = **0.8% speed improvement**
+4. **Session reuse**: Already optimized within model types
+5. **Memory usage**: Peak usage driven by model weights (~180MB cutout + ~12MB head), not image data
+
+### Pipeline Value Proposition Revised
+
+Based on real measurements, the pipeline subcommand provides:
+
+**Primary Benefits**:
+- **Ergonomic improvement**: Single command vs multiple manual steps
+- **Workflow simplification**: No need to manage intermediate directories
+- **Future extensibility**: Foundation for additional models and complex pipelines
+
+**Performance Benefits**:
+- **Small but measurable**: ~0.8-1.5% improvement from eliminating intermediate file I/O
+- **Scales with pipeline complexity**: More steps = proportionally larger savings
+- **Memory efficiency**: Controlled batch processing for large datasets
+
+**Technical Accuracy**:
+- No false promises of dramatic speedups
+- Honest assessment of actual bottlenecks  
+- Value justified by ergonomics and extensibility rather than performance alone
