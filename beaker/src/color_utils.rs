@@ -37,6 +37,12 @@ impl ColorConfig {
         Self { colors_enabled }
     }
 
+    // Helper for testing with custom environment
+    #[cfg(test)]
+    fn new_with_mock_env(no_color_flag: bool, env: &std::collections::HashMap<String, String>) -> Self {
+        let colors_enabled = !no_color_flag && !should_disable_colors_with_mock_env(env);
+        Self { colors_enabled }
+    }
 
     fn is_enabled(&self) -> bool {
         self.colors_enabled
