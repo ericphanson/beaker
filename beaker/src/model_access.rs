@@ -211,6 +211,10 @@ fn download_with_concurrency_protection(
 
     loop {
         // Try to create lock file atomically
+        // First make sure the directory exists
+        if let Some(parent) = lock_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
         match fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -249,7 +253,12 @@ fn download_with_concurrency_protection(
 
                 return result;
             }
-            Err(_) => {
+            Err(file_error) => {
+                log::debug!(
+                    "{} Failed to acquire lock: {}",
+                    symbols::operation_failed(),
+                    file_error
+                );
                 // Lock file exists, check if another process completed the download
                 if model_path.exists() {
                     log::debug!(
@@ -317,6 +326,9 @@ fn download_with_concurrency_protection(
                 let lock_msg = if let Some(pid) = lock_info {
                     format!("(lock held by PID {pid})")
                 } else {
+                    // We couldn't parse/read the lock file, so it is unlikely
+                    // there is a valid process holding it
+                    wait_duration /= 2;
                     "(lock details unavailable)".to_string()
                 };
 
@@ -353,70 +365,61 @@ pub fn get_or_download_model(model_info: &ModelInfo) -> Result<PathBuf> {
             model_path.display()
         );
 
-        // Check if model already exists and has correct checksum
-        if model_path.exists() {
-            log::debug!(
-                "{} Checking cached model: {}",
-                crate::color_utils::symbols::checking(),
-                model_path.display()
-            );
-
-            // Quick sanity check: verify file is not empty before expensive MD5
-            if let Ok(metadata) = fs::metadata(&model_path) {
-                let file_size = metadata.len();
-                if file_size == 0 {
-                    log::warn!(
-                        "{}Cached model file is empty, re-downloading",
-                        symbols::warning()
-                    );
-                    fs::remove_file(&model_path)?;
-                } else {
-                    // File exists and has content, now verify checksum
-                    match cache_common::verify_checksum(&model_path, &model_info.md5_checksum) {
-                        Ok(true) => {
-                            // Fast path: model is cached and valid
-                            log::info!(
-                                "{} Using cached model: {}",
-                                crate::color_utils::symbols::completed_successfully(),
-                                model_info.filename
-                            );
-                            return Ok(model_path);
-                        }
-                        Ok(false) => {
-                            // Get detailed info about the file for debugging
-                            let file_info = get_file_info(&model_path)
-                                .unwrap_or_else(|e| format!("Error getting file info: {e}"));
-                            let actual_checksum = cache_common::calculate_md5(&model_path)
-                                .unwrap_or_else(|e| format!("Error calculating checksum: {e}"));
-
-                            log::warn!("{}Cached model has invalid checksum, re-downloading\n   Expected: {}\n   Actual:   {}\n   File info: {}",
-                            symbols::warning(),
-                            model_info.md5_checksum, actual_checksum, file_info);
-
-                            fs::remove_file(&model_path)?;
-                        }
-                        Err(e) => {
-                            let colored_error: String =
-                                crate::color_utils::colors::error_level(&e.to_string());
-                            let file_info = get_file_info(&model_path)
-                                .unwrap_or_else(|e| format!("Error getting file info: {e}"));
-
-                            log::warn!(
-                                "{}Error verifying checksum: {colored_error}, re-downloading",
-                                symbols::warning()
-                            );
-                            log::warn!("   File info: {file_info}");
-
-                            fs::remove_file(&model_path)?;
-                        }
-                    }
-                }
-            } else {
-                log::debug!(
-                    "{}Cannot read file metadata, treating as missing",
+        // Quick sanity check: verify file is not empty before expensive MD5
+        if let Ok(metadata) = fs::metadata(&model_path) {
+            let file_size = metadata.len();
+            if file_size == 0 {
+                log::warn!(
+                    "{}Cached model file is empty, re-downloading",
                     symbols::warning()
                 );
+                fs::remove_file(&model_path)?;
+            } else {
+                // File exists and has content, now verify checksum
+                match cache_common::verify_checksum(&model_path, &model_info.md5_checksum) {
+                    Ok(true) => {
+                        // Fast path: model is cached and valid
+                        log::info!(
+                            "{} Using cached model: {}",
+                            crate::color_utils::symbols::completed_successfully(),
+                            model_info.filename
+                        );
+                        return Ok(model_path);
+                    }
+                    Ok(false) => {
+                        // Get detailed info about the file for debugging
+                        let file_info = get_file_info(&model_path)
+                            .unwrap_or_else(|e| format!("Error getting file info: {e}"));
+                        let actual_checksum = cache_common::calculate_md5(&model_path)
+                            .unwrap_or_else(|e| format!("Error calculating checksum: {e}"));
+
+                        log::warn!("{}Cached model has invalid checksum, re-downloading\n   Expected: {}\n   Actual:   {}\n   File info: {}",
+                        symbols::warning(),
+                        model_info.md5_checksum, actual_checksum, file_info);
+
+                        fs::remove_file(&model_path)?;
+                    }
+                    Err(e) => {
+                        let colored_error: String =
+                            crate::color_utils::colors::error_level(&e.to_string());
+                        let file_info = get_file_info(&model_path)
+                            .unwrap_or_else(|e| format!("Error getting file info: {e}"));
+
+                        log::warn!(
+                            "{}Error verifying checksum: {colored_error}, re-downloading",
+                            symbols::warning()
+                        );
+                        log::warn!("   File info: {file_info}");
+
+                        fs::remove_file(&model_path)?;
+                    }
+                }
             }
+        } else {
+            log::debug!(
+                "{}Cannot read file metadata, treating as missing",
+                symbols::warning()
+            );
         }
     }
     // Handle concurrent downloads with lock file
