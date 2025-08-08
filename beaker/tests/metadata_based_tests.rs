@@ -205,7 +205,7 @@ fn get_test_scenarios() -> Vec<TestScenario> {
             name: "cutout_with_env_vars_and_metadata",
             tool: "cutout",
             args: vec!["../example.jpg"],
-            expected_files: vec!["example.beaker.toml", "example.png"],
+            expected_files: vec!["example.beaker.toml", "example_cutout.png"],
             metadata_checks: vec![
                 MetadataCheck::ExitCode("cutout", 0),
                 MetadataCheck::EnvVarPresent("cutout", "BEAKER_DEBUG"),
