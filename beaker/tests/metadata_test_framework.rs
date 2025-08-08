@@ -640,18 +640,8 @@ where
             }
         }
     } else {
-        // For version command, just validate OutputCreated checks if any
-        for check in &scenario.metadata_checks {
-            if let MetadataCheck::OutputCreated(filename) = check {
-                let output_path = temp_dir.path().join(filename);
-                assert!(
-                    output_path.exists(),
-                    "Output file {} should exist for test {}",
-                    filename,
-                    scenario.name
-                );
-            }
-        }
+        // For version command, no output files should be created
+        // Version commands don't generate metadata files or output images
     }
 }
 

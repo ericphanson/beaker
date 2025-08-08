@@ -90,7 +90,8 @@ mod tests {
     #[test]
     fn test_cache_dir_with_env_basic() {
         // Test basic cache dir functionality without env var modification
-        let cache_dir = get_cache_dir_with_env_override("NONEXISTENT_TEST_VAR", "test-subdir").unwrap();
+        let cache_dir =
+            get_cache_dir_with_env_override("NONEXISTENT_TEST_VAR", "test-subdir").unwrap();
         assert!(cache_dir.to_string_lossy().contains("test-subdir"));
     }
 }

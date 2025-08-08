@@ -285,7 +285,10 @@ mod tests {
         // The actual env var testing will be done in integration tests
         let bytes = HeadAccess::get_embedded_bytes();
         assert!(bytes.is_some(), "Embedded bytes should be available");
-        assert!(!bytes.unwrap().is_empty(), "Embedded bytes should not be empty");
+        assert!(
+            !bytes.unwrap().is_empty(),
+            "Embedded bytes should not be empty"
+        );
     }
 
     // Environment variable tests are now in integration tests to avoid race conditions
