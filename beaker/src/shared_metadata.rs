@@ -5,6 +5,18 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
+/// Centralized list of relevant environment variables for version command and metadata collection
+pub const RELEVANT_ENV_VARS: &[&str] = &[
+    "BEAKER_HEAD_MODEL_PATH",
+    "BEAKER_CUTOUT_MODEL_PATH",
+    "BEAKER_CUTOUT_MODEL_URL",
+    "BEAKER_CUTOUT_MODEL_CHECKSUM",
+    "BEAKER_NO_COLOR",
+    "BEAKER_DEBUG",
+    "NO_COLOR",
+    "RUST_LOG",
+];
+
 /// Shared metadata structure that can contain both head and cutout results
 #[derive(Serialize, Deserialize, Default, Debug)]
 pub struct BeakerMetadata {
@@ -182,20 +194,22 @@ pub fn get_metadata_path(
     Ok(metadata_path)
 }
 
-/// Collect all BEAKER_* environment variables that are present and non-empty
+/// Collect relevant environment variables that are present and non-empty
 pub fn collect_beaker_env_vars() -> Option<std::collections::BTreeMap<String, String>> {
-    let mut beaker_vars = std::collections::BTreeMap::new();
+    let mut env_vars = std::collections::BTreeMap::new();
 
-    for (key, value) in std::env::vars() {
-        if key.starts_with("BEAKER_") && !value.is_empty() {
-            beaker_vars.insert(key, value);
+    for env_name in RELEVANT_ENV_VARS {
+        if let Ok(value) = std::env::var(env_name) {
+            if !value.is_empty() {
+                env_vars.insert(env_name.to_string(), value);
+            }
         }
     }
 
-    if beaker_vars.is_empty() {
+    if env_vars.is_empty() {
         None
     } else {
-        Some(beaker_vars)
+        Some(env_vars)
     }
 }
 
@@ -276,35 +290,35 @@ mod tests {
 
     #[test]
     fn test_collect_beaker_env_vars() {
-        // Test with no BEAKER_ variables
-        std::env::remove_var("BEAKER_TEST_VAR1");
-        std::env::remove_var("BEAKER_TEST_VAR2");
+        // Test with relevant env vars not set
+        std::env::remove_var("BEAKER_DEBUG");
+        std::env::remove_var("NO_COLOR");
         let _result = collect_beaker_env_vars();
-        // There might be other BEAKER_ variables in the system, so we don't test for None directly
+        // There might be other relevant variables in the system, so we check what we set
 
-        // Set some test BEAKER_ variables
-        std::env::set_var("BEAKER_TEST_VAR1", "value1");
-        std::env::set_var("BEAKER_TEST_VAR2", "value2");
-        std::env::set_var("BEAKER_EMPTY_VAR", ""); // This should not be included
+        // Set some relevant variables
+        std::env::set_var("BEAKER_DEBUG", "true");
+        std::env::set_var("NO_COLOR", "1");
+        std::env::set_var("BEAKER_NO_COLOR", ""); // This should not be included (empty)
 
         let result = collect_beaker_env_vars();
         assert!(result.is_some());
         let vars = result.unwrap();
-        assert_eq!(vars.get("BEAKER_TEST_VAR1"), Some(&"value1".to_string()));
-        assert_eq!(vars.get("BEAKER_TEST_VAR2"), Some(&"value2".to_string()));
-        assert!(!vars.contains_key("BEAKER_EMPTY_VAR")); // Empty vars should not be included
+        assert_eq!(vars.get("BEAKER_DEBUG"), Some(&"true".to_string()));
+        assert_eq!(vars.get("NO_COLOR"), Some(&"1".to_string()));
+        assert!(!vars.contains_key("BEAKER_NO_COLOR")); // Empty vars should not be included
 
         // Clean up
-        std::env::remove_var("BEAKER_TEST_VAR1");
-        std::env::remove_var("BEAKER_TEST_VAR2");
-        std::env::remove_var("BEAKER_EMPTY_VAR");
+        std::env::remove_var("BEAKER_DEBUG");
+        std::env::remove_var("NO_COLOR");
+        std::env::remove_var("BEAKER_NO_COLOR");
     }
 
     #[test]
     fn test_enhanced_metadata_with_env_vars_and_cutout() {
-        // Set some test environment variables
-        std::env::set_var("BEAKER_TEST_ENV", "test_value");
-        std::env::set_var("BEAKER_CUSTOM_MODEL", "/custom/model.onnx");
+        // Set some test environment variables that are in RELEVANT_ENV_VARS
+        std::env::set_var("BEAKER_DEBUG", "test_value");
+        std::env::set_var("RUST_LOG", "debug");
 
         // Create test metadata with cutout and environment variables
         use crate::mask_encoding::MaskEntry;
@@ -388,7 +402,7 @@ mod tests {
         assert!(cutout.mask.is_some());
 
         // Clean up test environment variables
-        std::env::remove_var("BEAKER_TEST_ENV");
-        std::env::remove_var("BEAKER_CUSTOM_MODEL");
+        std::env::remove_var("BEAKER_DEBUG");
+        std::env::remove_var("RUST_LOG");
     }
 }

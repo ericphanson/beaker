@@ -75,6 +75,11 @@ pub fn setup_test_files(temp_dir: &TempDir) -> (PathBuf, PathBuf) {
 
 /// Run a beaker command and return exit code
 pub fn run_beaker_command(args: &[&str]) -> i32 {
+    run_beaker_command_with_env(args, &[])
+}
+
+/// Run a beaker command with environment variables and return exit code
+pub fn run_beaker_command_with_env(args: &[&str], env_vars: &[(&str, &str)]) -> i32 {
     use std::sync::Once;
 
     static BUILD_ONCE: Once = Once::new();
@@ -100,6 +105,7 @@ pub fn run_beaker_command(args: &[&str]) -> i32 {
 
     let output = Command::new(&beaker_binary)
         .args(args)
+        .envs(env_vars.iter().map(|(k, v)| (*k, *v)))
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .output()
         .expect("Failed to execute beaker command");
@@ -544,35 +550,8 @@ where
             scenario.name
         );
         0
-    } else if scenario.tool == "version" {
-        // Handle version command specially - just run it without metadata flags
-        run_beaker_command(&scenario.args)
     } else if scenario.name == "cutout_with_env_vars_and_metadata" {
         // Special case: run cutout with BEAKER_DEBUG environment variable
-        use std::process::Command;
-        use std::sync::Once;
-
-        static BUILD_ONCE: Once = Once::new();
-
-        // Build the binary once at the start of testing
-        BUILD_ONCE.call_once(|| {
-            let build_output = Command::new("cargo")
-                .args(["build"])
-                .current_dir(env!("CARGO_MANIFEST_DIR"))
-                .output()
-                .expect("Failed to build beaker");
-
-            if !build_output.status.success() {
-                panic!(
-                    "Failed to build beaker: {}",
-                    String::from_utf8_lossy(&build_output.stderr)
-                );
-            }
-        });
-
-        // Run the built binary directly with environment variable
-        let beaker_binary = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/debug/beaker");
-
         let mut full_args = vec![scenario.tool];
         for arg in &scenario.args {
             if *arg == "../example.jpg" {
@@ -589,31 +568,7 @@ where
             temp_dir.path().to_str().unwrap(),
         ]);
 
-        let output = Command::new(&beaker_binary)
-            .args(&full_args[1..]) // Skip the tool name since it's in args
-            .env("BEAKER_DEBUG", "true")
-            .current_dir(env!("CARGO_MANIFEST_DIR"))
-            .output()
-            .expect("Failed to execute beaker command with env var");
-
-        let exit_code = output.status.code().unwrap_or(-1);
-
-        // Print stdout and stderr for debugging when command fails
-        if exit_code != 0 {
-            eprintln!("=== BEAKER COMMAND WITH ENV VAR FAILED ===");
-            eprintln!(
-                "Command: beaker {} (with BEAKER_DEBUG=true)",
-                full_args[1..].join(" ")
-            );
-            eprintln!("Exit code: {exit_code}");
-            eprintln!("=== STDOUT ===");
-            eprintln!("{}", String::from_utf8_lossy(&output.stdout));
-            eprintln!("=== STDERR ===");
-            eprintln!("{}", String::from_utf8_lossy(&output.stderr));
-            eprintln!("=== END BEAKER COMMAND OUTPUT ===");
-        }
-
-        exit_code
+        run_beaker_command_with_env(&full_args, &[("BEAKER_DEBUG", "true")])
     } else {
         // Single tool execution - replace file placeholders with actual paths
         let mut full_args = vec![scenario.tool];
