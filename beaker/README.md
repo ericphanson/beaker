@@ -35,7 +35,7 @@ cargo build --release
 ./target/release/beaker --output-dir ./results head ../example.jpg --crop
 
 # Run on CPU explicitly
-./target/release/beaker head ../example.jpg --device cpu
+./target/release/beaker head ../example.jpg --metadata --device cpu
 ```
 
 ## Building

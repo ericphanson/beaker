@@ -1,3 +1,4 @@
+use crate::color_utils::symbols;
 use crate::config::CutoutConfig;
 use crate::cutout_postprocessing::{
     apply_alpha_matting, create_cutout, create_cutout_with_background, postprocess_mask,
@@ -148,14 +149,22 @@ impl ModelProcessor for CutoutProcessor {
             fs::create_dir_all(parent)?;
         }
         cutout_result.save(&output_path)?;
-        debug!("✅ Cutout saved to: {}", output_path.display());
+        debug!(
+            "{} Cutout saved to: {}",
+            symbols::completed_successfully(),
+            output_path.display()
+        );
         // Save mask if requested
         if let Some(mask_path_val) = &mask_path {
             if let Some(parent) = Path::new(mask_path_val).parent() {
                 fs::create_dir_all(parent)?;
             }
             mask.save(mask_path_val)?;
-            debug!("✅ Mask saved to: {}", mask_path_val.display());
+            debug!(
+                "{} Mask saved to: {}",
+                symbols::completed_successfully(),
+                mask_path_val.display()
+            );
         }
 
         let processing_time = start_time.elapsed().as_secs_f64() * 1000.0;

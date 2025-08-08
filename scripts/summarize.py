@@ -113,32 +113,10 @@ summary_lines.append(
     if actual_total == reported_main_total
     else "❌ Mismatch: total does not match reported Main Code count!"
 )
-summary_lines += ["", "## Raw Counts", ""]
-
-# --- Fix Markdown tables ---
-fixed_lines = []
-i = 0
-while i < len(raw_data_lines):
-    fixed_lines.append(raw_data_lines[i])
-    if raw_data_lines[i].strip().startswith("Type") and i + 4 < len(raw_data_lines):
-        fixed_lines.append(raw_data_lines[i + 1])  # separator
-        fixed_lines.append(raw_data_lines[i + 2])  # Main
-        fixed_lines.append(raw_data_lines[i + 3])  # Tests
-        fixed_lines.append(raw_data_lines[i + 4])  # Examples
-
-        total_line = raw_data_lines[i + 6]
-        total_fields = total_line.split("|")
-        total_fields[0] = "Total"
-        fixed_lines.append("|".join(total_fields))
-
-        i += 7
-    else:
-        i += 1
 
 # --- Write output back ---
 with input_file.open("w", encoding="utf-8") as f:
     f.write("\n".join(summary_lines) + "\n")
-    f.write("\n".join(fixed_lines) + "\n")
 
 # Print summary to stdout
 print("\n".join(summary_lines[2:-3]))
