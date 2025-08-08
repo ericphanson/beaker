@@ -184,6 +184,11 @@ def validate(
     type=click.Path(exists=True, path_type=Path),
     help="Directory containing test images for comparison generation",
 )
+@click.option(
+    "--beaker-cargo-path",
+    type=click.Path(exists=True, path_type=Path),
+    help="Path to Beaker Cargo.toml file (default: ../beaker/Cargo.toml)",
+)
 def upload(
     quantized_dir: Path,
     model_type: str,
@@ -191,6 +196,7 @@ def upload(
     dry_run: bool,
     include_comparisons: bool,
     test_images: Path | None,
+    beaker_cargo_path: Path | None,
 ) -> None:
     """Upload quantized models to GitHub releases."""
     logger.info(f"Uploading {model_type} quantizations (version: {version})...")
@@ -254,6 +260,8 @@ def upload(
                         models,
                         test_image_list[:4],
                         comparison_output,  # Limit to 4 images
+                        0.5,  # confidence_threshold
+                        beaker_cargo_path,
                     )
 
                     logger.info(f"Generated {len(comparison_images)} comparison images")
@@ -298,8 +306,18 @@ def upload(
     help="Maximum allowed difference in validation",
 )
 @click.option("--dry-run", is_flag=True, help="Perform dry run without uploading")
+@click.option(
+    "--beaker-cargo-path",
+    type=click.Path(exists=True, path_type=Path),
+    help="Path to Beaker Cargo.toml file (default: ../beaker/Cargo.toml)",
+)
 def full_pipeline(
-    model_type: str, output_dir: Path, version: str, tolerance: float, dry_run: bool
+    model_type: str,
+    output_dir: Path,
+    version: str,
+    tolerance: float,
+    dry_run: bool,
+    beaker_cargo_path: Path | None,
 ) -> None:
     """Run the complete quantization pipeline: download -> quantize -> validate -> upload."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -464,7 +482,11 @@ def full_pipeline(
                 # Create model-type-specific comparisons directory
                 type_comparisons_dir = comparisons_dir / current_type
                 comparison_images = comparisons.generate_model_comparison_images(
-                    type_models, test_images, type_comparisons_dir
+                    type_models,
+                    test_images,
+                    type_comparisons_dir,
+                    0.5,
+                    beaker_cargo_path,
                 )
                 logger.info(
                     f"Generated {len(comparison_images)} comparison images for {current_type}"

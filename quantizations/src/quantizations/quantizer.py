@@ -3,7 +3,6 @@ Quantize ONNX models using different techniques.
 """
 
 import logging
-import time
 from pathlib import Path
 from typing import Any
 
@@ -173,7 +172,6 @@ def quantize_static_model(
             model_input=str(model_path),
             model_output=str(output_path),
             calibration_data_reader=calibration_data_reader,
-            quant_format=QuantType.QUInt8,
         )
 
         logger.info(f"Static quantization complete: {output_path}")
@@ -302,54 +300,25 @@ def get_quantization_info(original_path: Path, quantized_path: Path) -> dict[str
 
 
 def measure_inference_time(
-    model_path: Path, test_images: list[Path], num_runs: int = 5
+    model_path: Path, test_images_dir: Path, num_runs: int = 5
 ) -> dict[str, float]:
-    """Measure inference time for a model on test images."""
-    import onnxruntime as ort
+    """
+    Mock inference time measurement (Python inference disabled).
 
-    try:
-        # Create inference session
-        providers = ["CPUExecutionProvider"]
-        session = ort.InferenceSession(str(model_path), providers=providers)
-        input_name = session.get_inputs()[0].name
+    NOTE: Python inference timing was unreliable due to preprocessing issues.
+    Use Beaker CLI for accurate performance measurements.
 
-        times = []
+    Returns:
+        Mock timing dict with zeros (for backward compatibility)
+    """
+    logger.warning(
+        f"Skipping Python inference timing for {model_path.name}. "
+        "Use Beaker CLI for accurate performance measurements."
+    )
 
-        for image_path in test_images:
-            image_times = []
-
-            # Preprocess image once
-            try:
-                image = cv2.imread(str(image_path))
-                if image is None:
-                    continue
-                image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                image = cv2.resize(image, (640, 640), interpolation=cv2.INTER_LINEAR)
-                image = image.astype(np.float32) / 255.0
-                image = np.transpose(image, (2, 0, 1))
-                image = np.expand_dims(image, axis=0)
-            except Exception:
-                continue
-
-            # Run multiple times for this image
-            for _ in range(num_runs):
-                start_time = time.time()
-                session.run(None, {input_name: image})
-                end_time = time.time()
-                image_times.append((end_time - start_time) * 1000)  # Convert to ms
-
-            times.extend(image_times)
-
-        if not times:
-            return {"mean_ms": 0.0, "std_ms": 0.0, "min_ms": 0.0, "max_ms": 0.0}
-
-        return {
-            "mean_ms": float(np.mean(times)),
-            "std_ms": float(np.std(times)),
-            "min_ms": float(np.min(times)),
-            "max_ms": float(np.max(times)),
-        }
-
-    except Exception as e:
-        logger.error(f"Failed to measure inference time for {model_path}: {e}")
-        return {"mean_ms": 0.0, "std_ms": 0.0, "min_ms": 0.0, "max_ms": 0.0}
+    return {
+        "mean_ms": 0.0,
+        "std_ms": 0.0,
+        "min_ms": 0.0,
+        "max_ms": 0.0,
+    }
