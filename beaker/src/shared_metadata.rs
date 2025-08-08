@@ -66,7 +66,7 @@ pub struct ExecutionContext {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_processing_time_ms: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub beaker_env_vars: Option<std::collections::HashMap<String, String>>,
+    pub beaker_env_vars: Option<std::collections::BTreeMap<String, String>>,
 }
 
 /// System information for a tool invocation
@@ -183,8 +183,8 @@ pub fn get_metadata_path(
 }
 
 /// Collect all BEAKER_* environment variables that are present and non-empty
-pub fn collect_beaker_env_vars() -> Option<std::collections::HashMap<String, String>> {
-    let mut beaker_vars = std::collections::HashMap::new();
+pub fn collect_beaker_env_vars() -> Option<std::collections::BTreeMap<String, String>> {
+    let mut beaker_vars = std::collections::BTreeMap::new();
 
     for (key, value) in std::env::vars() {
         if key.starts_with("BEAKER_") && !value.is_empty() {

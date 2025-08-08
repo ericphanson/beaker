@@ -39,10 +39,7 @@ pub fn encode_mask_to_entry(
         return Err("start_value must be 0 or 1".into());
     }
     if let Some((i, bad)) = mask.iter().enumerate().find(|(_, &v)| v != 0 && v != 1) {
-        return Err(format!(
-            "mask contains non-binary value {} at index {}",
-            bad, i
-        ));
+        return Err(format!("mask contains non-binary value {bad} at index {i}"));
     }
 
     // RLE (binary, alternating runs starting at start_value)
@@ -72,17 +69,17 @@ pub fn encode_mask_to_entry(
             rle.push(',');
         }
         use std::fmt::Write as _;
-        write!(&mut rle, "{}", r).unwrap();
+        write!(&mut rle, "{r}").unwrap();
     }
 
     // gzip the RLE string
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
     encoder
         .write_all(rle.as_bytes())
-        .map_err(|e| format!("gzip write failed: {}", e))?;
+        .map_err(|e| format!("gzip write failed: {e}"))?;
     let compressed = encoder
         .finish()
-        .map_err(|e| format!("gzip finish failed: {}", e))?;
+        .map_err(|e| format!("gzip finish failed: {e}"))?;
 
     // base64 encode
     let b64 = B64.encode(&compressed);

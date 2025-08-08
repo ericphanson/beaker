@@ -123,7 +123,7 @@ impl ModelResult for CutoutResult {
             match crate::mask_encoding::encode_mask_to_entry(mask_data, *width, *height, 0) {
                 Ok(entry) => Some(entry),
                 Err(e) => {
-                    log::warn!("Failed to encode mask data: {}", e);
+                    log::warn!("Failed to encode mask data: {e}");
                     None
                 }
             }
