@@ -374,18 +374,18 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
                 execution.is_some(),
                 "Execution context should exist for {tool} in test {test_name}"
             );
-            
+
             let io_timing = execution.unwrap().file_io.as_ref();
             assert!(
                 io_timing.is_some(),
                 "File I/O timing should exist for {tool} in test {test_name}"
             );
-            
+
             let timing = io_timing.unwrap();
             // At least one timing field should be present and non-zero (we do read and write operations)
             let has_read_timing = timing.read_time_ms.map_or(false, |t| t > 0.0);
             let has_write_timing = timing.write_time_ms.map_or(false, |t| t > 0.0);
-            
+
             assert!(
                 has_read_timing || has_write_timing,
                 "At least one I/O timing value should be present and positive for {tool} in test {test_name}"

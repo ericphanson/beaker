@@ -158,9 +158,8 @@ fn handle_image_outputs_with_timing(
             )?;
 
             // Time the crop creation and save
-            io_timing.time_save_operation(|| {
-                create_square_crop(img, detection, &crop_filename, 0.1)
-            })?;
+            io_timing
+                .time_save_operation(|| create_square_crop(img, detection, &crop_filename, 0.1))?;
 
             debug!(
                 "{} Crop saved to: {}",
@@ -192,9 +191,8 @@ fn handle_image_outputs_with_timing(
         let bbox_filename = output_manager.generate_auxiliary_output("bounding-box", output_ext)?;
 
         // Time the bounding box image save
-        io_timing.time_save_operation(|| {
-            save_bounding_box_image(img, detections, &bbox_filename)
-        })?;
+        io_timing
+            .time_save_operation(|| save_bounding_box_image(img, detections, &bbox_filename))?;
 
         debug!(
             "{} Bounding box image saved to: {}",

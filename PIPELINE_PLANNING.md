@@ -133,22 +133,15 @@ The key insight is that models should be agnostic to whether they're in a pipeli
 ```rust
 /// Enhanced processing interface that supports both file and in-memory operations
 pub trait ModelProcessor {
-    // Existing file-based method (unchanged for backward compatibility)
-    fn process_single_image(...) -> Result<Self::Result>;
-
-    // New in-memory processing method - models implement this if they support it
+    // Core in-memory processing method - all models implement this
     fn process_image_data(
         session: &mut Session,
         image: DynamicImage,
         config: &Self::Config,
-    ) -> Result<ProcessingResult<DynamicImage>> {
-        // Default implementation: falls back to file-based processing
-        // by writing to temp file, calling process_single_image, then reading result
-        self.process_via_files(image, config)
-    }
+    ) -> Result<ProcessingResult<DynamicImage>>;
 
-    // New unified processing method that handles both cases
-    fn process_with_output_mode(
+    // Enhanced file processing method with input/output type arguments
+    fn process_single_image(
         session: &mut Session,
         input: ProcessingInput,
         config: &Self::Config,
@@ -156,16 +149,24 @@ pub trait ModelProcessor {
     ) -> Result<ProcessingResult<OutputData>> {
         match (input, output_mode) {
             (ProcessingInput::File(path), OutputMode::File(output_path)) => {
-                // File-to-file: use existing process_single_image
+                // File-to-file: load image, call process_image_data, save result
+                let image = load_image(path)?;
+                let result = Self::process_image_data(session, image, config)?;
+                save_result(result, output_path)?;
             },
             (ProcessingInput::File(path), OutputMode::Memory) => {
-                // File-to-memory: load image, process in memory
+                // File-to-memory: load image, call process_image_data
+                let image = load_image(path)?;
+                Self::process_image_data(session, image, config)?
             },
             (ProcessingInput::Memory(image), OutputMode::File(output_path)) => {
-                // Memory-to-file: process in memory, save result
+                // Memory-to-file: call process_image_data, save result
+                let result = Self::process_image_data(session, image, config)?;
+                save_result(result, output_path)?;
             },
             (ProcessingInput::Memory(image), OutputMode::Memory) => {
                 // Memory-to-memory: pure in-memory processing (optimal for pipelines)
+                Self::process_image_data(session, image, config)?
             },
         }
     }
@@ -190,8 +191,7 @@ pub enum OutputData {
 }
 ```
 
-**Rationale**: This design allows existing file-based commands to continue working unchanged, while enabling in-memory processing for pipeline use cases. The file-based implementation can be built in terms of the in-memory one by providing helper methods that handle the conversions.
-```
+**Rationale**: This design puts the core processing work in `process_image_data` (in-memory), while `process_single_image` handles I/O and defers to the core. The file-based implementation is automatically built in terms of the in-memory one, eliminating code duplication. Models implement the simpler in-memory processing method, and get file handling for free. Even in pipelines, if users request intermediate saves, the model processor can use the file variant of the output mode.
 
 ### 3. Pipeline Orchestrator
 
@@ -581,7 +581,7 @@ The main value proposition is workflow simplification:
 - **Streamlined CLI interface** - single command for complex operations
 - **Reduced user errors** from manual coordination
 
-### 2. Secondary Focus: Internal API Cleanliness  
+### 2. Secondary Focus: Internal API Cleanliness
 
 The implementation should improve the codebase architecture:
 - **Orthogonal design** separating in-memory vs file processing concerns
