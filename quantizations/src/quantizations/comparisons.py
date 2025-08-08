@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 def load_and_preprocess_image(
     image_path: Path, target_size: tuple = (640, 640)
-) -> np.ndarray:
+) -> tuple[np.ndarray, np.ndarray, tuple[int, int]]:
     """Load and preprocess an image for model inference."""
     image = cv2.imread(str(image_path))
     if image is None:
@@ -47,7 +47,7 @@ def run_model_inference(model_path: Path, input_data: np.ndarray) -> np.ndarray:
         session = ort.InferenceSession(str(model_path), providers=providers)
         input_name = session.get_inputs()[0].name
         outputs = session.run(None, {input_name: input_data})
-        return outputs[0] if outputs else np.array([])
+        return outputs[0] if outputs else np.array([])  # type: ignore
     except Exception as e:
         logger.error(f"Inference failed for {model_path}: {e}")
         raise
@@ -228,6 +228,20 @@ def generate_model_comparison_images(
     output_dir.mkdir(parents=True, exist_ok=True)
     comparison_files = []
 
+    # Determine model type from the output directory or model names
+    model_type_prefix = ""
+    if output_dir.name in ["head", "cutout"]:
+        model_type_prefix = f"{output_dir.name}-"
+    else:
+        # Try to infer from model paths
+        for model_name, model_path in models.items():
+            if "head" in str(model_path).lower():
+                model_type_prefix = "head-"
+                break
+            elif "cutout" in str(model_path).lower():
+                model_type_prefix = "cutout-"
+                break
+
     for image_path in test_images:
         logger.info(f"Processing comparison for {image_path.name}")
 
@@ -246,8 +260,8 @@ def generate_model_comparison_images(
                 model_results[model_name] = (model_path, [])
 
         if model_results:
-            # Create comparison figure
-            output_filename = f"comparison_{image_path.stem}.png"
+            # Create comparison figure with model-type prefix
+            output_filename = f"{model_type_prefix}comparison_{image_path.stem}.png"
             output_path = output_dir / output_filename
 
             create_detection_comparison_figure(

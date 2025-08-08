@@ -44,11 +44,15 @@ def download(output_dir: Path, model_type: str) -> None:
 
     if model_type in ["head", "all"]:
         logger.info("Downloading head detection model...")
-        downloader.download_head_model(output_dir)
+        head_dir = output_dir / "head"
+        head_dir.mkdir(parents=True, exist_ok=True)
+        downloader.download_head_model(head_dir)
 
     if model_type in ["cutout", "all"]:
         logger.info("Downloading cutout model...")
-        downloader.download_cutout_model(output_dir)
+        cutout_dir = output_dir / "cutout"
+        cutout_dir.mkdir(parents=True, exist_ok=True)
+        downloader.download_cutout_model(cutout_dir)
 
     logger.info("Download complete!")
 
@@ -69,13 +73,36 @@ def download(output_dir: Path, model_type: str) -> None:
     type=click.Choice(["dynamic", "static", "int8", "fp16"]),
     help="Quantization levels to apply",
 )
-def quantize(model_path: Path, output_dir: Path, levels: tuple[str, ...]) -> None:
+@click.option(
+    "--model-type",
+    type=click.Choice(["head", "cutout"]),
+    help="Model type (auto-detected if not specified)",
+)
+def quantize(
+    model_path: Path,
+    output_dir: Path,
+    levels: tuple[str, ...],
+    model_type: str | None = None,
+) -> None:
     """Quantize an ONNX model at specified levels."""
-    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create model-type-specific output directory
+    if model_type:
+        quantized_output_dir = output_dir / model_type
+    else:
+        # Auto-detect model type from path/filename
+        if "head" in str(model_path).lower() or "best" in model_path.stem.lower():
+            quantized_output_dir = output_dir / "head"
+        elif "cutout" in str(model_path).lower():
+            quantized_output_dir = output_dir / "cutout"
+        else:
+            quantized_output_dir = output_dir / "unknown"
+
+    quantized_output_dir.mkdir(parents=True, exist_ok=True)
 
     for level in levels:
         logger.info(f"Applying {level} quantization to {model_path.name}...")
-        output_path = quantizer.quantize_model(model_path, output_dir, level)
+        output_path = quantizer.quantize_model(model_path, quantized_output_dir, level)
         logger.info(f"Saved quantized model: {output_path}")
 
 
@@ -168,6 +195,15 @@ def upload(
     """Upload quantized models to GitHub releases."""
     logger.info(f"Uploading {model_type} quantizations (version: {version})...")
 
+    # Use model-type-specific quantized directory
+    model_quantized_dir = quantized_dir / model_type
+    if not model_quantized_dir.exists():
+        # Fallback to original directory structure
+        model_quantized_dir = quantized_dir
+        logger.warning(
+            f"Model-specific directory {model_quantized_dir} not found, using {quantized_dir}"
+        )
+
     # Prepare additional data for enhanced uploads
     performance_table = ""
     comparison_images = []
@@ -177,14 +213,22 @@ def upload(
         logger.info("Generating comparison images...")
         try:
             # Find original and quantized models
-            original_models = list(quantized_dir.glob(f"{model_type}-optimized.onnx"))
+            original_models = list(
+                model_quantized_dir.glob(f"{model_type}-optimized.onnx")
+            )
             if not original_models:
-                original_models = list(quantized_dir.parent.glob("models/*.onnx"))
+                # Look in the models directory with model-type subdirectory
+                models_parent = quantized_dir.parent / "models" / model_type
+                if models_parent.exists():
+                    original_models = list(models_parent.glob("*.onnx"))
+                else:
+                    # Fallback to old structure
+                    original_models = list(quantized_dir.parent.glob("models/*.onnx"))
 
             if original_models:
                 original_model = original_models[0]
                 quantized_models = uploader.collect_quantized_models(
-                    quantized_dir, model_type
+                    model_quantized_dir, model_type
                 )
 
                 # Collect test images
@@ -202,8 +246,10 @@ def upload(
                         model_name = q_model.stem.replace(f"{model_type}-", "").title()
                         models[model_name] = q_model
 
-                    # Generate comparison images
-                    comparison_output = quantized_dir / "comparisons"
+                    # Generate comparison images with model-type prefix
+                    comparison_output = (
+                        quantized_dir.parent / "comparisons" / model_type
+                    )
                     comparison_images = comparisons.generate_model_comparison_images(
                         models,
                         test_image_list[:4],
@@ -215,7 +261,7 @@ def upload(
             logger.warning(f"Failed to generate comparison images: {e}")
 
     uploader.upload_quantizations(
-        quantized_dir,
+        model_quantized_dir,
         model_type,
         version,
         dry_run,
@@ -264,18 +310,40 @@ def full_pipeline(
 
     # Download models
     logger.info("Step 1: Downloading models...")
-    download.callback(models_dir, model_type)
+
+    if model_type in ["head", "all"]:
+        head_dir = models_dir / "head"
+        head_dir.mkdir(parents=True, exist_ok=True)
+        downloader.download_head_model(head_dir)
+
+    if model_type in ["cutout", "all"]:
+        cutout_dir = models_dir / "cutout"
+        cutout_dir.mkdir(parents=True, exist_ok=True)
+        downloader.download_cutout_model(cutout_dir)
 
     # Find downloaded models
     model_files = []
     if model_type in ["head", "all"]:
-        head_files = list(models_dir.glob("*head*.onnx")) + list(
-            models_dir.glob("best.onnx")
-        )
-        model_files.extend(head_files)
+        head_dir = models_dir / "head"
+        if head_dir.exists():
+            head_files = list(head_dir.glob("*.onnx"))
+            model_files.extend(head_files)
+        else:
+            # Fallback to old structure
+            head_files = list(models_dir.glob("*head*.onnx")) + list(
+                models_dir.glob("best.onnx")
+            )
+            model_files.extend(head_files)
+
     if model_type in ["cutout", "all"]:
-        cutout_files = list(models_dir.glob("*cutout*.onnx"))
-        model_files.extend(cutout_files)
+        cutout_dir = models_dir / "cutout"
+        if cutout_dir.exists():
+            cutout_files = list(cutout_dir.glob("*.onnx"))
+            model_files.extend(cutout_files)
+        else:
+            # Fallback to old structure
+            cutout_files = list(models_dir.glob("*cutout*.onnx"))
+            model_files.extend(cutout_files)
 
     if not model_files:
         raise click.ClickException("No model files found after download")
@@ -284,12 +352,27 @@ def full_pipeline(
     logger.info("Step 2: Quantizing models...")
     all_quantized = []
     for model_file in model_files:
+        # Determine model type from path
+        detected_model_type = "unknown"
+        if (
+            "head" in str(model_file).lower()
+            or model_file.parent.name == "head"
+            or "best" in model_file.stem.lower()
+        ):
+            detected_model_type = "head"
+        elif "cutout" in str(model_file).lower() or model_file.parent.name == "cutout":
+            detected_model_type = "cutout"
+
+        # Create model-type-specific quantized directory
+        model_quantized_dir = quantized_dir / detected_model_type
+        model_quantized_dir.mkdir(parents=True, exist_ok=True)
+
         for level in ["dynamic", "static"]:
             try:
                 quantized_path = quantizer.quantize_model(
-                    model_file, quantized_dir, level
+                    model_file, model_quantized_dir, level
                 )
-                all_quantized.append((model_file, quantized_path))
+                all_quantized.append((model_file, quantized_path, detected_model_type))
                 logger.info(f"✓ Created {quantized_path.name}")
             except Exception as e:
                 logger.warning(
@@ -318,7 +401,7 @@ def full_pipeline(
     validation_results = {}
     timing_results = {}
 
-    for original, quantized_path in all_quantized:
+    for original, quantized_path, detected_model_type in all_quantized:
         try:
             is_valid, max_diff, detailed_metrics = (
                 validator.validate_models_with_timing(
@@ -357,13 +440,13 @@ def full_pipeline(
         type_models = {}
         original_model = None
 
-        for original, quantized_path in all_quantized:
-            if current_type in str(quantized_path).lower():
+        for original, quantized_path, detected_model_type in all_quantized:
+            if detected_model_type == current_type:
                 if not original_model:
                     # Find or create optimized original
                     original_model = original
                     optimized_original = (
-                        quantized_dir / f"{current_type}-optimized.onnx"
+                        quantized_dir / current_type / f"{current_type}-optimized.onnx"
                     )
                     if not optimized_original.exists():
                         quantizer.optimize_model(original, optimized_original)
@@ -378,8 +461,10 @@ def full_pipeline(
         ):  # Need original + at least one quantized
             logger.info(f"Generating comparison images for {current_type} models...")
             try:
+                # Create model-type-specific comparisons directory
+                type_comparisons_dir = comparisons_dir / current_type
                 comparison_images = comparisons.generate_model_comparison_images(
-                    type_models, test_images, comparisons_dir
+                    type_models, test_images, type_comparisons_dir
                 )
                 logger.info(
                     f"Generated {len(comparison_images)} comparison images for {current_type}"
@@ -400,8 +485,11 @@ def full_pipeline(
                 logger.info(f"Step 5: Uploading {current_type} quantizations...")
                 base_model_info = f"Base model: {original_model.name if original_model else 'Unknown'}"
 
+                # Use model-type-specific quantized directory
+                type_quantized_dir = quantized_dir / current_type
+
                 uploader.upload_quantizations(
-                    quantized_dir,
+                    type_quantized_dir,
                     current_type,
                     version,
                     dry_run,
@@ -415,8 +503,9 @@ def full_pipeline(
                     f"Failed to generate comparisons for {current_type}: {e}"
                 )
                 # Upload without comparisons
+                type_quantized_dir = quantized_dir / current_type
                 uploader.upload_quantizations(
-                    quantized_dir, current_type, version, dry_run
+                    type_quantized_dir, current_type, version, dry_run
                 )
 
     logger.info("Full pipeline complete!")
