@@ -351,26 +351,7 @@ impl PipelineOutputManager {
 
 **Risk**: Low - purely additive changes
 
-### Phase 2: Memory Optimization
-
-**Goal**: Add in-memory data flow and batch processing.
-**Complexity**: Medium
-
-**Tasks**:
-1. **Extend ModelProcessor trait** - Add in-memory processing methods
-2. **Implement unified processing approach** - Support both file and in-memory modes
-3. **Add BatchManager** - Memory-aware batch size calculation
-4. **Update existing models** - Support both file and in-memory processing
-
-**Acceptance Criteria**:
-- Performance improvement for multi-step pipelines
-- Memory usage stays within configured limits
-- Batch processing works correctly
-- All existing functionality preserved
-
-**Risk**: Medium - requires careful memory management
-
-### Phase 3: Advanced Features
+### Phase 2: Advanced Features
 
 **Goal**: Add step-specific overrides and advanced output management.
 **Complexity**: Medium
@@ -379,15 +360,34 @@ impl PipelineOutputManager {
 1. **Implement step-specific overrides** - Parse `cutout:--alpha-matting` syntax
 2. **Enhanced output management** - Intermediate outputs, complex naming
 3. **Comprehensive metadata** - Pipeline-aware metadata generation
-4. **Performance tuning** - Optimize batch sizes and memory usage
 
 **Acceptance Criteria**:
 - Step-specific overrides work correctly
 - --save-intermediates produces expected outputs
 - Rich metadata includes pipeline timing and configuration
-- Performance meets or exceeds manual pipeline execution
 
 **Risk**: Medium - complex configuration parsing
+
+### Phase 3: Memory Optimization and Performance Tuning
+
+**Goal**: Add in-memory data flow, batch processing, and performance optimization.
+**Complexity**: Medium
+
+**Tasks**:
+1. **Extend ModelProcessor trait** - Add in-memory processing methods
+2. **Implement unified processing approach** - Support both file and in-memory modes
+3. **Add BatchManager** - Memory-aware batch size calculation
+4. **Update existing models** - Support both file and in-memory processing
+5. **Performance tuning** - Optimize batch sizes and memory usage
+
+**Acceptance Criteria**:
+- Performance improvement for multi-step pipelines
+- Memory usage stays within configured limits
+- Batch processing works correctly
+- All existing functionality preserved
+- Performance meets or exceeds manual pipeline execution
+
+**Risk**: Medium - requires careful memory management
 
 ### Phase 4: Polish & Documentation
 
@@ -397,8 +397,7 @@ impl PipelineOutputManager {
 **Tasks**:
 1. **Comprehensive testing** - Edge cases, error conditions, performance
 2. **Documentation** - Help text, examples, troubleshooting
-3. **Performance benchmarking** - Validate efficiency improvements
-4. **Error handling** - Graceful failure modes and recovery
+3. **Error handling** - Graceful failure modes and recovery
 
 **Acceptance Criteria**:
 - All tests pass, including edge cases
@@ -410,7 +409,7 @@ impl PipelineOutputManager {
 
 ## Required API Changes
 
-### 1. ModelProcessor Trait Extensions
+### 1. ModelProcessor Trait Extensions (Phase 1)
 
 ```rust
 pub trait ModelProcessor {
@@ -429,12 +428,12 @@ pub trait ModelProcessor {
     }
 
     fn memory_requirements(config: &Self::Config) -> MemoryRequirements {
-        // Default conservative estimate
+        // Default conservative estimate - Phase 3
         MemoryRequirements::conservative()
     }
 
     fn accepts_input_from(previous_step: &str) -> bool {
-        // Default: accept from any step (e.g., head can process cutout outputs)
+        // Default: accept from any step (e.g., head can process cutout outputs) - Phase 2
         true
     }
 }
@@ -442,7 +441,7 @@ pub trait ModelProcessor {
 
 **Rationale**: This approach allows the file-based processing to be implemented in terms of the in-memory processing, reducing code duplication while maintaining backward compatibility.
 
-### 2. Configuration System Extensions
+### 2. Configuration System Extensions (Phase 2)
 
 ```rust
 // Extend existing configs to support pipeline usage
@@ -457,7 +456,7 @@ impl HeadDetectionConfig {
 }
 ```
 
-### 3. Output Manager Extensions
+### 3. Output Manager Extensions (Phase 2)
 
 ```rust
 impl OutputManager {
@@ -475,7 +474,7 @@ impl OutputManager {
 
 ## Alternatives Considered
 
-### Alternative 1: Simple Sequential Processing
+### Alternative 1: Simple Sequential Processing (Recommended Starting Point)
 
 **Description**: Execute existing commands sequentially with shared temporary directory. This approach would essentially be a wrapper that calls `beaker cutout` followed by `beaker head` with temporary directories managed automatically.
 
@@ -483,16 +482,33 @@ impl OutputManager {
 - Minimal code changes required
 - Leverages existing tested infrastructure
 - Low implementation risk
+- Lower implementation complexity than the hybrid approach
 
 **Cons**:
-- Lower implementation complexity than the hybrid approach, but provides no performance benefits
 - Still has full I/O overhead between steps (same as manual chaining)
 - Limited value proposition beyond ergonomic convenience
 - Each step still requires separate session creation and model loading
 
-**Verdict**: Rejected - insufficient value for the implementation effort
+**Verdict**: **Recommended as Phase 1** - Given low performance gains from I/O elimination (0.8-1.5%), starting with this approach and potentially moving to in-memory later provides the best risk/benefit balance.
 
-### Alternative 2: Full In-Memory Pipeline
+### Alternative 2: Hybrid File-Memory Approach (Future Phase)
+
+**Description**: This approach processes each batch through all pipeline steps in memory, but saves intermediate results to disk between batches if needed. It provides a balance by keeping the memory footprint manageable while still eliminating most file I/O overhead. Models can process data in memory within a batch, but fall back to file-based processing at batch boundaries if memory pressure requires it.
+
+**Pros**:
+- Significant performance improvements
+- Manageable implementation complexity
+- Graceful degradation under memory pressure
+- Builds on existing infrastructure
+
+**Cons**:
+- Still some I/O overhead between batches if memory pressure requires it
+- More complex than simple sequential approach
+- Requires careful batch size tuning
+
+**Verdict**: **Phase 3 implementation** - Good for future optimization after establishing basic pipeline functionality
+
+### Alternative 3: Full In-Memory Pipeline
 
 **Description**: Complete in-memory processing with no intermediate file I/O. This approach would require significant changes to the ModelProcessor trait and would require all pipeline data to be held in memory simultaneously.
 
@@ -509,23 +525,6 @@ impl OutputManager {
 - Would require substantial changes to existing model interfaces
 
 **Verdict**: Considered but too risky for initial implementation
-
-### Alternative 3: Hybrid File-Memory Approach (Recommended)
-
-**Description**: This approach processes each batch through all pipeline steps in memory, but saves intermediate results to disk between batches if needed. It provides a balance by keeping the memory footprint manageable while still eliminating most file I/O overhead. Models can process data in memory within a batch, but fall back to file-based processing at batch boundaries if memory pressure requires it.
-
-**Pros**:
-- Significant performance improvements
-- Manageable implementation complexity
-- Graceful degradation under memory pressure
-- Builds on existing infrastructure
-
-**Cons**:
-- Still some I/O overhead between batches if memory pressure requires it
-- More complex than simple sequential approach
-- Requires careful batch size tuning
-
-**Verdict**: **Selected** - optimal balance of benefits and implementation risk
 
 ## Scoping Options
 
@@ -909,3 +908,186 @@ Based on real measurements, the pipeline subcommand provides:
 - No false promises of dramatic speedups
 - Honest assessment of actual bottlenecks
 - Value justified by ergonomics and extensibility rather than performance alone
+
+## Issues
+
+This section defines well-scoped GitHub issues that can be executed by different copilot agents concurrently. Each issue is designed to pass all tests and leave the codebase in a working state after completion.
+
+### Issue 1: Pipeline CLI Command Infrastructure
+
+**Title**: Add pipeline subcommand with skeleton implementation
+
+**Description**:
+Create the CLI infrastructure for the pipeline subcommand with basic argument parsing and skeleton implementation that returns "not implemented" errors.
+
+**Scope**:
+- Add `PipelineCommand` struct to `src/config.rs` with step parsing (`--steps cutout,head`)
+- Add pipeline subcommand to `main.rs` CLI structure
+- Create `src/pipeline_processing.rs` with `PipelineProcessor` trait and skeleton implementation
+- Add basic help text and argument validation
+- Tests can be minimal or skipped for this foundation issue
+
+**Acceptance Criteria**:
+- `beaker pipeline --help` shows proper help text
+- `beaker pipeline --steps cutout,head input.jpg` returns "Pipeline processing not yet implemented" error
+- All existing tests continue to pass
+- No breaking changes to existing CLI interface
+
+**Dependencies**: None
+
+**Phase**: 1
+
+---
+
+### Issue 2: PipelineProcessor Implementation with File-Based Processing
+
+**Title**: Implement PipelineProcessor with file-based sequential processing and metadata support
+
+**Description**:
+Implement the actual pipeline processing logic using existing file-based model processing infrastructure. This provides the ergonomic benefits without memory optimization complexity.
+
+**Scope**:
+- Implement `PipelineProcessor::process_pipeline()` method
+- Create temporary directory management for intermediate files
+- Sequential execution of cutout followed by head detection using existing `process_single_image` methods
+- Generate comprehensive pipeline metadata in TOML format
+- Add `PipelineMetadataStructure` and `PipelineTimingAccuracy` metadata test validations
+- Integration with existing test framework
+
+**Acceptance Criteria**:
+- `beaker pipeline --steps cutout,head --output-dir results *.jpg` works correctly
+- Intermediate files are cleaned up automatically
+- Pipeline metadata TOML includes timing data for each step
+- All existing metadata tests pass plus new pipeline-specific validations
+- Performance matches manual sequential execution (no performance degradation)
+
+**Dependencies**: Issue 1 (Pipeline CLI Command Infrastructure)
+
+**Phase**: 1
+
+---
+
+### Issue 3: ModelProcessor API Improvements for Pipeline Integration
+
+**Title**: Enhance ModelProcessor trait for ergonomic pipeline integration
+
+**Description**:
+Modify the ModelProcessor trait to support pipeline-friendly temporary directory output while maintaining backward compatibility. This makes it easier for PipelineProcessor to coordinate temporary file management.
+
+**Scope**:
+- Add optional `temp_output_dir` parameter to `process_single_image` methods
+- Update head detection and cutout processing to support temporary directory output
+- Ensure existing API remains unchanged (backward compatibility)
+- Update existing models to use enhanced API efficiently
+
+**Acceptance Criteria**:
+- Head detection and cutout processing can output to specified temporary directories
+- All existing functionality preserved with same API
+- Pipeline processing can coordinate temporary directories more easily
+- All model tests continue to pass
+
+**Dependencies**: None (can be developed in parallel with Issues 1-2)
+
+**Phase**: 1
+
+---
+
+### Issue 4: Enhanced Performance Analysis and Benchmarking
+
+**Title**: Expand file_io_assessment.py into comprehensive benchmark suite
+
+**Description**:
+Extend the current `file_io_assessment.py` script into a comprehensive benchmarking tool that can validate pipeline performance against manual execution and track performance metrics over time.
+
+**Scope**:
+- Expand `file_io_assessment.py` to support pipeline vs sequential manual execution comparison
+- Add memory usage validation under different batch sizes
+- Create structured output format for continuous performance monitoring
+- Integration with CI for performance regression detection
+
+**Acceptance Criteria**:
+- Script can benchmark both standalone and pipeline processing modes
+- Validates that pipeline processing doesn't degrade performance
+- Generates structured performance data suitable for CI integration
+- Maintains existing functionality for basic I/O timing analysis
+
+**Dependencies**: Issue 2 (PipelineProcessor Implementation)
+
+**Phase**: 1
+
+---
+
+### Issue 5: Step-Specific Override Syntax Implementation
+
+**Title**: Add step-specific override parsing and configuration
+
+**Description**:
+Implement parsing and handling of step-specific overrides using the `cutout:--alpha-matting head:--confidence=0.8` syntax.
+
+**Scope**:
+- Extend `PipelineCommand` to parse step-specific override syntax
+- Create configuration merging logic for step-specific parameters
+- Add validation for step-specific parameter compatibility
+- Enhanced error messages for configuration syntax errors
+
+**Acceptance Criteria**:
+- `beaker pipeline --steps "cutout:--alpha-matting head:--confidence=0.8" input.jpg` works correctly
+- Invalid step parameters produce clear error messages
+- Configuration validation catches incompatible parameter combinations
+- All existing functionality preserved
+
+**Dependencies**: Issue 2 (PipelineProcessor Implementation)
+
+**Phase**: 2
+
+---
+
+### Issue 6: Intermediate Output Management
+
+**Title**: Add --save-intermediates support and advanced output management
+
+**Description**:
+Implement comprehensive output management including intermediate output saving and complex naming schemes for pipeline results.
+
+**Scope**:
+- Add `--save-intermediates` flag to pipeline command
+- Implement pipeline-aware output naming conventions
+- Create output organization for complex multi-step pipelines
+- Enhanced metadata tracking for output provenance
+
+**Acceptance Criteria**:
+- `--save-intermediates` preserves intermediate files in organized directory structure
+- Output naming clearly indicates pipeline step provenance
+- Metadata includes full pipeline configuration and step timing
+- Directory structure is intuitive and well-documented
+
+**Dependencies**: Issue 2 (PipelineProcessor Implementation)
+
+**Phase**: 2
+
+---
+
+### Issue 7: In-Memory Processing Infrastructure (Future)
+
+**Title**: Add in-memory data flow and memory-aware batch processing
+
+**Description**:
+Implement the ModelProcessor trait extensions for in-memory processing and add memory-aware batch management for performance optimization.
+
+**Scope**:
+- Extend ModelProcessor trait with `process_image_data` for in-memory processing
+- Add `BatchManager` for memory-aware batch size calculation
+- Update existing models to support both file and in-memory processing modes
+- Memory pressure monitoring and graceful degradation
+
+**Acceptance Criteria**:
+- In-memory processing provides measurable performance improvement for multi-step pipelines
+- Memory usage stays within configured limits
+- Graceful fallback to file-based processing under memory pressure
+- All existing functionality preserved
+
+**Dependencies**: Issues 1-2 (foundation infrastructure)
+
+**Phase**: 3
+
+**Note**: This issue should be implemented only after Phase 1-2 issues prove the value of the file-based approach and establish solid foundations.

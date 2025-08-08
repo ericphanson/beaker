@@ -125,13 +125,11 @@ def analyze_timing_data(timing_data, operation_name):
 
 def main():
     """Main assessment function"""
-    # Find the beaker binary
+    # Find the beaker binary - only release paths, debug timing info is garbage
     beaker_path = None
     possible_paths = [
         "./beaker/target/release/beaker",
-        "./beaker/target/debug/beaker",
         "./target/release/beaker",
-        "./target/debug/beaker",
         "../target/release/beaker",
         "../target/debug/beaker",
     ]
@@ -182,7 +180,7 @@ def main():
         head_metadata_files = glob.glob(os.path.join(temp_dir, "*.beaker.toml"))
         if head_metadata_files:
             timing_data = extract_timing_from_metadata(head_metadata_files[0])
-            head_analysis = analyze_timing_data(timing_data, "Head Detection")
+            analyze_timing_data(timing_data, "Head Detection")
 
         # Test 2: Cutout processing with timing
         print("\n" + "=" * 60)
@@ -204,7 +202,7 @@ def main():
         cutout_metadata_files = glob.glob(os.path.join(temp_dir, "*.beaker.toml"))
         if cutout_metadata_files:
             timing_data = extract_timing_from_metadata(cutout_metadata_files[0])
-            cutout_analysis = analyze_timing_data(timing_data, "Cutout Processing")
+            analyze_timing_data(timing_data, "Cutout Processing")
 
         # Test 3: Combined pipeline simulation (head + cutout sequentially)
         print("\n" + "=" * 60)

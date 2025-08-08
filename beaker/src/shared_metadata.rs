@@ -30,11 +30,7 @@ impl IoTiming {
     }
 
     pub fn time_image_save<P: AsRef<Path>>(&mut self, img: &DynamicImage, path: P) -> Result<()> {
-        let start = Instant::now();
-        img.save(path)?;
-        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-        self.write_time_ms = Some(self.write_time_ms.unwrap_or(0.0) + elapsed_ms);
-        Ok(())
+        self.time_save_operation(|| Ok(img.save(path)?))
     }
 
     pub fn time_cutout_save<P: AsRef<Path>>(
@@ -42,11 +38,7 @@ impl IoTiming {
         img: &image::ImageBuffer<image::Rgba<u8>, Vec<u8>>,
         path: P,
     ) -> Result<()> {
-        let start = Instant::now();
-        img.save(path)?;
-        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-        self.write_time_ms = Some(self.write_time_ms.unwrap_or(0.0) + elapsed_ms);
-        Ok(())
+        self.time_save_operation(|| Ok(img.save(path)?))
     }
 
     pub fn time_mask_save<P: AsRef<Path>>(
@@ -54,11 +46,7 @@ impl IoTiming {
         img: &image::ImageBuffer<image::Luma<u8>, Vec<u8>>,
         path: P,
     ) -> Result<()> {
-        let start = Instant::now();
-        img.save(path)?;
-        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-        self.write_time_ms = Some(self.write_time_ms.unwrap_or(0.0) + elapsed_ms);
-        Ok(())
+        self.time_save_operation(|| Ok(img.save(path)?))
     }
 
     /// Add timing for a generic save operation
