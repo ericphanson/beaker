@@ -332,7 +332,7 @@ mod tests {
             // On Unix-like systems, use a deeply nested non-existent path
             "/this/path/definitely/does/not/exist/model.onnx"
         };
-        
+
         // Set environment variable to non-existent path
         env::set_var("BEAKER_HEAD_MODEL_PATH", non_existent_path);
 
