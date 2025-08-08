@@ -21,15 +21,15 @@ When developing proposals, technical plans, or architectural changes, align with
 - **Script reproducible benchmarks**: Provide scripts that others can run to validate performance claims
 
 ### Simplicity and Incrementalism
-- **Start simple**: Begin with file-based, sequential approaches before considering in-memory or parallel optimizations
+- **Start simple**: especially if the evidence doesn't point to large benefits from a more complex approach
 - **Eliminate redundancy**: Consolidate similar functions and remove code duplication aggressively
 - **Generic solutions**: Prefer reusable, generic implementations over model-specific or use-case-specific code
 - **Breaking changes are acceptable**: Don't prioritize backwards compatibility at this development stage
 
 ### Ergonomics Over Performance
 - **User experience first**: When performance gains are modest (< 5%), prioritize user ergonomics and workflow simplification
-- **Clean separation of concerns**: Keep models agnostic to their usage context (pipeline vs standalone)
-- **Configuration-based coordination**: Use existing config mechanisms rather than API changes when possible
+- **Clean separation of concerns**: APIs should make sense on their own without requiring codebase-wide context. For example, models should be generally agnostic to their usage context (pipeline vs standalone).
+- **Configuration-based coordination**: Use and expand upon existing config mechanisms to communicate across APIs and serialize those configs to metadata for testing and analysis.
 
 ### Parallel Development Planning
 - **Orthogonal issues**: Structure work into independent, well-scoped GitHub issues that can be executed concurrently
@@ -40,11 +40,6 @@ When developing proposals, technical plans, or architectural changes, align with
 - **Unify tooling**: Consolidate multiple scripts with similar purposes into single, comprehensive tools
 - **Consistent patterns**: Apply the same architectural patterns across similar components
 - **Maintainable interfaces**: Design APIs that automatically benefit from future enhancements
-
-### Implementation Strategy
-- **Phase 1**: Core functionality with file-based processing
-- **Phase 2**: Enhanced ergonomics and configuration options
-- **Phase 3**: Performance optimizations and memory management (only if justified by evidence)
 
 ## API Tool Usage Guidelines
 
