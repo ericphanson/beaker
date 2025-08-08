@@ -299,8 +299,18 @@ mod tests {
         env::remove_var("BEAKER_CUTOUT_MODEL_URL");
         env::remove_var("BEAKER_CUTOUT_MODEL_CHECKSUM");
 
+        // Use a path that's guaranteed to not exist on any platform
+        // Use a path in a directory that doesn't exist with invalid characters
+        let non_existent_path = if cfg!(windows) {
+            // On Windows, use a path with invalid characters
+            "C:\\this\\path\\definitely\\does\\not\\exist\\model.onnx"
+        } else {
+            // On Unix-like systems, use a deeply nested non-existent path
+            "/this/path/definitely/does/not/exist/model.onnx"
+        };
+
         // Set environment variable to non-existent path
-        env::set_var("BEAKER_CUTOUT_MODEL_PATH", "/non/existent/path.onnx");
+        env::set_var("BEAKER_CUTOUT_MODEL_PATH", non_existent_path);
 
         let result = CutAccess::get_model_source();
         assert!(result.is_err(), "Should fail with non-existent path");

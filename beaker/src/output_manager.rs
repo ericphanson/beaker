@@ -37,9 +37,9 @@ impl<'a> OutputManager<'a> {
             .unwrap_or("output")
     }
 
-    /// Generate primary output path without suffix when using output_dir
+    /// Generate primary output path with suffix (always includes suffix)
     ///
-    /// This is for main outputs that should be clean when placed in a dedicated output directory
+    /// This ensures consistent naming regardless of output directory usage
     pub fn generate_main_output_path(
         &self,
         default_suffix: &str,
@@ -47,13 +47,8 @@ impl<'a> OutputManager<'a> {
     ) -> Result<PathBuf> {
         let input_stem = self.input_stem();
 
-        let output_filename = if self.config.base().output_dir.is_some() {
-            // Clean filename when using output directory
-            format!("{input_stem}.{extension}")
-        } else {
-            // Add suffix when placing next to input
-            format!("{input_stem}_{default_suffix}.{extension}")
-        };
+        // Always add suffix for consistency
+        let output_filename = format!("{input_stem}_{default_suffix}.{extension}");
 
         let output_path = if let Some(output_dir) = &self.config.base().output_dir {
             let output_dir = Path::new(output_dir);
@@ -72,7 +67,7 @@ impl<'a> OutputManager<'a> {
     /// Generate numbered output path for multiple similar outputs
     ///
     /// Examples:
-    /// - Single item: "image_crop.jpg" or "image.jpg" (with output_dir)
+    /// - Single item: "image_crop.jpg" (always with suffix)
     /// - Multiple items < 10: "image_crop-1.jpg", "image_crop-2.jpg"
     /// - Multiple items >= 10: "image_crop-01.jpg", "image_crop-02.jpg"
     pub fn generate_numbered_output(
@@ -85,25 +80,17 @@ impl<'a> OutputManager<'a> {
         let input_stem = self.input_stem();
 
         let output_filename = if total == 1 {
-            // Single output - use main output behavior
-            if self.config.base().output_dir.is_some() {
-                format!("{input_stem}.{extension}")
-            } else {
-                format!("{input_stem}_{base_suffix}.{extension}")
-            }
+            // Single output - always use suffix for consistency
+            format!("{input_stem}_{base_suffix}.{extension}")
         } else {
-            // Multiple outputs - always numbered
+            // Multiple outputs - always numbered with suffix
             let number_format = if total >= 10 {
                 format!("{index:02}") // Zero-padded for 10+
             } else {
                 format!("{index}") // No padding for < 10
             };
 
-            if self.config.base().output_dir.is_some() {
-                format!("{input_stem}-{number_format}.{extension}")
-            } else {
-                format!("{input_stem}_{base_suffix}-{number_format}.{extension}")
-            }
+            format!("{input_stem}_{base_suffix}-{number_format}.{extension}")
         };
 
         let output_path = if let Some(output_dir) = &self.config.base().output_dir {
@@ -241,7 +228,8 @@ mod tests {
         let manager = OutputManager::new(&config, &input_path);
         let output_path = manager.generate_main_output_path("cutout", "png").unwrap();
 
-        assert_eq!(output_path, output_dir.join("test.png"));
+        // Should now always include suffix, even with output_dir
+        assert_eq!(output_path, output_dir.join("test_cutout.png"));
     }
 
     #[test]
@@ -269,6 +257,22 @@ mod tests {
             .unwrap();
 
         assert_eq!(output_path, temp_dir.path().join("test_crop.jpg"));
+    }
+
+    #[test]
+    fn test_numbered_output_single_item_with_output_dir() {
+        let temp_dir = TempDir::new().unwrap();
+        let output_dir = temp_dir.path().join("output");
+        let input_path = temp_dir.path().join("test.jpg");
+        let config = create_test_config(Some(output_dir.to_string_lossy().to_string()));
+
+        let manager = OutputManager::new(&config, &input_path);
+        let output_path = manager
+            .generate_numbered_output("crop", 1, 1, "jpg")
+            .unwrap();
+
+        // Should now always include suffix, even with output_dir and single item
+        assert_eq!(output_path, output_dir.join("test_crop.jpg"));
     }
 
     #[test]
@@ -311,7 +315,8 @@ mod tests {
             .generate_numbered_output("crop", 3, 12, "jpg")
             .unwrap();
 
-        assert_eq!(output_path, output_dir.join("test-03.jpg"));
+        // Should now always include suffix, even with output_dir
+        assert_eq!(output_path, output_dir.join("test_crop-03.jpg"));
     }
 
     #[test]
