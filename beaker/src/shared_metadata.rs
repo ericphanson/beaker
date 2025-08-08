@@ -316,6 +316,7 @@ mod tests {
             start_value: 0,
             order: "row-major".to_string(),
             data: "H4sIAAAAAAAA/ytJLS4BAG0+lf4EAAAA".to_string(), // Example base64 data
+            preview: None,
         };
 
         let beaker_env_vars = collect_beaker_env_vars();

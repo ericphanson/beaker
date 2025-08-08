@@ -16,6 +16,17 @@ pub struct MaskEntry {
     pub start_value: u8, // 0 or 1
     pub order: String,   // "row-major"
     pub data: String,    // base64(gzip(rle_csv))
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview: Option<AsciiPreview>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AsciiPreview {
+    pub format: String, // "ascii"
+    pub width: u32,     // preview cols
+    pub height: u32,    // preview rows
+    pub rows: Vec<String>,
 }
 
 /// Encode a binary mask (0/1 values) into the specified TOML-friendly format.
@@ -26,63 +37,84 @@ pub fn encode_mask_to_entry(
     height: u32,
     start_value: u8, // typically 0; if the first pixel is 1, we'll emit a leading 0-run
 ) -> Result<MaskEntry, String> {
-    // Basic validation
+    encode_mask_to_entry_with_preview(mask, width, height, start_value, Some((80, 60)))
+}
+
+/// Encode a binary mask (row-major, values 0/1) to the TOML-friendly entry,
+/// with an optional ASCII preview of (pw x ph).
+pub fn encode_mask_to_entry_with_preview(
+    mask: &[u8],
+    width: u32,
+    height: u32,
+    start_value: u8,
+    preview_dims: Option<(u32, u32)>, // e.g., Some((80, 60)) or None
+) -> Result<MaskEntry, String> {
+    // --- validate input ---
     let expected_len = (width as usize) * (height as usize);
     if mask.len() != expected_len {
-        return Err(format!(
-            "mask length {} != width*height {}",
-            mask.len(),
-            expected_len
-        ));
+        return Err(format!("mask length {} != {}", mask.len(), expected_len));
     }
     if start_value > 1 {
         return Err("start_value must be 0 or 1".into());
     }
-    if let Some((i, bad)) = mask.iter().enumerate().find(|(_, &v)| v != 0 && v != 1) {
-        return Err(format!("mask contains non-binary value {bad} at index {i}"));
+    if let Some((i, bad)) = mask
+        .iter()
+        .copied()
+        .enumerate()
+        .find(|(_, v)| *v != 0 && *v != 1)
+    {
+        return Err(format!(
+            "mask contains non-binary value {} at index {}",
+            bad, i
+        ));
     }
 
-    // RLE (binary, alternating runs starting at start_value)
-    let mut runs: Vec<usize> = Vec::new();
-    let mut current_val: u8 = start_value;
+    // --- RLE (binary, alternating runs starting at start_value) ---
+    let mut runs: Vec<usize> = Vec::with_capacity(mask.len() / 4);
+    let mut current = start_value;
     let mut run_len: usize = 0;
-
     for &px in mask {
-        if px == current_val {
+        if px == current {
             run_len += 1;
         } else {
-            // close current run, flip value, start new run
             runs.push(run_len);
-            current_val ^= 1;
+            current ^= 1;
             run_len = 1;
         }
     }
-    // push the final run
     runs.push(run_len);
 
-    // Convert runs to a comma-separated ASCII string
-    let mut rle = String::new();
-    // Reserve a bit to reduce reallocations (cheap heuristic)
-    rle.reserve(runs.len() * 3);
+    // --- CSV string of runs ---
+    let mut rle = String::with_capacity(runs.len() * 3);
     for (i, r) in runs.iter().enumerate() {
         if i > 0 {
             rle.push(',');
         }
         use std::fmt::Write as _;
-        write!(&mut rle, "{r}").unwrap();
+        write!(&mut rle, "{}", r).unwrap();
     }
 
-    // gzip the RLE string
+    // --- gzip and base64 ---
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
     encoder
         .write_all(rle.as_bytes())
-        .map_err(|e| format!("gzip write failed: {e}"))?;
-    let compressed = encoder
-        .finish()
-        .map_err(|e| format!("gzip finish failed: {e}"))?;
-
-    // base64 encode
+        .map_err(|e| e.to_string())?;
+    let compressed = encoder.finish().map_err(|e| e.to_string())?;
     let b64 = B64.encode(&compressed);
+
+    // --- optional ASCII preview ---
+    let preview = match preview_dims {
+        None => None,
+        Some((pw, ph)) => {
+            let rows = downsample_ascii(mask, width, height, pw, ph);
+            Some(AsciiPreview {
+                format: "ascii".to_string(),
+                width: pw,
+                height: ph,
+                rows,
+            })
+        }
+    };
 
     Ok(MaskEntry {
         width,
@@ -91,7 +123,41 @@ pub fn encode_mask_to_entry(
         start_value,
         order: "row-major".to_string(),
         data: b64,
+        preview,
     })
+}
+
+/// Downsample by block averaging to a fixed (pw x ph) ASCII preview.
+/// Threshold at 0.5: ≥0.5 -> '#', else '.'.
+fn downsample_ascii(mask: &[u8], w: u32, h: u32, pw: u32, ph: u32) -> Vec<String> {
+    let (w, h, pw, ph) = (w as usize, h as usize, pw as usize, ph as usize);
+    let sx = (w as f64) / (pw as f64);
+    let sy = (h as f64) / (ph as f64);
+
+    let mut rows = Vec::with_capacity(ph);
+    for oy in 0..ph {
+        let y0 = (oy as f64 * sy).floor() as usize;
+        let y1 = (((oy as f64 + 1.0) * sy).ceil() as usize).min(h);
+        let y1 = y1.max(y0 + 1); // ensure non-empty
+        let mut line = String::with_capacity(pw);
+        for ox in 0..pw {
+            let x0 = (ox as f64 * sx).floor() as usize;
+            let x1 = (((ox as f64 + 1.0) * sx).ceil() as usize).min(w);
+            let x1 = x1.max(x0 + 1);
+
+            let mut sum = 0usize;
+            for yy in y0..y1 {
+                let row = &mask[yy * w..yy * w + w];
+                for xx in x0..x1 {
+                    sum += row[xx] as usize;
+                }
+            }
+            let area = (y1 - y0) * (x1 - x0);
+            line.push(if (sum * 2) >= area { '#' } else { '.' });
+        }
+        rows.push(line);
+    }
+    rows
 }
 
 #[cfg(test)]
@@ -124,9 +190,7 @@ mod tests {
         let mask = vec![0, 1, 0];
         let result = encode_mask_to_entry(&mask, 2, 2, 0);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .contains("mask length 3 != width*height 4"));
+        assert!(result.unwrap_err().contains("mask length 3 != 4"));
 
         // Invalid start_value
         let mask = vec![0, 1, 0, 1];
@@ -159,5 +223,39 @@ mod tests {
         let mask = vec![0, 1, 0, 1];
         let entry = encode_mask_to_entry(&mask, 2, 2, 0).unwrap();
         assert_eq!(entry.start_value, 0);
+
+        // Verify preview exists with default parameters (80x60)
+        assert!(entry.preview.is_some());
+        let preview = entry.preview.unwrap();
+        assert_eq!(preview.format, "ascii");
+        assert_eq!(preview.width, 80);
+        assert_eq!(preview.height, 60);
+        assert_eq!(preview.rows.len(), 60);
+    }
+
+    #[test]
+    fn test_preview_generation() {
+        // Create a simple 4x4 mask with a pattern
+        let mask = vec![1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 1, 1];
+        let entry = encode_mask_to_entry_with_preview(&mask, 4, 4, 0, Some((4, 4))).unwrap();
+
+        assert!(entry.preview.is_some());
+        let preview = entry.preview.unwrap();
+        assert_eq!(preview.width, 4);
+        assert_eq!(preview.height, 4);
+        assert_eq!(preview.rows.len(), 4);
+
+        // Should match the pattern approximately
+        assert_eq!(preview.rows[0], "##..");
+        assert_eq!(preview.rows[1], "##..");
+        assert_eq!(preview.rows[2], "..##");
+        assert_eq!(preview.rows[3], "..##");
+    }
+
+    #[test]
+    fn test_no_preview() {
+        let mask = vec![0, 1, 0, 1];
+        let entry = encode_mask_to_entry_with_preview(&mask, 2, 2, 0, None).unwrap();
+        assert!(entry.preview.is_none());
     }
 }
