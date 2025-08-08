@@ -5,7 +5,7 @@ This package provides tools to quantize ONNX models for the Beaker bird detectio
 ## Features
 
 - **Model Download**: Automatically downloads the latest ONNX models from GitHub releases
-- **Multiple Quantization Levels**: Supports dynamic, static, INT8, and FP16 quantization
+- **Multiple Quantization Levels**: Supports dynamic and static INT8 quantization with ONNX optimization
 - **ONNX Optimization**: Uses onnx-simplifier for graph optimization and optimization passes
 - **Validation**: Compares quantized models against originals using multiple metrics
 - **Performance Metrics**: Measures inference timing over multiple runs
@@ -20,7 +20,6 @@ Performance testing on 4 example images demonstrates excellent quantization resu
 | Model | Size (MB) | Inference (ms) | Cosine Similarity | RMSE | Max Diff | Size Reduction |
 |-------|-----------|----------------|-------------------|------|----------|----------------|
 | Original | 12.0 | 45.2 ± 2.1 | 1.000000 | 0.00 | 0.00 | 0.0% |
-| FP16 | 6.1 | 44.8 ± 2.3 | 0.999998 | 0.12 | 2.15 | 49.2% |
 | Dynamic-INT8 | 3.2 | 38.7 ± 1.8 | 0.999896 | 3.54 | 125.08 | 73.3% |
 | Static-INT8 | 3.2 | 37.9 ± 1.7 | 0.999891 | 3.62 | 127.43 | 73.3% |
 
@@ -81,7 +80,7 @@ uv run quantize-models full-pipeline --model-type head --tolerance 200
 
 This will:
 1. Download the latest head detection model
-2. Create quantized versions (dynamic, static, and FP16)
+2. Create quantized versions (dynamic and static INT8)
 3. Apply ONNX optimizations and simplifications
 4. Validate the quantized models with timing measurements
 5. Generate comparison images showing detection results
@@ -109,14 +108,14 @@ uv run quantize-models download --model-type all -o models/
 Create quantized versions of your models:
 
 ```bash
-# Basic quantization (dynamic, static, FP16)
+# Basic quantization (dynamic and static INT8)
 uv run quantize-models quantize models/best.onnx -o quantized/
 
 # Specific quantization levels
-uv run quantize-models quantize models/best.onnx -o quantized/ --levels dynamic static fp16
+uv run quantize-models quantize models/best.onnx -o quantized/ --levels dynamic static
 
 # Individual quantization types
-uv run quantize-models quantize models/best.onnx -o quantized/ --levels fp16
+uv run quantize-models quantize models/best.onnx -o quantized/ --levels dynamic
 
 # Verbose output
 uv run quantize-models quantize models/best.onnx -o quantized/ --levels dynamic static fp16 -v

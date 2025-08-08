@@ -108,61 +108,18 @@ def optimize_model(model_path: Path, output_path: Path) -> bool:
 
 
 def quantize_fp16_model(model_path: Path, output_path: Path) -> bool:
-    """Apply FP16 quantization to a model by converting weights to float16."""
+    """Apply FP16 quantization to a model (currently disabled due to complexity)."""
     try:
-        logger.info(f"Applying FP16 quantization to {model_path.name}")
-
-        # Load the model
-        model = onnx.load(str(model_path))
-
-        # Convert model to FP16
-        from onnx import numpy_helper
-
-        # Create a copy for modification
-        model_fp16 = onnx.ModelProto()
-        model_fp16.CopyFrom(model)
-
-        # Convert initializers (weights) to FP16
-        for initializer in model_fp16.graph.initializer:
-            if initializer.data_type == onnx.TensorProto.FLOAT:
-                # Convert float32 to float16
-                float32_data = numpy_helper.to_array(initializer)
-                float16_data = float32_data.astype(np.float16)
-
-                # Create new initializer with FP16 data
-                new_initializer = numpy_helper.from_array(
-                    float16_data, initializer.name
-                )
-
-                # Replace the initializer
-                initializer.ClearField("float_data")
-                initializer.ClearField("raw_data")
-                initializer.data_type = onnx.TensorProto.FLOAT16
-                initializer.raw_data = new_initializer.raw_data
-
-        # Convert value info types
-        for value_info in model_fp16.graph.value_info:
-            if value_info.type.tensor_type.elem_type == onnx.TensorProto.FLOAT:
-                value_info.type.tensor_type.elem_type = onnx.TensorProto.FLOAT16
-
-        # Save the FP16 model
-        onnx.save(model_fp16, str(output_path))
-        logger.info(f"FP16 quantization complete: {output_path}")
-        return True
+        logger.warning("FP16 quantization is currently disabled due to ONNX type compatibility issues")
+        # For now, just copy the original model as a placeholder
+        import shutil
+        shutil.copy2(model_path, output_path)
+        logger.info(f"FP16 quantization skipped: {output_path}")
+        return False  # Return False to indicate this quantization was skipped
 
     except Exception as e:
         logger.error(f"FP16 quantization failed: {e}")
         return False
-    """Get the input tensor name from an ONNX model."""
-    try:
-        model = onnx.load(str(model_path))
-        input_name = model.graph.input[0].name
-        logger.debug(f"Model input name: {input_name}")
-        return input_name
-    except Exception as e:
-        logger.error(f"Failed to get input name from {model_path}: {e}")
-        # Default fallback
-        return "images"
 
 
 def collect_calibration_images(

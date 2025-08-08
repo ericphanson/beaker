@@ -65,7 +65,7 @@ def download(output_dir: Path, model_type: str) -> None:
 @click.option(
     "--levels",
     multiple=True,
-    default=["dynamic", "static", "fp16"],
+    default=["dynamic", "static"],
     type=click.Choice(["dynamic", "static", "int8", "fp16"]),
     help="Quantization levels to apply",
 )
@@ -272,7 +272,7 @@ def full_pipeline(
     logger.info("Step 2: Quantizing models...")
     all_quantized = []
     for model_file in model_files:
-        for level in ["dynamic", "static", "fp16"]:
+        for level in ["dynamic", "static"]:
             try:
                 quantized_path = quantizer.quantize_model(
                     model_file, quantized_dir, level
