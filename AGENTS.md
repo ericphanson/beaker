@@ -176,10 +176,7 @@ cp ../example.jpg .
 - **No test artifacts**: Do not commit test output files (*.beaker.toml, *.beaker.json), temporary files, or build artifacts
 
 ### Test Environment Variable Isolation
-- **Environment variable tests must be serialized**: Tests that modify global environment variables using `env::set_var`/`env::remove_var` must use the `#[serial]` attribute from `serial_test` crate to prevent race conditions in parallel test execution
-- **Race condition prevention**: Without serialization, parallel tests can interfere with each other when setting/unsetting environment variables, causing intermittent CI failures
-
-**UPDATE**: Serial testing has been removed due to performance concerns. Environment variable functionality is now tested using integration tests with subprocess execution, which avoids race conditions by setting environment variables only on subprocesses rather than modifying the global process environment.
+Environment variable functionality is tested using integration tests with subprocess execution, which avoids race conditions by setting environment variables only on subprocesses rather than modifying the global process environment.
 
 ## Complete Pre-Commit Checklist
 
