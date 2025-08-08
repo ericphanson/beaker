@@ -37,8 +37,7 @@ fn test_head_model_path_override() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("does not exist"),
-        "Error should mention non-existent path, got: {}",
-        stderr
+        "Error should mention non-existent path, got: {stderr}"
     );
 }
 
@@ -66,8 +65,7 @@ fn test_cutout_model_path_override() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("does not exist"),
-        "Error should mention non-existent path, got: {}",
-        stderr
+        "Error should mention non-existent path, got: {stderr}"
     );
 }
 

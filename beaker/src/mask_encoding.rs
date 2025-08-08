@@ -196,8 +196,8 @@ mod tests {
         assert_eq!(entry.order, "row-major");
         assert_eq!(entry.start_value, 0);
         // Just sanity: data should be non-empty and base64-ish.
-        assert!(entry.data.len() > 0);
-        assert!(entry.data.chars().all(|c| c.is_ascii()));
+        assert!(!entry.data.is_empty());
+        assert!(entry.data.is_ascii());
     }
 
     #[test]
