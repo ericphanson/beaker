@@ -14,16 +14,29 @@ use std::sync::OnceLock;
 /// Global color configuration state
 static COLOR_CONFIG: OnceLock<ColorConfig> = OnceLock::new();
 
-/// Check environment variables and TTY state for color support
-fn should_disable_colors_from_env() -> bool {
+/// Check environment variables and TTY state for color support using a generic env accessor
+fn should_disable_colors<F>(env_get: F) -> bool
+where
+    F: Fn(&str) -> String,
+{
     // Check NO_COLOR standard (https://no-color.org/)
-    !std::env::var("NO_COLOR").unwrap_or_default().is_empty()
+    !env_get("NO_COLOR").is_empty()
         // Check application-specific override
-        || !std::env::var("BEAKER_NO_COLOR").unwrap_or_default().is_empty()
+        || !env_get("BEAKER_NO_COLOR").is_empty()
         // Check for dumb terminal
-        || std::env::var("TERM").unwrap_or_default() == "dumb"
+        || env_get("TERM") == "dumb"
         // Check if stderr is not a TTY (log messages go to stderr)
         || !stderr().is_terminal()
+}
+
+/// Check environment variables and TTY state for color support
+fn should_disable_colors_from_env() -> bool {
+    should_disable_colors(|key| std::env::var(key).unwrap_or_default())
+}
+
+#[cfg(test)]
+fn should_disable_colors_with_mock_env(env: &std::collections::HashMap<String, String>) -> bool {
+    should_disable_colors(|key| env.get(key).unwrap_or(&String::new()).clone())
 }
 
 #[derive(Debug, Clone)]
@@ -34,6 +47,16 @@ struct ColorConfig {
 impl ColorConfig {
     fn new(no_color_flag: bool) -> Self {
         let colors_enabled = !no_color_flag && !should_disable_colors_from_env();
+        Self { colors_enabled }
+    }
+
+    // Helper for testing with custom environment
+    #[cfg(test)]
+    fn new_with_mock_env(
+        no_color_flag: bool,
+        env: &std::collections::HashMap<String, String>,
+    ) -> Self {
+        let colors_enabled = !no_color_flag && !should_disable_colors_with_mock_env(env);
         Self { colors_enabled }
     }
 
@@ -291,6 +314,7 @@ pub mod progress {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     #[test]
     fn test_color_config_respects_no_color_flag() {
@@ -301,26 +325,32 @@ mod tests {
 
     #[test]
     fn test_color_config_respects_no_color_env() {
-        std::env::set_var("NO_COLOR", "1");
-        let config = ColorConfig::new(false);
+        // Test with NO_COLOR set via mock environment
+        let mut env = HashMap::new();
+        env.insert("NO_COLOR".to_string(), "1".to_string());
+
+        let config = ColorConfig::new_with_mock_env(false, &env);
         assert!(!config.is_enabled());
-        std::env::remove_var("NO_COLOR");
     }
 
     #[test]
     fn test_color_config_respects_term_dumb() {
-        std::env::set_var("TERM", "dumb");
-        let config = ColorConfig::new(false);
+        // Test with TERM=dumb via mock environment
+        let mut env = HashMap::new();
+        env.insert("TERM".to_string(), "dumb".to_string());
+
+        let config = ColorConfig::new_with_mock_env(false, &env);
         assert!(!config.is_enabled());
-        std::env::remove_var("TERM");
     }
 
     #[test]
     fn test_color_config_respects_beaker_no_color() {
-        std::env::set_var("BEAKER_NO_COLOR", "1");
-        let config = ColorConfig::new(false);
+        // Test with BEAKER_NO_COLOR set via mock environment
+        let mut env = HashMap::new();
+        env.insert("BEAKER_NO_COLOR".to_string(), "1".to_string());
+
+        let config = ColorConfig::new_with_mock_env(false, &env);
         assert!(!config.is_enabled());
-        std::env::remove_var("BEAKER_NO_COLOR");
     }
 
     #[test]

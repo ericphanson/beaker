@@ -1,8 +1,8 @@
 ## Summary
 
-- **Cutout Main Code**: 339 (Tests: 157)  
-- **Head Main Code**: 506 (Tests: 64)  
-- **Common Main Code**: 2276 (Tests: 1223)  
-- **Total Main Code (excluding build.rs)**: 3121  
-- **Total Main Code (including build.rs)**: 3280 (Reported: 3280)  
+- **Cutout Main Code**: 368 (Tests: 103)  
+- **Head Main Code**: 506 (Tests: 17)  
+- **Common Main Code**: 2448 (Tests: 1576)  
+- **Total Main Code (excluding build.rs)**: 3322  
+- **Total Main Code (including build.rs)**: 3481 (Reported: 3481)  
 ✅ Totals match.

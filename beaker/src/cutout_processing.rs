@@ -65,6 +65,27 @@ pub struct CutoutResult {
     pub output_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mask_path: Option<String>,
+    // Store raw mask data for metadata encoding
+    #[serde(skip)]
+    pub raw_mask_data: Option<(Vec<u8>, u32, u32)>, // (mask_data, width, height)
+}
+
+/// Extract binary mask data from a GrayImage by thresholding at 128
+/// Returns (binary_data, width, height)
+fn extract_binary_mask_data(mask: &image::GrayImage) -> (Vec<u8>, u32, u32) {
+    let (width, height) = mask.dimensions();
+    let mut binary_data = Vec::with_capacity((width * height) as usize);
+
+    for y in 0..height {
+        for x in 0..width {
+            let pixel = mask.get_pixel(x, y);
+            // Threshold at 128: >= 128 becomes 1, < 128 becomes 0
+            let binary_value = if pixel[0] >= 128 { 1 } else { 0 };
+            binary_data.push(binary_value);
+        }
+    }
+
+    (binary_data, width, height)
 }
 
 /// Process multiple images sequentially
@@ -94,6 +115,20 @@ impl ModelResult for CutoutResult {
             format!("→ {} + mask", self.output_path)
         } else {
             format!("→ {}", self.output_path)
+        }
+    }
+
+    fn get_mask_entry(&self) -> Option<crate::mask_encoding::MaskEntry> {
+        if let Some((mask_data, width, height)) = &self.raw_mask_data {
+            match crate::mask_encoding::encode_mask_to_entry(mask_data, *width, *height, 0) {
+                Ok(entry) => Some(entry),
+                Err(e) => {
+                    log::warn!("Failed to encode mask data: {e}");
+                    None
+                }
+            }
+        } else {
+            None
         }
     }
 }
@@ -146,6 +181,9 @@ impl ModelProcessor for CutoutProcessor {
 
         // Post-process the mask
         let mask = postprocess_mask(&mask_2d, original_size, config.post_process_mask)?;
+
+        // Extract binary mask data for metadata (threshold at 128)
+        let raw_mask_data = extract_binary_mask_data(&mask);
 
         // Generate output paths using OutputManager
         let output_manager = OutputManager::new(config, image_path);
@@ -202,6 +240,7 @@ impl ModelProcessor for CutoutProcessor {
             model_version: get_default_cutout_model_info().name,
             processing_time_ms: processing_time,
             mask_path: mask_path.map(|p| p.to_string_lossy().to_string()),
+            raw_mask_data: Some(raw_mask_data),
         };
 
         Ok(cutout_result)
@@ -215,8 +254,6 @@ impl ModelProcessor for CutoutProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env;
-    use tempfile::NamedTempFile;
 
     #[test]
     fn test_cut_access_env_vars() {
@@ -256,65 +293,7 @@ mod tests {
         assert_eq!(info.filename, "isnet-general-use.onnx");
     }
 
-    #[test]
-    fn test_cut_access_path_override() {
-        // Clean up any existing env vars
-        env::remove_var("BEAKER_CUTOUT_MODEL_PATH");
-        env::remove_var("BEAKER_CUTOUT_MODEL_URL");
-        env::remove_var("BEAKER_CUTOUT_MODEL_CHECKSUM");
-
-        // Create a temporary file to act as a model
-        let temp_file = NamedTempFile::new().unwrap();
-        let temp_path = temp_file.path().to_str().unwrap();
-
-        // Set environment variable for path override
-        env::set_var("BEAKER_CUTOUT_MODEL_PATH", temp_path);
-
-        let source = CutAccess::get_model_source().unwrap();
-
-        match source {
-            ModelSource::FilePath(path) => {
-                assert_eq!(path, temp_path);
-            }
-            _ => panic!("Expected file path when env var is set"),
-        }
-
-        // Clean up
-        env::remove_var("BEAKER_CUTOUT_MODEL_PATH");
-    }
-
-    #[test]
-    fn test_cut_access_invalid_path() {
-        // Clean up any existing env vars
-        env::remove_var("BEAKER_CUTOUT_MODEL_PATH");
-        env::remove_var("BEAKER_CUTOUT_MODEL_URL");
-        env::remove_var("BEAKER_CUTOUT_MODEL_CHECKSUM");
-
-        // Use a path that's guaranteed to not exist on any platform
-        // Use a path in a directory that doesn't exist with invalid characters
-        let non_existent_path = if cfg!(windows) {
-            // On Windows, use a path with invalid characters
-            "C:\\this\\path\\definitely\\does\\not\\exist\\model.onnx"
-        } else {
-            // On Unix-like systems, use a deeply nested non-existent path
-            "/this/path/definitely/does/not/exist/model.onnx"
-        };
-
-        // Set environment variable to non-existent path
-        env::set_var("BEAKER_CUTOUT_MODEL_PATH", non_existent_path);
-
-        let result = CutAccess::get_model_source();
-        assert!(result.is_err(), "Should fail with non-existent path");
-
-        let error_msg = result.err().unwrap().to_string();
-        assert!(
-            error_msg.contains("does not exist"),
-            "Error should mention non-existent path"
-        );
-
-        // Clean up
-        env::remove_var("BEAKER_CUTOUT_MODEL_PATH");
-    }
+    // Environment variable tests are now in integration tests to avoid race conditions
 
     #[test]
     fn test_get_default_cutout_model_info() {
@@ -329,41 +308,19 @@ mod tests {
     fn test_runtime_model_info_with_cutout_overrides() {
         use crate::model_access::RuntimeModelInfo;
 
-        // Test RuntimeModelInfo creation with env var overrides
+        // Test RuntimeModelInfo creation without env var modification
         let default_info = get_default_cutout_model_info();
 
         // Test without any env vars (should use default info)
-        env::remove_var("TEST_URL");
-        env::remove_var("TEST_CHECKSUM");
-
         let runtime_info = RuntimeModelInfo::from_model_info_with_overrides(
             &default_info,
-            Some("TEST_URL"),
-            Some("TEST_CHECKSUM"),
+            Some("NONEXISTENT_TEST_URL"),
+            Some("NONEXISTENT_TEST_CHECKSUM"),
         );
 
         assert_eq!(runtime_info.name, default_info.name);
         assert_eq!(runtime_info.url, default_info.url);
         assert_eq!(runtime_info.md5_checksum, default_info.md5_checksum);
         assert_eq!(runtime_info.filename, default_info.filename);
-
-        // Test with env var overrides
-        env::set_var("TEST_URL", "https://custom-domain.test/custom.onnx");
-        env::set_var("TEST_CHECKSUM", "abcd1234");
-
-        let runtime_info = RuntimeModelInfo::from_model_info_with_overrides(
-            &default_info,
-            Some("TEST_URL"),
-            Some("TEST_CHECKSUM"),
-        );
-
-        assert_eq!(runtime_info.name, default_info.name);
-        assert_eq!(runtime_info.url, "https://custom-domain.test/custom.onnx");
-        assert_eq!(runtime_info.md5_checksum, "abcd1234");
-        assert_eq!(runtime_info.filename, default_info.filename);
-
-        // Clean up
-        env::remove_var("TEST_URL");
-        env::remove_var("TEST_CHECKSUM");
     }
 }

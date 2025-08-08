@@ -37,6 +37,11 @@ pub trait ModelResult {
 
     /// Get a summary of all output files created
     fn output_summary(&self) -> String;
+
+    /// Get mask entry for cutout results (only applicable for cutout tools)
+    fn get_mask_entry(&self) -> Option<crate::mask_encoding::MaskEntry> {
+        None
+    }
 }
 
 /// Core trait that all models must implement
@@ -144,6 +149,7 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
         model_path: model_info.model_path,
         model_size_bytes: Some(model_info.model_size_bytes.try_into().unwrap()),
         model_load_time_ms: Some(model_load_time_ms),
+        model_checksum: Some(model_info.model_checksum),
     };
 
     // Process each image and collect results
@@ -308,6 +314,7 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
         command_line: Some(command_line.to_vec()),
         exit_code: Some(0),
         model_processing_time_ms: Some(result.processing_time_ms()),
+        beaker_env_vars: crate::shared_metadata::collect_beaker_env_vars(),
     };
 
     // Get core results and config
@@ -333,6 +340,7 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
                 execution: Some(execution),
                 system: Some(system),
                 input: Some(input),
+                mask: result.get_mask_entry(),
             };
             output_manager.save_complete_metadata(None, Some(cutout_sections))?;
         }

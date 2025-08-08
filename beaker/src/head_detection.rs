@@ -278,76 +278,7 @@ impl ModelProcessor for HeadProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env;
-    use tempfile::NamedTempFile;
-
-    #[test]
-    fn test_head_access_embedded_default() {
-        // Ensure env var is not set
-        env::remove_var("BEAKER_HEAD_MODEL_PATH");
-
-        let source = HeadAccess::get_model_source().unwrap();
-
-        match source {
-            ModelSource::EmbeddedBytes(bytes) => {
-                assert!(
-                    !bytes.is_empty(),
-                    "Embedded model bytes should not be empty"
-                );
-            }
-            _ => panic!("Expected embedded bytes when no env var is set"),
-        }
-    }
-
-    #[test]
-    fn test_head_access_env_override() {
-        // Create a temporary file to act as a model
-        let temp_file = NamedTempFile::new().unwrap();
-        let temp_path = temp_file.path().to_str().unwrap();
-
-        // Set environment variable
-        env::set_var("BEAKER_HEAD_MODEL_PATH", temp_path);
-
-        let source = HeadAccess::get_model_source().unwrap();
-
-        match source {
-            ModelSource::FilePath(path) => {
-                assert_eq!(path, temp_path);
-            }
-            _ => panic!("Expected file path when env var is set"),
-        }
-
-        // Clean up
-        env::remove_var("BEAKER_HEAD_MODEL_PATH");
-    }
-
-    #[test]
-    fn test_head_access_invalid_path() {
-        // Use a path that's guaranteed to not exist on any platform
-        // Use a path in a directory that doesn't exist with invalid characters
-        let non_existent_path = if cfg!(windows) {
-            // On Windows, use a path with invalid characters
-            "C:\\this\\path\\definitely\\does\\not\\exist\\model.onnx"
-        } else {
-            // On Unix-like systems, use a deeply nested non-existent path
-            "/this/path/definitely/does/not/exist/model.onnx"
-        };
-
-        // Set environment variable to non-existent path
-        env::set_var("BEAKER_HEAD_MODEL_PATH", non_existent_path);
-
-        let result = HeadAccess::get_model_source();
-        assert!(result.is_err(), "Should fail with non-existent path");
-
-        let error_msg = result.err().unwrap().to_string();
-        assert!(
-            error_msg.contains("does not exist"),
-            "Error should mention non-existent path"
-        );
-
-        // Clean up
-        env::remove_var("BEAKER_HEAD_MODEL_PATH");
-    }
+    // Environment variable tests are now in integration tests to avoid race conditions
 
     #[test]
     fn test_head_access_env_var_name() {

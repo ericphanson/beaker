@@ -29,6 +29,7 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 MetadataCheck::BeakerVersion("head"),
                 MetadataCheck::CoreResultsField("head", "model_version"),
             ],
+            env_vars: vec![],
         },
         TestScenario {
             name: "head_detection_auto_device",
@@ -48,6 +49,7 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 MetadataCheck::ExitCode("head", 0),
                 MetadataCheck::CoreResultsField("head", "model_version"),
             ],
+            env_vars: vec![],
         },
         TestScenario {
             name: "head_detection_with_crops_and_bbox",
@@ -73,6 +75,7 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 MetadataCheck::ExitCode("head", 0),
                 MetadataCheck::CoreResultsField("head", "detections"),
             ],
+            env_vars: vec![],
         },
         TestScenario {
             name: "head_detection_high_confidence",
@@ -85,6 +88,7 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 MetadataCheck::CoreResultsField("head", "model_version"),
                 // Note: May or may not have detections depending on the image
             ],
+            env_vars: vec![],
         },
         TestScenario {
             name: "head_detection_two_birds",
@@ -102,6 +106,7 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                     300000.0,
                 ),
             ],
+            env_vars: vec![],
         },
         TestScenario {
             name: "head_detection_batch_processing",
@@ -123,6 +128,7 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 ),
                 MetadataCheck::ExitCode("head", 0),
             ],
+            env_vars: vec![],
         },
         // Cutout Processing Tests - Selective (slow model requires optimization)
         TestScenario {
@@ -143,6 +149,7 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 MetadataCheck::ExitCode("cutout", 0),
                 MetadataCheck::CoreResultsField("cutout", "model_version"),
             ],
+            env_vars: vec![],
         },
         TestScenario {
             name: "cutout_with_alpha_matting_and_mask",
@@ -166,6 +173,7 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 ),
                 MetadataCheck::ExitCode("cutout", 0),
             ],
+            env_vars: vec![],
         },
         // Multi-Tool Integration Tests - Essential workflows
         TestScenario {
@@ -191,6 +199,21 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                     300000.0,
                 ),
             ],
+            env_vars: vec![],
+        },
+        TestScenario {
+            name: "cutout_with_env_vars_and_metadata",
+            tool: "cutout",
+            args: vec!["../example.jpg"],
+            expected_files: vec!["example.beaker.toml", "example_cutout.png"],
+            metadata_checks: vec![
+                MetadataCheck::ExitCode("cutout", 0),
+                MetadataCheck::EnvVarPresent("cutout", "BEAKER_DEBUG"),
+                MetadataCheck::EnvVarValue("cutout", "BEAKER_DEBUG", "true"),
+                MetadataCheck::MaskEncodingPresent,
+                MetadataCheck::AsciiPreviewValid,
+            ],
+            env_vars: vec![("BEAKER_DEBUG", "true")],
         },
     ]
 }
@@ -207,4 +230,5 @@ generate_metadata_tests! {
     "cutout_basic_processing",
     "cutout_with_alpha_matting_and_mask",
     "multi_tool_sequential_processing",
+    "cutout_with_env_vars_and_metadata",
 }
