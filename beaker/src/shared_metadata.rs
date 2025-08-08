@@ -29,10 +29,6 @@ impl IoTiming {
         Ok(img)
     }
 
-    pub fn time_image_save<P: AsRef<Path>>(&mut self, img: &DynamicImage, path: P) -> Result<()> {
-        self.time_save_operation(|| Ok(img.save(path)?))
-    }
-
     pub fn time_cutout_save<P: AsRef<Path>>(
         &mut self,
         img: &image::ImageBuffer<image::Rgba<u8>, Vec<u8>>,
