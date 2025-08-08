@@ -183,45 +183,45 @@ mod tests {
     #[test]
     fn test_toml_structure() {
         // Create test metadata with tool sections
-        let mut metadata = BeakerMetadata::default();
-
-        // Add head sections with some test data
-        metadata.head = Some(HeadSections {
-            core: Some(
-                toml::toml! {
-                    model_version = "test-v1.0.0"
-                    confidence_threshold = 0.25
-                    processing_time_ms = 150.5
-                }
-                .into(),
-            ),
-            config: Some(
-                toml::toml! {
-                    confidence = 0.25
-                    iou_threshold = 0.45
-                    crop = true
-                }
-                .into(),
-            ),
-            execution: Some(ExecutionContext {
-                timestamp: Some(chrono::Utc::now()),
-                beaker_version: Some("0.1.1".to_string()),
-                command_line: Some(vec!["head".to_string(), "test.jpg".to_string()]),
-                exit_code: Some(0),
-                model_processing_time_ms: Some(150.5),
-            }),
-            system: Some(SystemInfo {
-                device_requested: Some("auto".to_string()),
-                device_selected: Some("cpu".to_string()),
-                device_selection_reason: Some("Auto-selected CPU".to_string()),
-                execution_providers: vec!["CPUExecutionProvider".to_string()],
-                model_source: Some("embedded".to_string()),
-                model_path: None,
-                model_size_bytes: Some(12345678),
-                model_load_time_ms: Some(25.3),
+        let metadata = BeakerMetadata {
+            head: Some(HeadSections {
+                core: Some(
+                    toml::toml! {
+                        model_version = "test-v1.0.0"
+                        confidence_threshold = 0.25
+                        processing_time_ms = 150.5
+                    }
+                    .into(),
+                ),
+                config: Some(
+                    toml::toml! {
+                        confidence = 0.25
+                        iou_threshold = 0.45
+                        crop = true
+                    }
+                    .into(),
+                ),
+                execution: Some(ExecutionContext {
+                    timestamp: Some(chrono::Utc::now()),
+                    beaker_version: Some("0.1.1".to_string()),
+                    command_line: Some(vec!["head".to_string(), "test.jpg".to_string()]),
+                    exit_code: Some(0),
+                    model_processing_time_ms: Some(150.5),
+                }),
+                system: Some(SystemInfo {
+                    device_requested: Some("auto".to_string()),
+                    device_selected: Some("cpu".to_string()),
+                    device_selection_reason: Some("Auto-selected CPU".to_string()),
+                    execution_providers: vec!["CPUExecutionProvider".to_string()],
+                    model_source: Some("embedded".to_string()),
+                    model_path: None,
+                    model_size_bytes: Some(12345678),
+                    model_load_time_ms: Some(25.3),
+                }),
+                ..Default::default()
             }),
             ..Default::default()
-        });
+        };
 
         // Serialize to TOML and print to see structure
         let toml_output = toml::to_string_pretty(&metadata).unwrap();
