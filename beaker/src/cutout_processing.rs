@@ -89,7 +89,6 @@ fn extract_binary_mask_data(mask: &image::GrayImage) -> (Vec<u8>, u32, u32) {
     }
 
     (binary_data, width, height)
->>>>>>> origin/main
 }
 
 /// Process multiple images sequentially

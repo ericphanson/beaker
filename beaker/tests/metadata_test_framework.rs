@@ -535,7 +535,6 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
                 );
             }
         }
->>>>>>> origin/main
     }
 }
 
