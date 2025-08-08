@@ -967,24 +967,25 @@ Implement the actual pipeline processing logic using existing file-based model p
 
 ---
 
-### Issue 3: ModelProcessor API Improvements for Pipeline Integration
+### Issue 3: Configuration-Based Temporary Directory Support
 
-**Title**: Enhance ModelProcessor trait for ergonomic pipeline integration
+**Title**: Enable pipeline temporary directory coordination via config modification
 
 **Description**:
-Modify the ModelProcessor trait to support pipeline-friendly temporary directory output while maintaining backward compatibility. This makes it easier for PipelineProcessor to coordinate temporary file management.
+Implement support for pipeline processors to coordinate temporary directory output by modifying the model configuration's `output_dir` field. This approach keeps models completely agnostic to pipeline vs standalone usage while leveraging existing output management infrastructure.
 
 **Scope**:
-- Add optional `temp_output_dir` parameter to `process_single_image` methods
-- Update head detection and cutout processing to support temporary directory output
-- Ensure existing API remains unchanged (backward compatibility)
-- Update existing models to use enhanced API efficiently
+- Document and validate that modifying `BaseModelConfig::output_dir` enables temporary directory output
+- Ensure `OutputManager` properly handles pipeline-controlled temporary directories
+- Add utility functions for pipeline processors to safely clone and modify configurations
+- Create integration tests demonstrating config-based temporary directory coordination
 
 **Acceptance Criteria**:
-- Head detection and cutout processing can output to specified temporary directories
-- All existing functionality preserved with same API
-- Pipeline processing can coordinate temporary directories more easily
-- All model tests continue to pass
+- Pipeline processor can clone user config and set `output_dir` to a controlled temporary directory
+- Models automatically output to the configured temporary directory without any changes
+- Existing OutputManager behavior works correctly with pipeline-controlled directories
+- All model functionality preserved with no API changes required
+- Integration tests validate temporary directory coordination
 
 **Dependencies**: None (can be developed in parallel with Issues 1-2)
 
