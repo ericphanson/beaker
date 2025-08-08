@@ -54,16 +54,16 @@ beaker pipeline [OPTIONS] --steps <STEPS> <IMAGES_OR_DIRS>...
 ```
 --steps <STEPS>
     Comma-separated list of processing steps (e.g., "cutout,head")
-    
+
 --output-dir <OUTPUT_DIR>
     Global output directory for final results
-    
+
 --save-intermediates
     Save outputs from intermediate steps (default: false)
-    
+
 --batch-size <SIZE>
     Override automatic batch size calculation
-    
+
 --memory-limit <MB>
     Memory usage limit for optimization (default: auto-detect)
 ```
@@ -94,19 +94,19 @@ All existing global options apply:
 #[derive(Parser, Debug, Clone)]
 pub struct PipelineCommand {
     pub sources: Vec<String>,
-    
+
     #[arg(long, value_delimiter = ',')]
     pub steps: Vec<String>,
-    
+
     #[arg(long)]
     pub save_intermediates: bool,
-    
+
     #[arg(long)]
     pub batch_size: Option<usize>,
-    
+
     #[arg(long)]
     pub memory_limit: Option<usize>,
-    
+
     // Step-specific overrides parsed from remaining args
     pub step_overrides: HashMap<String, Vec<String>>,
 }
@@ -155,10 +155,10 @@ pub trait PipelineModelProcessor: ModelProcessor {
         data: PipelineData,
         config: &Self::Config,
     ) -> Result<PipelineData>;
-    
+
     /// Check if this model can accept the output from previous model
     fn accepts_input_from(previous_model: &str) -> bool;
-    
+
     /// Get memory requirements for batch size calculation
     fn memory_requirements(config: &Self::Config) -> MemoryRequirements;
 }
@@ -184,37 +184,37 @@ impl PipelineProcessor {
     /// Main entry point for pipeline processing
     pub fn process_pipeline(&mut self) -> Result<PipelineResult> {
         let batches = self.batch_manager.create_batches(&self.config.base.sources)?;
-        
+
         for batch in batches {
             self.process_batch(batch)?;
         }
-        
+
         Ok(PipelineResult::new(/* ... */))
     }
-    
+
     /// Process a single batch through all steps
     fn process_batch(&mut self, batch: Vec<PathBuf>) -> Result<()> {
         // Load batch into memory
         let mut pipeline_data = self.load_batch(batch)?;
-        
+
         // Process through each step
         for step in &mut self.steps {
             pipeline_data = step.process_batch(pipeline_data)?;
-            
+
             // Save intermediates if requested
             if self.config.save_intermediates && !step.is_final() {
                 self.save_intermediate_results(&pipeline_data, &step.name)?;
             }
-            
+
             // Memory pressure check - close session if needed
             if self.batch_manager.should_release_memory()? {
                 step.close_session();
             }
         }
-        
+
         // Save final results
         self.save_final_results(pipeline_data)?;
-        
+
         Ok(())
     }
 }
@@ -246,13 +246,13 @@ impl BatchManager {
     ) -> Result<usize> {
         // Calculate memory requirements per image through pipeline
         let memory_per_image = self.estimate_memory_per_image(image_sizes, pipeline_steps)?;
-        
+
         // Determine batch size that fits in memory limit
         let max_batch_size = self.memory_limit / memory_per_image;
-        
+
         Ok(max_batch_size.max(1).min(100)) // Reasonable bounds
     }
-    
+
     /// Check if we should release memory (close sessions)
     pub fn should_release_memory(&self) -> Result<bool> {
         Ok(self.current_memory_usage > self.memory_limit * 8 / 10) // 80% threshold
@@ -288,7 +288,7 @@ impl PipelineOutputManager {
             Ok(OutputPaths::none())
         }
     }
-    
+
     /// Handle complex pipeline metadata
     pub fn create_pipeline_metadata(
         &self,
@@ -309,7 +309,7 @@ impl PipelineOutputManager {
 
 **Tasks**:
 1. **Add PipelineCommand to CLI** - Extend main.rs with new subcommand
-2. **Create PipelineConfig system** - Configuration parsing and validation  
+2. **Create PipelineConfig system** - Configuration parsing and validation
 3. **Implement basic PipelineProcessor** - File-based processing only
 4. **Add pipeline tests** - Basic functionality validation
 
@@ -383,7 +383,7 @@ impl PipelineOutputManager {
 pub trait ModelProcessor {
     // Existing methods preserved for backward compatibility
     fn process_single_image(...) -> Result<Self::Result>;
-    
+
     // New methods for pipeline support
     fn process_pipeline_data(
         session: &mut Session,
@@ -393,12 +393,12 @@ pub trait ModelProcessor {
         // Default implementation: convert to file-based processing
         // Models can override for true in-memory processing
     }
-    
+
     fn memory_requirements(config: &Self::Config) -> MemoryRequirements {
         // Default conservative estimate
         MemoryRequirements::conservative()
     }
-    
+
     fn accepts_input_from(previous_step: &str) -> bool {
         // Default: accept from any step
         true
@@ -535,7 +535,7 @@ impl OutputManager {
 ### 1. Memory Management
 
 **Challenge**: Managing peak memory usage with large batches
-**Solution**: 
+**Solution**:
 - Conservative batch size calculation
 - Memory pressure monitoring
 - Session lifecycle management
@@ -595,7 +595,7 @@ For 100 images through cutout → head pipeline:
 ### Memory Usage Targets
 
 - **Conservative mode**: 4GB peak memory usage
-- **Aggressive mode**: 8GB peak memory usage  
+- **Aggressive mode**: 8GB peak memory usage
 - **Batch sizes**: 10-50 images depending on resolution and memory limit
 
 ## Testing Strategy
@@ -634,7 +634,7 @@ For 100 images through cutout → head pipeline:
 The pipeline architecture supports adding new models:
 
 1. **Pose Detection**: Could add `pose` step for bird pose estimation
-2. **Head Orientation**: Could add `orientation` step for head angle detection  
+2. **Head Orientation**: Could add `orientation` step for head angle detection
 3. **Multi-Detection**: Could support detecting multiple birds per image
 
 ### Pipeline Composition
@@ -697,7 +697,7 @@ The proposed pipeline subcommand represents a significant enhancement to beaker'
 
 Key success factors:
 1. **Phased implementation** reduces risk and enables early validation
-2. **Memory management** ensures reliable operation on large datasets  
+2. **Memory management** ensures reliable operation on large datasets
 3. **Extensible design** supports future models and features
 4. **Comprehensive testing** validates correctness and performance
 
