@@ -254,9 +254,6 @@ impl ModelProcessor for CutoutProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serial_test::serial;
-    use std::env;
-    use tempfile::NamedTempFile;
 
     #[test]
     fn test_cut_access_env_vars() {
@@ -296,57 +293,7 @@ mod tests {
         assert_eq!(info.filename, "isnet-general-use.onnx");
     }
 
-    #[test]
-    #[serial]
-    fn test_cut_access_path_override() {
-        // Clean up any existing env vars
-        env::remove_var("BEAKER_CUTOUT_MODEL_PATH");
-        env::remove_var("BEAKER_CUTOUT_MODEL_URL");
-        env::remove_var("BEAKER_CUTOUT_MODEL_CHECKSUM");
-
-        // Create a temporary file to act as a model
-        let temp_file = NamedTempFile::new().unwrap();
-        let temp_path = temp_file.path().to_str().unwrap();
-
-        // Set environment variable for path override
-        env::set_var("BEAKER_CUTOUT_MODEL_PATH", temp_path);
-
-        let source = CutAccess::get_model_source().unwrap();
-
-        match source {
-            ModelSource::FilePath(path) => {
-                assert_eq!(path, temp_path);
-            }
-            _ => panic!("Expected file path when env var is set"),
-        }
-
-        // Clean up
-        env::remove_var("BEAKER_CUTOUT_MODEL_PATH");
-    }
-
-    #[test]
-    #[serial]
-    fn test_cut_access_invalid_path() {
-        // Clean up any existing env vars
-        env::remove_var("BEAKER_CUTOUT_MODEL_PATH");
-        env::remove_var("BEAKER_CUTOUT_MODEL_URL");
-        env::remove_var("BEAKER_CUTOUT_MODEL_CHECKSUM");
-
-        // Set environment variable to non-existent path
-        env::set_var("BEAKER_CUTOUT_MODEL_PATH", "/non/existent/path.onnx");
-
-        let result = CutAccess::get_model_source();
-        assert!(result.is_err(), "Should fail with non-existent path");
-
-        let error_msg = result.err().unwrap().to_string();
-        assert!(
-            error_msg.contains("does not exist"),
-            "Error should mention non-existent path"
-        );
-
-        // Clean up
-        env::remove_var("BEAKER_CUTOUT_MODEL_PATH");
-    }
+    // Environment variable tests are now in integration tests to avoid race conditions
 
     #[test]
     fn test_get_default_cutout_model_info() {
@@ -358,45 +305,22 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn test_runtime_model_info_with_cutout_overrides() {
         use crate::model_access::RuntimeModelInfo;
 
-        // Test RuntimeModelInfo creation with env var overrides
+        // Test RuntimeModelInfo creation without env var modification
         let default_info = get_default_cutout_model_info();
 
         // Test without any env vars (should use default info)
-        env::remove_var("TEST_URL");
-        env::remove_var("TEST_CHECKSUM");
-
         let runtime_info = RuntimeModelInfo::from_model_info_with_overrides(
             &default_info,
-            Some("TEST_URL"),
-            Some("TEST_CHECKSUM"),
+            Some("NONEXISTENT_TEST_URL"),
+            Some("NONEXISTENT_TEST_CHECKSUM"),
         );
 
         assert_eq!(runtime_info.name, default_info.name);
         assert_eq!(runtime_info.url, default_info.url);
         assert_eq!(runtime_info.md5_checksum, default_info.md5_checksum);
         assert_eq!(runtime_info.filename, default_info.filename);
-
-        // Test with env var overrides
-        env::set_var("TEST_URL", "https://custom-domain.test/custom.onnx");
-        env::set_var("TEST_CHECKSUM", "abcd1234");
-
-        let runtime_info = RuntimeModelInfo::from_model_info_with_overrides(
-            &default_info,
-            Some("TEST_URL"),
-            Some("TEST_CHECKSUM"),
-        );
-
-        assert_eq!(runtime_info.name, default_info.name);
-        assert_eq!(runtime_info.url, "https://custom-domain.test/custom.onnx");
-        assert_eq!(runtime_info.md5_checksum, "abcd1234");
-        assert_eq!(runtime_info.filename, default_info.filename);
-
-        // Clean up
-        env::remove_var("TEST_URL");
-        env::remove_var("TEST_CHECKSUM");
     }
 }
