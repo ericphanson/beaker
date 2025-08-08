@@ -291,6 +291,7 @@ pub mod progress {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[test]
     fn test_color_config_respects_no_color_flag() {
@@ -300,6 +301,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_color_config_respects_no_color_env() {
         std::env::set_var("NO_COLOR", "1");
         let config = ColorConfig::new(false);
@@ -308,6 +310,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_color_config_respects_term_dumb() {
         std::env::set_var("TERM", "dumb");
         let config = ColorConfig::new(false);
@@ -316,6 +319,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_color_config_respects_beaker_no_color() {
         std::env::set_var("BEAKER_NO_COLOR", "1");
         let config = ColorConfig::new(false);

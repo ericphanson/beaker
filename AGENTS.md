@@ -175,6 +175,10 @@ cp ../example.jpg .
 - **No test artifacts**: Do not commit test output files (*.beaker.toml, *.beaker.json), temporary files, or build artifacts
 - **Preserve example files**: Do not delete `example-no-bg.png` and `example_crop.jpg` as they are used in README and documentation
 
+### Test Environment Variable Isolation
+- **Environment variable tests must be serialized**: Tests that modify global environment variables using `env::set_var`/`env::remove_var` must use the `#[serial]` attribute from `serial_test` crate to prevent race conditions in parallel test execution
+- **Race condition prevention**: Without serialization, parallel tests can interfere with each other when setting/unsetting environment variables, causing intermittent CI failures
+
 ## Complete Pre-Commit Checklist
 
 Before committing, ensure all these pass:

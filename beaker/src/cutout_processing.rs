@@ -254,6 +254,7 @@ impl ModelProcessor for CutoutProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
     use std::env;
     use tempfile::NamedTempFile;
 
@@ -296,6 +297,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_cut_access_path_override() {
         // Clean up any existing env vars
         env::remove_var("BEAKER_CUTOUT_MODEL_PATH");
@@ -323,6 +325,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_cut_access_invalid_path() {
         // Clean up any existing env vars
         env::remove_var("BEAKER_CUTOUT_MODEL_PATH");
@@ -355,6 +358,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runtime_model_info_with_cutout_overrides() {
         use crate::model_access::RuntimeModelInfo;
 

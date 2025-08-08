@@ -278,10 +278,12 @@ impl ModelProcessor for HeadProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
     use std::env;
     use tempfile::NamedTempFile;
 
     #[test]
+    #[serial]
     fn test_head_access_embedded_default() {
         // Ensure env var is not set
         env::remove_var("BEAKER_HEAD_MODEL_PATH");
@@ -300,6 +302,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_head_access_env_override() {
         // Create a temporary file to act as a model
         let temp_file = NamedTempFile::new().unwrap();
@@ -322,6 +325,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_head_access_invalid_path() {
         // Set environment variable to non-existent path
         env::set_var("BEAKER_HEAD_MODEL_PATH", "/non/existent/path.onnx");

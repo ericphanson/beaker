@@ -69,6 +69,7 @@ pub fn get_file_info(path: &Path) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
     use tempfile::tempdir;
 
     #[test]
@@ -88,6 +89,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_cache_dir_with_env() {
         // Save original environment variable state
         let original_var = std::env::var("TEST_CACHE_DIR");

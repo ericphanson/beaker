@@ -216,6 +216,7 @@ pub fn collect_beaker_env_vars() -> Option<std::collections::BTreeMap<String, St
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[test]
     fn test_toml_structure() {
@@ -289,6 +290,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_collect_beaker_env_vars() {
         // Test with relevant env vars not set
         std::env::remove_var("BEAKER_DEBUG");
@@ -315,6 +317,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_enhanced_metadata_with_env_vars_and_cutout() {
         // Set some test environment variables that are in RELEVANT_ENV_VARS
         std::env::set_var("BEAKER_DEBUG", "test_value");

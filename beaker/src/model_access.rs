@@ -641,10 +641,12 @@ pub fn get_model_source_with_env_override<T: ModelAccess>() -> Result<ModelSourc
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
     use std::env;
 
     // Model cache tests
     #[test]
+    #[serial]
     fn test_cache_dir() {
         // Save original environment variable state
         let original_var = std::env::var("ONNX_MODEL_CACHE_DIR");
@@ -685,6 +687,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runtime_model_info_creation() {
         let base_info = ModelInfo {
             name: "test-model".to_string(),
