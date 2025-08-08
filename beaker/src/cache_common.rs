@@ -22,7 +22,7 @@ pub fn get_cache_dir_with_env_override(env_var: &str, default_subdir: &str) -> R
         if !path.exists() {
             fs::create_dir_all(&path)?;
         }
-        return Ok(path.join(default_subdir));
+        return Ok(path);
     }
 
     // Fallback to default cache directory
