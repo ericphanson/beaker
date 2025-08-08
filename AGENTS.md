@@ -11,6 +11,41 @@ This document outlines the checks and procedures that must pass before committin
 - if the `beaker` CLI app or rust code is mentioned, then work should focus on the `beaker/` subdirectory, which contains the main Rust codebase. Likewise, `beaker-ci.yml` is the github workflow to look for.
 - if python code or training is mentioned, these happen in separate top-level environments, look for changes there. New models may be tested against the CLI app in which case both directories may be useful.
 
+## Proposal Planning & Technical Decision Making
+
+When developing proposals, technical plans, or architectural changes, align with these core principles:
+
+### Evidence-Based Development
+- **No made-up numbers**: All performance claims must be backed by real benchmarks and measured data
+- **Measure before optimizing**: Implement timing infrastructure and collect actual data before making optimization decisions
+- **Script reproducible benchmarks**: Provide scripts that others can run to validate performance claims
+
+### Simplicity and Incrementalism
+- **Start simple**: Begin with file-based, sequential approaches before considering in-memory or parallel optimizations
+- **Eliminate redundancy**: Consolidate similar functions and remove code duplication aggressively
+- **Generic solutions**: Prefer reusable, generic implementations over model-specific or use-case-specific code
+- **Breaking changes are acceptable**: Don't prioritize backwards compatibility at this development stage
+
+### Ergonomics Over Performance
+- **User experience first**: When performance gains are modest (< 5%), prioritize user ergonomics and workflow simplification
+- **Clean separation of concerns**: Keep models agnostic to their usage context (pipeline vs standalone)
+- **Configuration-based coordination**: Use existing config mechanisms rather than API changes when possible
+
+### Parallel Development Planning
+- **Orthogonal issues**: Structure work into independent, well-scoped GitHub issues that can be executed concurrently
+- **Clear dependencies**: Explicitly document issue dependencies and ensure each maintains working test state
+- **Conservative phasing**: Move complex optimizations (memory management, performance tuning) to later phases
+
+### Technical Debt Reduction
+- **Unify tooling**: Consolidate multiple scripts with similar purposes into single, comprehensive tools
+- **Consistent patterns**: Apply the same architectural patterns across similar components
+- **Maintainable interfaces**: Design APIs that automatically benefit from future enhancements
+
+### Implementation Strategy
+- **Phase 1**: Core functionality with file-based processing
+- **Phase 2**: Enhanced ergonomics and configuration options
+- **Phase 3**: Performance optimizations and memory management (only if justified by evidence)
+
 ## API Tool Usage Guidelines
 
 ### GitHub API vs Browser Tools
