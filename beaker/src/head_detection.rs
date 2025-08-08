@@ -12,38 +12,12 @@ use crate::model_access::{get_model_source_with_env_override, ModelAccess};
 use crate::model_processing::{ModelProcessor, ModelResult};
 use crate::onnx_session::ModelSource;
 use crate::output_manager::OutputManager;
+use crate::shared_metadata::IoTiming;
 use crate::yolo_postprocessing::{
     create_square_crop, postprocess_output, save_bounding_box_image, Detection,
 };
 use crate::yolo_preprocessing::preprocess_image;
 use log::debug;
-
-/// Simple utility to track file I/O timing
-#[derive(Debug, Default)]
-pub struct IoTiming {
-    pub read_time_ms: f64,
-    pub write_time_ms: f64,
-}
-
-impl IoTiming {
-    pub fn new() -> Self {
-        Self::default()
-    }
-    
-    pub fn time_image_read<P: AsRef<Path>>(&mut self, path: P) -> Result<DynamicImage> {
-        let start = Instant::now();
-        let img = image::open(path)?;
-        self.read_time_ms += start.elapsed().as_secs_f64() * 1000.0;
-        Ok(img)
-    }
-    
-    pub fn time_image_save<P: AsRef<Path>>(&mut self, img: &DynamicImage, path: P) -> Result<()> {
-        let start = Instant::now();
-        img.save(path)?;
-        self.write_time_ms += start.elapsed().as_secs_f64() * 1000.0;
-        Ok(())
-    }
-}
 
 // Embed the ONNX model at compile time
 pub const MODEL_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/bird-head-detector.onnx"));
@@ -138,13 +112,9 @@ impl ModelResult for HeadDetectionResult {
             format!("→ {}", outputs.join(" + "))
         }
     }
-    
-    fn file_io_read_time_ms(&self) -> f64 {
-        self.io_timing.read_time_ms
-    }
-    
-    fn file_io_write_time_ms(&self) -> f64 {
-        self.io_timing.write_time_ms
+
+    fn get_io_timing(&self) -> Option<crate::shared_metadata::IoTiming> {
+        Some(self.io_timing.clone())
     }
 }
 
@@ -188,10 +158,10 @@ fn handle_image_outputs_with_timing(
             )?;
 
             // Time the crop creation and save
-            let start = Instant::now();
-            create_square_crop(img, detection, &crop_filename, 0.1)?;
-            io_timing.write_time_ms += start.elapsed().as_secs_f64() * 1000.0;
-            
+            io_timing.time_save_operation(|| {
+                create_square_crop(img, detection, &crop_filename, 0.1)
+            })?;
+
             debug!(
                 "{} Crop saved to: {}",
                 symbols::completed_successfully(),
@@ -220,78 +190,12 @@ fn handle_image_outputs_with_timing(
     let mut bounding_box_path = None;
     if config.bounding_box && !detections.is_empty() {
         let bbox_filename = output_manager.generate_auxiliary_output("bounding-box", output_ext)?;
-        
+
         // Time the bounding box image save
-        let start = Instant::now();
-        save_bounding_box_image(img, detections, &bbox_filename)?;
-        io_timing.write_time_ms += start.elapsed().as_secs_f64() * 1000.0;
-        
-        debug!(
-            "{} Bounding box image saved to: {}",
-            symbols::completed_successfully(),
-            bbox_filename.display()
-        );
+        io_timing.time_save_operation(|| {
+            save_bounding_box_image(img, detections, &bbox_filename)
+        })?;
 
-        // Make path relative to metadata file if metadata will be created
-        bounding_box_path = Some(output_manager.make_relative_to_metadata(&bbox_filename)?);
-    }
-
-    Ok((bounding_box_path, detections_with_paths))
-}
-
-/// Handle outputs (crops, bounding boxes, metadata) for a single image
-fn handle_image_outputs(
-    img: &DynamicImage,
-    detections: &[Detection],
-    image_path: &Path,
-    config: &HeadDetectionConfig,
-) -> Result<(Option<String>, Vec<DetectionWithPath>)> {
-    let source_path = image_path;
-    let output_ext = get_output_extension(source_path);
-    let output_manager = OutputManager::new(config, source_path);
-
-    let mut detections_with_paths = Vec::new();
-
-    // Create crops if requested
-    if config.crop && !detections.is_empty() {
-        for (i, detection) in detections.iter().enumerate() {
-            let crop_filename = output_manager.generate_numbered_output(
-                "crop",
-                i + 1,
-                detections.len(),
-                output_ext,
-            )?;
-
-            create_square_crop(img, detection, &crop_filename, 0.1)?;
-            debug!(
-                "{} Crop saved to: {}",
-                symbols::completed_successfully(),
-                crop_filename.display()
-            );
-
-            // Make path relative to metadata file if metadata will be created
-            let crop_path = output_manager.make_relative_to_metadata(&crop_filename)?;
-
-            detections_with_paths.push(DetectionWithPath {
-                detection: detection.clone(),
-                crop_path: Some(crop_path),
-            });
-        }
-    } else {
-        // No crops, but still need to store detections for metadata
-        for detection in detections {
-            detections_with_paths.push(DetectionWithPath {
-                detection: detection.clone(),
-                crop_path: None,
-            });
-        }
-    }
-
-    // Create bounding box image if requested
-    let mut bounding_box_path = None;
-    if config.bounding_box && !detections.is_empty() {
-        let bbox_filename = output_manager.generate_auxiliary_output("bounding-box", output_ext)?;
-        save_bounding_box_image(img, detections, &bbox_filename)?;
         debug!(
             "{} Bounding box image saved to: {}",
             symbols::completed_successfully(),
@@ -373,8 +277,13 @@ impl ModelProcessor for HeadProcessor {
         let total_processing_time = processing_start.elapsed().as_secs_f64() * 1000.0;
 
         // Handle outputs for this specific image (includes file I/O)
-        let (bounding_box_path, detections_with_paths) =
-            handle_image_outputs_with_timing(&img, &detections, image_path, config, &mut io_timing)?;
+        let (bounding_box_path, detections_with_paths) = handle_image_outputs_with_timing(
+            &img,
+            &detections,
+            image_path,
+            config,
+            &mut io_timing,
+        )?;
 
         Ok(HeadDetectionResult {
             model_version: MODEL_VERSION.to_string(),

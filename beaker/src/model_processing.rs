@@ -37,15 +37,10 @@ pub trait ModelResult {
 
     /// Get a summary of all output files created
     fn output_summary(&self) -> String;
-    
-    /// Get file I/O read time in milliseconds
-    fn file_io_read_time_ms(&self) -> f64 {
-        0.0 // Default implementation for models that don't track I/O timing
-    }
-    
-    /// Get file I/O write time in milliseconds  
-    fn file_io_write_time_ms(&self) -> f64 {
-        0.0 // Default implementation for models that don't track I/O timing
+
+    /// Get file I/O timing information
+    fn get_io_timing(&self) -> Option<crate::shared_metadata::IoTiming> {
+        None // Default implementation for models that don't track I/O timing
     }
 }
 
@@ -318,8 +313,7 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
         command_line: Some(command_line.to_vec()),
         exit_code: Some(0),
         model_processing_time_ms: Some(result.processing_time_ms()),
-        file_io_read_time_ms: Some(result.file_io_read_time_ms()),
-        file_io_write_time_ms: Some(result.file_io_write_time_ms()),
+        file_io: result.get_io_timing(),
     };
 
     // Get core results and config

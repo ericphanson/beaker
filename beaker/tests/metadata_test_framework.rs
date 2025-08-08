@@ -37,6 +37,8 @@ pub enum MetadataCheck {
     BeakerVersion(&'static str), // tool
     /// Verify core results field exists
     CoreResultsField(&'static str, &'static str), // tool, field_name
+    /// Verify file I/O timing is present and valid
+    IoTimingExists(&'static str), // tool
 }
 
 /// Copy test files to temp directory and return their paths
@@ -358,6 +360,35 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
             assert!(
                 field_value.is_some(),
                 "Core field {field_name} should exist for {tool} in test {test_name}"
+            );
+        }
+
+        MetadataCheck::IoTimingExists(tool) => {
+            let execution = match *tool {
+                "head" => metadata.head.as_ref().and_then(|h| h.execution.as_ref()),
+                "cutout" => metadata.cutout.as_ref().and_then(|c| c.execution.as_ref()),
+                _ => panic!("Unknown tool: {tool}"),
+            };
+
+            assert!(
+                execution.is_some(),
+                "Execution context should exist for {tool} in test {test_name}"
+            );
+            
+            let io_timing = execution.unwrap().file_io.as_ref();
+            assert!(
+                io_timing.is_some(),
+                "File I/O timing should exist for {tool} in test {test_name}"
+            );
+            
+            let timing = io_timing.unwrap();
+            // At least one timing field should be present and non-zero (we do read and write operations)
+            let has_read_timing = timing.read_time_ms.map_or(false, |t| t > 0.0);
+            let has_write_timing = timing.write_time_ms.map_or(false, |t| t > 0.0);
+            
+            assert!(
+                has_read_timing || has_write_timing,
+                "At least one I/O timing value should be present and positive for {tool} in test {test_name}"
             );
         }
     }

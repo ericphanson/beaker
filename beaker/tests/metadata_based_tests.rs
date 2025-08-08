@@ -28,6 +28,7 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 MetadataCheck::ExitCode("head", 0),
                 MetadataCheck::BeakerVersion("head"),
                 MetadataCheck::CoreResultsField("head", "model_version"),
+                MetadataCheck::IoTimingExists("head"),
             ],
         },
         TestScenario {
@@ -142,6 +143,7 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 ),
                 MetadataCheck::ExitCode("cutout", 0),
                 MetadataCheck::CoreResultsField("cutout", "model_version"),
+                MetadataCheck::IoTimingExists("cutout"),
             ],
         },
         TestScenario {

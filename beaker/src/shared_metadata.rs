@@ -1,9 +1,78 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
+use image::DynamicImage;
 use log::warn;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
+use std::time::Instant;
+
+/// Generic utility to track file I/O timing for any model
+#[derive(Debug, Default, Serialize, Deserialize, Clone)]
+pub struct IoTiming {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_time_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub write_time_ms: Option<f64>,
+}
+
+impl IoTiming {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn time_image_read<P: AsRef<Path>>(&mut self, path: P) -> Result<DynamicImage> {
+        let start = Instant::now();
+        let img = image::open(path)?;
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        self.read_time_ms = Some(self.read_time_ms.unwrap_or(0.0) + elapsed_ms);
+        Ok(img)
+    }
+
+    pub fn time_image_save<P: AsRef<Path>>(&mut self, img: &DynamicImage, path: P) -> Result<()> {
+        let start = Instant::now();
+        img.save(path)?;
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        self.write_time_ms = Some(self.write_time_ms.unwrap_or(0.0) + elapsed_ms);
+        Ok(())
+    }
+
+    pub fn time_cutout_save<P: AsRef<Path>>(
+        &mut self,
+        img: &image::ImageBuffer<image::Rgba<u8>, Vec<u8>>,
+        path: P,
+    ) -> Result<()> {
+        let start = Instant::now();
+        img.save(path)?;
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        self.write_time_ms = Some(self.write_time_ms.unwrap_or(0.0) + elapsed_ms);
+        Ok(())
+    }
+
+    pub fn time_mask_save<P: AsRef<Path>>(
+        &mut self,
+        img: &image::ImageBuffer<image::Luma<u8>, Vec<u8>>,
+        path: P,
+    ) -> Result<()> {
+        let start = Instant::now();
+        img.save(path)?;
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        self.write_time_ms = Some(self.write_time_ms.unwrap_or(0.0) + elapsed_ms);
+        Ok(())
+    }
+
+    /// Add timing for a generic save operation
+    pub fn time_save_operation<F>(&mut self, operation: F) -> Result<()>
+    where
+        F: FnOnce() -> Result<()>,
+    {
+        let start = Instant::now();
+        operation()?;
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        self.write_time_ms = Some(self.write_time_ms.unwrap_or(0.0) + elapsed_ms);
+        Ok(())
+    }
+}
 
 /// Shared metadata structure that can contain both head and cutout results
 #[derive(Serialize, Deserialize, Default, Debug)]
@@ -64,9 +133,7 @@ pub struct ExecutionContext {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_processing_time_ms: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub file_io_read_time_ms: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub file_io_write_time_ms: Option<f64>,
+    pub file_io: Option<IoTiming>,
 }
 
 /// System information for a tool invocation
@@ -211,6 +278,10 @@ mod tests {
                     command_line: Some(vec!["head".to_string(), "test.jpg".to_string()]),
                     exit_code: Some(0),
                     model_processing_time_ms: Some(150.5),
+                    file_io: Some(IoTiming {
+                        read_time_ms: Some(5.2),
+                        write_time_ms: Some(8.1),
+                    }),
                 }),
                 system: Some(SystemInfo {
                     device_requested: Some("auto".to_string()),
