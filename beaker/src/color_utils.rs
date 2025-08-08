@@ -26,6 +26,18 @@ fn should_disable_colors_from_env() -> bool {
         || !stderr().is_terminal()
 }
 
+#[cfg(test)]
+fn should_disable_colors_with_mock_env(env: &std::collections::HashMap<String, String>) -> bool {
+    // Check NO_COLOR standard (https://no-color.org/)
+    !env.get("NO_COLOR").unwrap_or(&String::new()).is_empty()
+        // Check application-specific override
+        || !env.get("BEAKER_NO_COLOR").unwrap_or(&String::new()).is_empty()
+        // Check for dumb terminal
+        || env.get("TERM").unwrap_or(&String::new()) == "dumb"
+        // Check if stderr is not a TTY (log messages go to stderr)
+        || !stderr().is_terminal()
+}
+
 #[derive(Debug, Clone)]
 struct ColorConfig {
     colors_enabled: bool,
