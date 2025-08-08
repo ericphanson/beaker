@@ -12,10 +12,10 @@ use std::io::Write;
 pub struct MaskEntry {
     pub width: u32,
     pub height: u32,
-    pub format: String,      // e.g., "rle-binary-v1 | gzip | base64"
-    pub start_value: u8,     // 0 or 1
-    pub order: String,       // "row-major"
-    pub data: String,        // base64(gzip(rle_csv))
+    pub format: String,  // e.g., "rle-binary-v1 | gzip | base64"
+    pub start_value: u8, // 0 or 1
+    pub order: String,   // "row-major"
+    pub data: String,    // base64(gzip(rle_csv))
 }
 
 /// Encode a binary mask (0/1 values) into the specified TOML-friendly format.
@@ -38,12 +38,11 @@ pub fn encode_mask_to_entry(
     if start_value > 1 {
         return Err("start_value must be 0 or 1".into());
     }
-    if let Some((i, bad)) = mask
-        .iter()
-        .enumerate()
-        .find(|(_, &v)| v != 0 && v != 1)
-    {
-        return Err(format!("mask contains non-binary value {} at index {}", bad, i));
+    if let Some((i, bad)) = mask.iter().enumerate().find(|(_, &v)| v != 0 && v != 1) {
+        return Err(format!(
+            "mask contains non-binary value {} at index {}",
+            bad, i
+        ));
     }
 
     // RLE (binary, alternating runs starting at start_value)
@@ -108,10 +107,8 @@ mod tests {
         let h = 4u32;
         // Simple pattern (row-major): some zeros, then ones, etc.
         let mask: Vec<u8> = vec![
-            0,0,0,0,0,0,0,0,
-            0,1,1,1,1,1,0,0,
-            0,1,0,0,0,1,0,0,
-            0,0,0,0,0,0,0,0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0,
         ];
         let entry = encode_mask_to_entry(&mask, w, h, 0).unwrap();
         assert_eq!(entry.width, w);
@@ -130,7 +127,9 @@ mod tests {
         let mask = vec![0, 1, 0];
         let result = encode_mask_to_entry(&mask, 2, 2, 0);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("mask length 3 != width*height 4"));
+        assert!(result
+            .unwrap_err()
+            .contains("mask length 3 != width*height 4"));
 
         // Invalid start_value
         let mask = vec![0, 1, 0, 1];
@@ -142,7 +141,9 @@ mod tests {
         let mask = vec![0, 1, 2, 1];
         let result = encode_mask_to_entry(&mask, 2, 2, 0);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("mask contains non-binary value 2 at index 2"));
+        assert!(result
+            .unwrap_err()
+            .contains("mask contains non-binary value 2 at index 2"));
     }
 
     #[test]
@@ -151,12 +152,12 @@ mod tests {
         let mask = vec![0, 0, 0, 0];
         let entry = encode_mask_to_entry(&mask, 2, 2, 0).unwrap();
         assert_eq!(entry.start_value, 0);
-        
-        // All ones  
+
+        // All ones
         let mask = vec![1, 1, 1, 1];
         let entry = encode_mask_to_entry(&mask, 2, 2, 0).unwrap();
         assert_eq!(entry.start_value, 0);
-        
+
         // Alternating pattern
         let mask = vec![0, 1, 0, 1];
         let entry = encode_mask_to_entry(&mask, 2, 2, 0).unwrap();

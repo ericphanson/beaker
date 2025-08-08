@@ -185,13 +185,13 @@ pub fn get_metadata_path(
 /// Collect all BEAKER_* environment variables that are present and non-empty
 pub fn collect_beaker_env_vars() -> Option<std::collections::HashMap<String, String>> {
     let mut beaker_vars = std::collections::HashMap::new();
-    
+
     for (key, value) in std::env::vars() {
         if key.starts_with("BEAKER_") && !value.is_empty() {
             beaker_vars.insert(key, value);
         }
     }
-    
+
     if beaker_vars.is_empty() {
         None
     } else {
@@ -308,7 +308,7 @@ mod tests {
 
         // Create test metadata with cutout and environment variables
         use crate::mask_encoding::MaskEntry;
-        
+
         let mask_entry = MaskEntry {
             width: 4,
             height: 2,

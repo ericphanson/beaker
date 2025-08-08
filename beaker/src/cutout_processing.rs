@@ -75,7 +75,7 @@ pub struct CutoutResult {
 fn extract_binary_mask_data(mask: &image::GrayImage) -> (Vec<u8>, u32, u32) {
     let (width, height) = mask.dimensions();
     let mut binary_data = Vec::with_capacity((width * height) as usize);
-    
+
     for y in 0..height {
         for x in 0..width {
             let pixel = mask.get_pixel(x, y);
@@ -84,7 +84,7 @@ fn extract_binary_mask_data(mask: &image::GrayImage) -> (Vec<u8>, u32, u32) {
             binary_data.push(binary_value);
         }
     }
-    
+
     (binary_data, width, height)
 }
 
