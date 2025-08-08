@@ -6,6 +6,7 @@ use serde::Serialize;
 use std::path::Path;
 use std::time::Instant;
 
+use crate::color_utils::symbols;
 use crate::config::HeadDetectionConfig;
 use crate::model_access::{get_model_source_with_env_override, ModelAccess};
 use crate::model_processing::{ModelProcessor, ModelResult};
@@ -149,7 +150,11 @@ fn handle_image_outputs(
             )?;
 
             create_square_crop(img, detection, &crop_filename, 0.1)?;
-            debug!("✅ Crop saved to: {}", crop_filename.display());
+            debug!(
+                "{} Crop saved to: {}",
+                symbols::completed_successfully(),
+                crop_filename.display()
+            );
 
             // Make path relative to metadata file if metadata will be created
             let crop_path = output_manager.make_relative_to_metadata(&crop_filename)?;
@@ -175,7 +180,8 @@ fn handle_image_outputs(
         let bbox_filename = output_manager.generate_auxiliary_output("bounding-box", output_ext)?;
         save_bounding_box_image(img, detections, &bbox_filename)?;
         debug!(
-            "✅ Bounding box image saved to: {}",
+            "{} Bounding box image saved to: {}",
+            symbols::completed_successfully(),
             bbox_filename.display()
         );
 

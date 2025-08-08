@@ -394,7 +394,6 @@ def create_release(version, model_path):
     training_info = get_training_info(model_path)
 
     # Create release notes with asset list
-    asset_list = []
     model_files = []
     onnx_files = []
     plot_files = []
@@ -494,8 +493,8 @@ cargo build --release
         # Clean up temporary file
         try:
             os.unlink(notes_file)
-        except:
-            pass
+        except Exception as e:
+            print(f"⚠️ Warning: Failed to delete temporary file {notes_file}: {e}")
 
     # Upload assets to the release
     if assets:

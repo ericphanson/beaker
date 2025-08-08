@@ -3,6 +3,7 @@ use env_logger::Builder;
 use env_logger::Env;
 use log::{error, info, Level};
 
+mod cache_common;
 mod color_utils;
 mod config;
 mod cutout_postprocessing;

@@ -1,2 +1,2 @@
 # ruff.toml
-exclude = ["beaker/line_counts.md"]
+exclude = ["beaker/line_counts.md", "pose_model"]
