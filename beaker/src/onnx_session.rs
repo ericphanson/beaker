@@ -93,6 +93,7 @@ pub struct ModelInfo {
     pub model_size_bytes: usize,
     pub description: String,
     pub execution_providers: Vec<String>,
+    pub model_checksum: String,
 }
 
 /// Device selection result
@@ -135,23 +136,27 @@ pub fn create_onnx_session(
     // Get model bytes for cache key generation and session creation
     let (bytes, model_info_base) = match model_source {
         ModelSource::EmbeddedBytes(bytes) => {
+            let model_checksum = cache_common::calculate_md5_bytes(bytes);
             let model_info = ModelInfo {
                 model_source: "Embedded".to_string(),
                 model_path: None,
                 model_size_bytes: bytes.len(),
                 description: "Embedded model bytes".to_string(),
                 execution_providers: vec![], // Will be populated later
+                model_checksum,
             };
             (bytes.to_vec(), model_info)
         }
         ModelSource::FilePath(path) => {
             let bytes = fs::read(&path)?;
+            let model_checksum = cache_common::calculate_md5_bytes(&bytes);
             let model_info = ModelInfo {
                 model_source: "File".to_string(),
                 model_path: Some(path.clone()),
                 model_size_bytes: bytes.len(),
                 description: format!("Model loaded from: {path}"),
                 execution_providers: vec![], // Will be populated later
+                model_checksum,
             };
             (bytes, model_info)
         }

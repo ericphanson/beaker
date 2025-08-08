@@ -58,6 +58,18 @@ impl IoTiming {
     }
 }
 
+/// Centralized list of relevant environment variables for version command and metadata collection
+pub const RELEVANT_ENV_VARS: &[&str] = &[
+    "BEAKER_HEAD_MODEL_PATH",
+    "BEAKER_CUTOUT_MODEL_PATH",
+    "BEAKER_CUTOUT_MODEL_URL",
+    "BEAKER_CUTOUT_MODEL_CHECKSUM",
+    "BEAKER_NO_COLOR",
+    "BEAKER_DEBUG",
+    "NO_COLOR",
+    "RUST_LOG",
+];
+
 /// Shared metadata structure that can contain both head and cutout results
 #[derive(Serialize, Deserialize, Default, Debug)]
 pub struct BeakerMetadata {
@@ -101,6 +113,8 @@ pub struct CutoutSections {
     pub system: Option<SystemInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input: Option<InputProcessing>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mask: Option<crate::mask_encoding::MaskEntry>,
 }
 
 /// Execution context for a tool invocation
@@ -118,6 +132,8 @@ pub struct ExecutionContext {
     pub model_processing_time_ms: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_io: Option<IoTiming>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub beaker_env_vars: Option<std::collections::BTreeMap<String, String>>,
 }
 
 /// System information for a tool invocation
@@ -138,6 +154,8 @@ pub struct SystemInfo {
     pub model_size_bytes: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_load_time_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_checksum: Option<String>,
 }
 
 /// Input processing statistics for a tool invocation
@@ -231,6 +249,25 @@ pub fn get_metadata_path(
     Ok(metadata_path)
 }
 
+/// Collect relevant environment variables that are present and non-empty
+pub fn collect_beaker_env_vars() -> Option<std::collections::BTreeMap<String, String>> {
+    let mut env_vars = std::collections::BTreeMap::new();
+
+    for env_name in RELEVANT_ENV_VARS {
+        if let Ok(value) = std::env::var(env_name) {
+            if !value.is_empty() {
+                env_vars.insert(env_name.to_string(), value);
+            }
+        }
+    }
+
+    if env_vars.is_empty() {
+        None
+    } else {
+        Some(env_vars)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -266,6 +303,7 @@ mod tests {
                         read_time_ms: Some(5.2),
                         write_time_ms: Some(8.1),
                     }),
+                    beaker_env_vars: None,
                 }),
                 system: Some(SystemInfo {
                     device_requested: Some("auto".to_string()),
@@ -276,6 +314,7 @@ mod tests {
                     model_path: None,
                     model_size_bytes: Some(12345678),
                     model_load_time_ms: Some(25.3),
+                    model_checksum: Some("abc123def456".to_string()),
                 }),
                 ..Default::default()
             }),
@@ -307,4 +346,13 @@ mod tests {
             Path::new("/output/image.beaker.toml")
         );
     }
+
+    #[test]
+    fn test_collect_beaker_env_vars_basic() {
+        // Test that the function can be called - actual env var testing is in integration tests
+        let _result = collect_beaker_env_vars();
+        // Just verify the function doesn't panic
+    }
+
+    // Environment variable tests moved to integration tests to avoid race conditions
 }

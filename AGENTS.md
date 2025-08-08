@@ -202,7 +202,11 @@ cp ../example.jpg .
 - **Small diff**: Minimize the number of changed lines
 - **Simple and targeted**: Address one specific issue per PR
 - **Breaking changes are acceptable**: Don't prioritize backwards compatibility at this development stage
+- **Preserve example files**: Do not delete `example-no-bg.png` and `example_crop.jpg` as they are used in README and documentation
 - **No test artifacts**: Do not commit test output files (*.beaker.toml, *.beaker.json), temporary files, or build artifacts
+
+### Test Environment Variable Isolation
+Environment variable functionality is tested using integration tests with subprocess execution, which avoids race conditions by setting environment variables only on subprocesses rather than modifying the global process environment.
 
 ## Complete Pre-Commit Checklist
 

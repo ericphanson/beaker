@@ -2,6 +2,7 @@ use clap::Parser;
 use env_logger::Builder;
 use env_logger::Env;
 use log::{error, info, Level};
+use std::collections::BTreeMap;
 
 mod cache_common;
 mod color_utils;
@@ -11,6 +12,7 @@ mod cutout_preprocessing;
 mod cutout_processing;
 mod head_detection;
 mod image_input;
+mod mask_encoding;
 mod model_access;
 mod model_processing;
 mod onnx_session;
@@ -25,6 +27,7 @@ use config::{CutoutCommand, CutoutConfig, GlobalArgs, HeadCommand, HeadDetection
 use cutout_processing::{get_default_cutout_model_info, run_cutout_processing};
 use head_detection::{run_head_detection, MODEL_VERSION};
 use progress::global_mp;
+use shared_metadata::RELEVANT_ENV_VARS;
 use std::io::Write;
 
 #[derive(clap::Subcommand)]
@@ -224,6 +227,23 @@ fn main() {
                 get_default_cutout_model_info().name.trim()
             );
             println!("Repository: {}", env!("CARGO_PKG_REPOSITORY"));
+
+            // Print relevant environment variables
+            let mut env_vars = BTreeMap::new();
+            for env_name in RELEVANT_ENV_VARS {
+                if let Ok(value) = std::env::var(env_name) {
+                    if !value.is_empty() {
+                        env_vars.insert(env_name.to_string(), value);
+                    }
+                }
+            }
+
+            if !env_vars.is_empty() {
+                println!("\nEnvironment Variables:");
+                for (key, value) in env_vars {
+                    println!("  {key}: {value}");
+                }
+            }
         }
         None => {
             // Show help if no command specified
