@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Train YOLOv12n model for bird head detection on M1 MacBook Pro with Comet.ml tracking.
+Train YOLOv8n model for bird head detection on M1 MacBook Pro with Comet.ml tracking.
 
 Debug Mode:
     Set TRAINING_CONFIG['debug_run'] = True for quick testing with reduced data and epochs.
@@ -52,20 +52,20 @@ torch.autograd.set_detect_anomaly(True)  # Python call chain
 
 # Training Configuration
 TRAINING_CONFIG = {
-    "model": "yolov12n",
-    "model_file": "yolov12n.pt",
-    "model_yaml": "yolov12-turbo.yaml",
+    "model": "yolov8n",
+    "model_file": "yolov8n.pt",
+    "model_yaml": "yolov8n.yaml",
     "data": "../data/yolo-4-class/dataset.yaml",
     "epochs": 100,
     "imgsz": 960,
     "batch": 8,
     "project": "runs/multi-detect",
-    "name": "bird_multi_yolov12n",
+    "name": "bird_multi_yolov8n",
     "workers": 0,  # Prevent multiprocessing issues on M1
     "verbose": True,
     "task": "bird_detection",
     "dataset": "CUB-200-2011",
-    "architecture": "YOLOv12n",
+    "architecture": "YOLOv8n",
     # Debug Configuration
     "debug_run": False,  # Set to True for quick testing
     "debug_epochs": 5,  # Reduced epochs for debug
