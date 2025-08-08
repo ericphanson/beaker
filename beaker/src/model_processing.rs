@@ -106,12 +106,12 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
     spinner.set_message(" Loading model...");
     spinner.enable_steady_tick(Duration::from_millis(100));
 
-    let model_source = P::get_model_source();
+    let model_source = P::get_model_source()?;
 
     let session_config = SessionConfig {
         device: &device_selected,
     };
-    let (mut session, model_info) = create_onnx_session(model_source.unwrap(), &session_config)?;
+    let (mut session, model_info) = create_onnx_session(model_source, &session_config)?;
 
     spinner.finish_and_clear();
     remove_progress_bar(&spinner);

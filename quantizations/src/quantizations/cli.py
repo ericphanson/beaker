@@ -105,14 +105,14 @@ def validate(
         # Try to find the beaker repository root
         current_path = Path(__file__).parent
         repo_root = None
-        
+
         # Search up the directory tree for the beaker repository
         for _ in range(6):  # Reasonable limit
             if (current_path / "example.jpg").exists() or current_path.name == "beaker":
                 repo_root = current_path
                 break
             current_path = current_path.parent
-            
+
         if repo_root and (repo_root / "example.jpg").exists():
             test_images = repo_root
         else:
@@ -301,20 +301,20 @@ def full_pipeline(
 
     # Validate quantized models with enhanced metrics
     logger.info("Step 3: Validating quantized models...")
-    
+
     # Find test images using the same logic as validate command
     current_path = Path(__file__).parent
     test_images_dir = None
-    
+
     for _ in range(6):
         if (current_path / "example.jpg").exists() or current_path.name == "beaker":
             test_images_dir = current_path
             break
         current_path = current_path.parent
-        
+
     if not test_images_dir:
         test_images_dir = Path.cwd()
-    
+
     validation_results = {}
     timing_results = {}
 

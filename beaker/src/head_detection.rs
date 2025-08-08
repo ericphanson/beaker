@@ -8,6 +8,7 @@ use std::time::Instant;
 
 use crate::color_utils::symbols;
 use crate::config::HeadDetectionConfig;
+use crate::model_access::{get_model_source_with_env_override, ModelAccess};
 use crate::model_processing::{ModelProcessor, ModelResult};
 use crate::onnx_session::ModelSource;
 use crate::output_manager::OutputManager;
@@ -18,11 +19,35 @@ use crate::yolo_preprocessing::preprocess_image;
 use log::debug;
 
 // Embed the ONNX model at compile time
-const MODEL_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/bird-head-detector.onnx"));
+pub const MODEL_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/bird-head-detector.onnx"));
 
 // Get model version from build script
 pub const MODEL_VERSION: &str =
     include_str!(concat!(env!("OUT_DIR"), "/bird-head-detector.version"));
+
+/// Head detection model access implementation.
+pub struct HeadAccess;
+
+impl ModelAccess for HeadAccess {
+    fn get_model_source<'a>() -> Result<ModelSource<'a>> {
+        get_model_source_with_env_override::<Self>()
+    }
+
+    fn get_embedded_bytes() -> Option<&'static [u8]> {
+        // Reference to the embedded model bytes
+        Some(MODEL_BYTES)
+    }
+
+    fn get_env_var_name() -> &'static str {
+        "BEAKER_HEAD_MODEL_PATH"
+    }
+
+    // Currently, head models don't support remote download (embedded only)
+    // But this could be added in the future by uncommenting the following:
+    // fn get_default_model_info() -> Option<ModelInfo> {
+    //     Some(HEAD_MODEL_INFO)
+    // }
+}
 
 #[derive(Serialize)]
 pub struct HeadDetectionResult {
@@ -175,7 +200,7 @@ impl ModelProcessor for HeadProcessor {
     type Result = HeadDetectionResult;
 
     fn get_model_source<'a>() -> Result<ModelSource<'a>> {
-        Ok(ModelSource::EmbeddedBytes(MODEL_BYTES))
+        HeadAccess::get_model_source()
     }
 
     fn process_single_image(
@@ -247,5 +272,85 @@ impl ModelProcessor for HeadProcessor {
 
     fn serialize_config(config: &Self::Config) -> Result<toml::Value> {
         Ok(toml::Value::try_from(config)?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn test_head_access_embedded_default() {
+        // Ensure env var is not set
+        env::remove_var("BEAKER_HEAD_MODEL_PATH");
+
+        let source = HeadAccess::get_model_source().unwrap();
+
+        match source {
+            ModelSource::EmbeddedBytes(bytes) => {
+                assert!(
+                    !bytes.is_empty(),
+                    "Embedded model bytes should not be empty"
+                );
+            }
+            _ => panic!("Expected embedded bytes when no env var is set"),
+        }
+    }
+
+    #[test]
+    fn test_head_access_env_override() {
+        // Create a temporary file to act as a model
+        let temp_file = NamedTempFile::new().unwrap();
+        let temp_path = temp_file.path().to_str().unwrap();
+
+        // Set environment variable
+        env::set_var("BEAKER_HEAD_MODEL_PATH", temp_path);
+
+        let source = HeadAccess::get_model_source().unwrap();
+
+        match source {
+            ModelSource::FilePath(path) => {
+                assert_eq!(path, temp_path);
+            }
+            _ => panic!("Expected file path when env var is set"),
+        }
+
+        // Clean up
+        env::remove_var("BEAKER_HEAD_MODEL_PATH");
+    }
+
+    #[test]
+    fn test_head_access_invalid_path() {
+        // Set environment variable to non-existent path
+        env::set_var("BEAKER_HEAD_MODEL_PATH", "/non/existent/path.onnx");
+
+        let result = HeadAccess::get_model_source();
+        assert!(result.is_err(), "Should fail with non-existent path");
+
+        let error_msg = result.err().unwrap().to_string();
+        assert!(
+            error_msg.contains("does not exist"),
+            "Error should mention non-existent path"
+        );
+
+        // Clean up
+        env::remove_var("BEAKER_HEAD_MODEL_PATH");
+    }
+
+    #[test]
+    fn test_head_access_env_var_name() {
+        assert_eq!(HeadAccess::get_env_var_name(), "BEAKER_HEAD_MODEL_PATH");
+    }
+
+    #[test]
+    fn test_head_access_embedded_bytes_available() {
+        let bytes = HeadAccess::get_embedded_bytes();
+        assert!(bytes.is_some(), "Head model should have embedded bytes");
+        assert!(
+            !bytes.unwrap().is_empty(),
+            "Embedded model bytes should not be empty"
+        );
     }
 }

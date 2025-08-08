@@ -17,7 +17,12 @@ pub fn get_cache_dir_with_env_override(env_var: &str, default_subdir: &str) -> R
                 return Ok(home_dir.join(stripped));
             }
         }
-        return Ok(PathBuf::from(cache_dir));
+        // Make sure the directory exists
+        let path = PathBuf::from(cache_dir);
+        if !path.exists() {
+            fs::create_dir_all(&path)?;
+        }
+        return Ok(path);
     }
 
     // Fallback to default cache directory
