@@ -888,6 +888,75 @@ def generate_model_comparison_images(
                 if success:
                     comparison_files.append(comparison_path)
 
+    # NEW: Generate pairwise comparisons (original vs each quantization) including raw input image
+    try:
+        # Identify baseline/original model name
+        baseline_model = None
+        for m in model_results.keys():
+            if "original" in m.lower():
+                baseline_model = m
+                break
+        if baseline_model is None and model_results:
+            baseline_model = list(model_results.keys())[0]
+
+        if baseline_model is None:
+            logger.warning("No baseline model available for pairwise comparisons")
+        else:
+            baseline_key = baseline_model  # safe alias
+
+            def _find_output_image(files: List[Path], test_stem: str) -> Path | None:
+                """Heuristic to find primary model output image for a test image."""
+                candidates = [
+                    f
+                    for f in files
+                    if test_stem in f.name
+                    and f.suffix.lower() in [".jpg", ".jpeg", ".png", ".bmp"]
+                ]
+                if not candidates:
+                    return None
+                # Prefer non bounding-box / non cutout variant first (base), else first
+                preferred = [
+                    c
+                    for c in candidates
+                    if all(
+                        kw not in c.stem.lower()
+                        for kw in ["bounding-box", "crop", "cutout", "mask"]
+                    )
+                ]
+                return preferred[0] if preferred else candidates[0]
+
+            for test_image in test_images:
+                test_stem = test_image.stem
+                baseline_files = model_results.get(baseline_key, [])
+                baseline_img = _find_output_image(baseline_files, test_stem)
+                if not baseline_img:
+                    continue
+                for model_name, files in model_results.items():
+                    if model_name == baseline_key:
+                        continue
+                    quant_img = _find_output_image(files, test_stem)
+                    if not quant_img:
+                        continue
+                    # Build image groups: raw input, baseline output, quantized output
+                    pair_groups = {
+                        "input-image": [test_image],
+                        baseline_key: [baseline_img],
+                        model_name: [quant_img],
+                    }
+                    pair_filename = (
+                        f"{model_type}_pair_{test_stem}_"
+                        f"{baseline_key.lower().replace(' ', '-')}-vs-"
+                        f"{model_name.lower().replace(' ', '-')}.png"
+                    )
+                    pair_path = output_dir / pair_filename
+                    if not pair_path.exists():  # avoid regenerating
+                        if create_side_by_side_comparison(
+                            pair_groups, pair_path, test_stem
+                        ):
+                            comparison_files.append(pair_path)
+    except Exception as e:
+        logger.warning(f"Failed generating pairwise comparisons: {e}")
+
     # Run programmatic Beaker output analysis
     logger.info("Running programmatic analysis of Beaker outputs...")
     try:
