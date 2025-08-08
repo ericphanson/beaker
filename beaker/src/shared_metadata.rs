@@ -63,6 +63,10 @@ pub struct ExecutionContext {
     pub exit_code: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_processing_time_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_io_read_time_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_io_write_time_ms: Option<f64>,
 }
 
 /// System information for a tool invocation

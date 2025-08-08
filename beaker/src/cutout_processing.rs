@@ -8,13 +8,54 @@ use crate::model_access::{get_model_source_with_env_override, ModelAccess, Model
 use crate::onnx_session::ModelSource;
 use crate::output_manager::OutputManager;
 use anyhow::Result;
-use image::GenericImageView;
+use image::{GenericImageView, DynamicImage};
 use log::debug;
 use ort::{session::Session, value::Value};
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
 use std::time::Instant;
+
+/// Simple utility to track file I/O timing
+#[derive(Debug, Default)]
+pub struct IoTiming {
+    pub read_time_ms: f64,
+    pub write_time_ms: f64,
+}
+
+impl IoTiming {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    
+    pub fn time_image_read<P: AsRef<Path>>(&mut self, path: P) -> Result<DynamicImage> {
+        let start = Instant::now();
+        let img = image::open(path)?;
+        self.read_time_ms += start.elapsed().as_secs_f64() * 1000.0;
+        Ok(img)
+    }
+    
+    pub fn time_image_save<P: AsRef<Path>>(&mut self, img: &DynamicImage, path: P) -> Result<()> {
+        let start = Instant::now();
+        img.save(path)?;
+        self.write_time_ms += start.elapsed().as_secs_f64() * 1000.0;
+        Ok(())
+    }
+    
+    pub fn time_cutout_save<P: AsRef<Path>>(&mut self, img: &image::ImageBuffer<image::Rgba<u8>, Vec<u8>>, path: P) -> Result<()> {
+        let start = Instant::now();
+        img.save(path)?;
+        self.write_time_ms += start.elapsed().as_secs_f64() * 1000.0;
+        Ok(())
+    }
+    
+    pub fn time_mask_save<P: AsRef<Path>>(&mut self, img: &image::ImageBuffer<image::Luma<u8>, Vec<u8>>, path: P) -> Result<()> {
+        let start = Instant::now();
+        img.save(path)?;
+        self.write_time_ms += start.elapsed().as_secs_f64() * 1000.0;
+        Ok(())
+    }
+}
 
 /// ISNet General Use default model information
 pub fn get_default_cutout_model_info() -> ModelInfo {
@@ -65,6 +106,8 @@ pub struct CutoutResult {
     pub output_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mask_path: Option<String>,
+    #[serde(skip_serializing)]
+    pub io_timing: IoTiming,
 }
 
 /// Process multiple images sequentially
@@ -96,6 +139,14 @@ impl ModelResult for CutoutResult {
             format!("→ {}", self.output_path)
         }
     }
+    
+    fn file_io_read_time_ms(&self) -> f64 {
+        self.io_timing.read_time_ms
+    }
+    
+    fn file_io_write_time_ms(&self) -> f64 {
+        self.io_timing.write_time_ms
+    }
 }
 
 /// Cutout processor implementing the generic ModelProcessor trait
@@ -116,11 +167,12 @@ impl ModelProcessor for CutoutProcessor {
         config: &Self::Config,
     ) -> Result<Self::Result> {
         let start_time = Instant::now();
+        let mut io_timing = IoTiming::new();
 
         debug!("🖼️  Processing: {}", image_path.display());
 
-        // Load and preprocess the image
-        let img = image::open(image_path)?;
+        // Load and preprocess the image with timing
+        let img = io_timing.time_image_read(image_path)?;
         let original_size = img.dimensions();
 
         let input_array = preprocess_image_for_isnet_v2(&img)?;
@@ -171,22 +223,22 @@ impl ModelProcessor for CutoutProcessor {
             create_cutout(&img, &mask)?
         };
 
-        // Save the cutout (always PNG for transparency)
+        // Save the cutout (always PNG for transparency) with timing
         if let Some(parent) = output_path.parent() {
             fs::create_dir_all(parent)?;
         }
-        cutout_result.save(&output_path)?;
+        io_timing.time_cutout_save(&cutout_result, &output_path)?;
         debug!(
             "{} Cutout saved to: {}",
             symbols::completed_successfully(),
             output_path.display()
         );
-        // Save mask if requested
+        // Save mask if requested with timing
         if let Some(mask_path_val) = &mask_path {
             if let Some(parent) = Path::new(mask_path_val).parent() {
                 fs::create_dir_all(parent)?;
             }
-            mask.save(mask_path_val)?;
+            io_timing.time_mask_save(&mask, mask_path_val)?;
             debug!(
                 "{} Mask saved to: {}",
                 symbols::completed_successfully(),
@@ -202,6 +254,7 @@ impl ModelProcessor for CutoutProcessor {
             model_version: get_default_cutout_model_info().name,
             processing_time_ms: processing_time,
             mask_path: mask_path.map(|p| p.to_string_lossy().to_string()),
+            io_timing,
         };
 
         Ok(cutout_result)
