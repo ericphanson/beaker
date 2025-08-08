@@ -63,14 +63,14 @@ fn get_test_scenarios() -> Vec<TestScenario> {
             ],
             expected_files: vec![
                 "example.beaker.toml",
-                "example.jpg",
+                "example_crop.jpg",
                 "example_bounding-box.jpg",
             ],
             metadata_checks: vec![
                 MetadataCheck::ConfigValue("head", "confidence", toml::Value::from(0.5)),
                 MetadataCheck::ConfigValue("head", "crop", toml::Value::from(true)),
                 MetadataCheck::ConfigValue("head", "bounding_box", toml::Value::from(true)),
-                MetadataCheck::OutputCreated("example.jpg"),
+                MetadataCheck::OutputCreated("example_crop.jpg"),
                 MetadataCheck::OutputCreated("example_bounding-box.jpg"),
                 MetadataCheck::ExitCode("head", 0),
                 MetadataCheck::CoreResultsField("head", "detections"),
@@ -135,11 +135,11 @@ fn get_test_scenarios() -> Vec<TestScenario> {
             name: "cutout_basic_processing",
             tool: "cutout",
             args: vec!["../example.jpg"],
-            expected_files: vec!["example.beaker.toml", "example.png"],
+            expected_files: vec!["example.beaker.toml", "example_cutout.png"],
             metadata_checks: vec![
                 MetadataCheck::ConfigValue("cutout", "alpha_matting", toml::Value::from(false)),
                 MetadataCheck::ConfigValue("cutout", "save_mask", toml::Value::from(false)),
-                MetadataCheck::OutputCreated("example.png"),
+                MetadataCheck::OutputCreated("example_cutout.png"),
                 MetadataCheck::TimingBound(
                     "cutout",
                     "execution.model_processing_time_ms",
@@ -155,11 +155,15 @@ fn get_test_scenarios() -> Vec<TestScenario> {
             name: "cutout_with_alpha_matting_and_mask",
             tool: "cutout",
             args: vec!["../example.jpg", "--alpha-matting", "--save-mask"],
-            expected_files: vec!["example.beaker.toml", "example.png", "example_mask.png"],
+            expected_files: vec![
+                "example.beaker.toml",
+                "example_cutout.png",
+                "example_mask.png",
+            ],
             metadata_checks: vec![
                 MetadataCheck::ConfigValue("cutout", "alpha_matting", toml::Value::from(true)),
                 MetadataCheck::ConfigValue("cutout", "save_mask", toml::Value::from(true)),
-                MetadataCheck::OutputCreated("example.png"),
+                MetadataCheck::OutputCreated("example_cutout.png"),
                 MetadataCheck::OutputCreated("example_mask.png"),
                 MetadataCheck::TimingBound(
                     "cutout",

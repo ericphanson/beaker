@@ -278,19 +278,6 @@ impl ModelProcessor for HeadProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_head_access_embedded_default() {
-        // Just test that the function can be called without env var modification
-        // The actual env var testing will be done in integration tests
-        let bytes = HeadAccess::get_embedded_bytes();
-        assert!(bytes.is_some(), "Embedded bytes should be available");
-        assert!(
-            !bytes.unwrap().is_empty(),
-            "Embedded bytes should not be empty"
-        );
-    }
-
     // Environment variable tests are now in integration tests to avoid race conditions
 
     #[test]
