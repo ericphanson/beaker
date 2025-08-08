@@ -2,6 +2,7 @@ use clap::Parser;
 use env_logger::Builder;
 use env_logger::Env;
 use log::{error, info, Level};
+use std::collections::BTreeMap;
 
 mod cache_common;
 mod color_utils;
@@ -225,6 +226,31 @@ fn main() {
                 get_default_cutout_model_info().name.trim()
             );
             println!("Repository: {}", env!("CARGO_PKG_REPOSITORY"));
+
+            // Print relevant BEAKER_* environment variables
+            let relevant_envs = [
+                "BEAKER_HEAD_MODEL_PATH",
+                "BEAKER_CUTOUT_MODEL_PATH",
+                "BEAKER_CUTOUT_MODEL_URL",
+                "BEAKER_CUTOUT_MODEL_CHECKSUM",
+                "BEAKER_NO_COLOR",
+            ];
+
+            let mut env_vars = BTreeMap::new();
+            for env_name in &relevant_envs {
+                if let Ok(value) = std::env::var(env_name) {
+                    if !value.is_empty() {
+                        env_vars.insert(env_name.to_string(), value);
+                    }
+                }
+            }
+
+            if !env_vars.is_empty() {
+                println!("\nEnvironment Variables:");
+                for (key, value) in env_vars {
+                    println!("  {key}: {value}");
+                }
+            }
         }
         None => {
             // Show help if no command specified

@@ -37,6 +37,14 @@ pub enum MetadataCheck {
     BeakerVersion(&'static str), // tool
     /// Verify core results field exists
     CoreResultsField(&'static str, &'static str), // tool, field_name
+    /// Verify environment variable is present
+    EnvVarPresent(&'static str, &'static str), // tool, env_var_name
+    /// Verify environment variable has specific value
+    EnvVarValue(&'static str, &'static str, &'static str), // tool, env_var_name, expected_value
+    /// Verify mask encoding is present (cutout only)
+    MaskEncodingPresent,
+    /// Verify ASCII preview is present and contains expected characters
+    AsciiPreviewValid,
 }
 
 /// Copy test files to temp directory and return their paths
@@ -360,6 +368,135 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
                 "Core field {field_name} should exist for {tool} in test {test_name}"
             );
         }
+
+        MetadataCheck::EnvVarPresent(tool, env_var_name) => {
+            let execution = match *tool {
+                "head" => metadata.head.as_ref().and_then(|h| h.execution.as_ref()),
+                "cutout" => metadata.cutout.as_ref().and_then(|c| c.execution.as_ref()),
+                _ => panic!("Unknown tool: {tool}"),
+            };
+
+            assert!(
+                execution.is_some(),
+                "Execution info should exist for {tool} in test {test_name}"
+            );
+
+            let env_vars = execution.unwrap().beaker_env_vars.as_ref();
+            assert!(
+                env_vars.is_some(),
+                "Environment variables should be present for {tool} in test {test_name}"
+            );
+
+            let env_map = env_vars.unwrap();
+            assert!(
+                env_map.contains_key(*env_var_name),
+                "Environment variable {env_var_name} should be present for {tool} in test {test_name}"
+            );
+        }
+
+        MetadataCheck::EnvVarValue(tool, env_var_name, expected_value) => {
+            let execution = match *tool {
+                "head" => metadata.head.as_ref().and_then(|h| h.execution.as_ref()),
+                "cutout" => metadata.cutout.as_ref().and_then(|c| c.execution.as_ref()),
+                _ => panic!("Unknown tool: {tool}"),
+            };
+
+            assert!(
+                execution.is_some(),
+                "Execution info should exist for {tool} in test {test_name}"
+            );
+
+            let env_vars = execution.unwrap().beaker_env_vars.as_ref();
+            assert!(
+                env_vars.is_some(),
+                "Environment variables should be present for {tool} in test {test_name}"
+            );
+
+            let env_map = env_vars.unwrap();
+            let actual_value = env_map.get(*env_var_name).unwrap_or_else(|| {
+                panic!("Environment variable {env_var_name} should be present for {tool} in test {test_name}")
+            });
+
+            assert_eq!(
+                actual_value, expected_value,
+                "Environment variable {env_var_name} should have value {expected_value} for {tool} in test {test_name}, got {actual_value}"
+            );
+        }
+
+        MetadataCheck::MaskEncodingPresent => {
+            assert!(
+                metadata.cutout.is_some(),
+                "Cutout metadata should be present for mask encoding check in test {test_name}"
+            );
+
+            let cutout = metadata.cutout.as_ref().unwrap();
+            assert!(
+                cutout.mask.is_some(),
+                "Mask data should be present in cutout metadata for test {test_name}"
+            );
+
+            let mask = cutout.mask.as_ref().unwrap();
+            assert!(
+                !mask.data.is_empty(),
+                "Mask data should not be empty for test {test_name}"
+            );
+            assert_eq!(
+                mask.format, "rle-binary-v1 | gzip | base64",
+                "Mask format should be correct for test {test_name}"
+            );
+        }
+
+        MetadataCheck::AsciiPreviewValid => {
+            assert!(
+                metadata.cutout.is_some(),
+                "Cutout metadata should be present for ASCII preview check in test {test_name}"
+            );
+
+            let cutout = metadata.cutout.as_ref().unwrap();
+            assert!(
+                cutout.mask.is_some(),
+                "Mask data should be present for ASCII preview check in test {test_name}"
+            );
+
+            let mask = cutout.mask.as_ref().unwrap();
+            assert!(
+                mask.preview.is_some(),
+                "ASCII preview should be present for test {test_name}"
+            );
+
+            let preview = mask.preview.as_ref().unwrap();
+            assert_eq!(
+                preview.format, "ascii",
+                "Preview format should be ascii for test {test_name}"
+            );
+            assert!(
+                preview.width > 0 && preview.height > 0,
+                "Preview dimensions should be positive for test {test_name}"
+            );
+            assert_eq!(
+                preview.rows.len(),
+                preview.height as usize,
+                "Preview rows count should match height for test {test_name}"
+            );
+
+            // Check that preview contains expected characters (# and .)
+            let all_chars: String = preview.rows.join("");
+            assert!(
+                all_chars.contains('#') && all_chars.contains('.'),
+                "ASCII preview should contain both '#' and '.' characters for test {test_name}"
+            );
+
+            // Check that each row has the correct width
+            for (i, row) in preview.rows.iter().enumerate() {
+                assert_eq!(
+                    row.len(),
+                    preview.width as usize,
+                    "Preview row {i} should have width {} for test {test_name}, got {}",
+                    preview.width,
+                    row.len()
+                );
+            }
+        }
     }
 }
 
@@ -373,7 +510,7 @@ where
     // Setup test files in temp directory
     let (example_jpg, example_2_birds) = setup_test_files(temp_dir);
 
-    // Handle special multi-tool case
+    // Handle special cases
     let exit_code = if scenario.tool == "both" {
         // Run head first
         let head_exit = run_beaker_command(&[
@@ -407,6 +544,76 @@ where
             scenario.name
         );
         0
+    } else if scenario.tool == "version" {
+        // Handle version command specially - just run it without metadata flags
+        run_beaker_command(&scenario.args)
+    } else if scenario.name == "cutout_with_env_vars_and_metadata" {
+        // Special case: run cutout with BEAKER_DEBUG environment variable
+        use std::process::Command;
+        use std::sync::Once;
+
+        static BUILD_ONCE: Once = Once::new();
+
+        // Build the binary once at the start of testing
+        BUILD_ONCE.call_once(|| {
+            let build_output = Command::new("cargo")
+                .args(["build"])
+                .current_dir(env!("CARGO_MANIFEST_DIR"))
+                .output()
+                .expect("Failed to build beaker");
+
+            if !build_output.status.success() {
+                panic!(
+                    "Failed to build beaker: {}",
+                    String::from_utf8_lossy(&build_output.stderr)
+                );
+            }
+        });
+
+        // Run the built binary directly with environment variable
+        let beaker_binary = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/debug/beaker");
+
+        let mut full_args = vec![scenario.tool];
+        for arg in &scenario.args {
+            if *arg == "../example.jpg" {
+                full_args.push(example_jpg.to_str().unwrap());
+            } else if *arg == "../example-2-birds.jpg" {
+                full_args.push(example_2_birds.to_str().unwrap());
+            } else {
+                full_args.push(arg);
+            }
+        }
+        full_args.extend_from_slice(&[
+            "--metadata",
+            "--output-dir",
+            temp_dir.path().to_str().unwrap(),
+        ]);
+
+        let output = Command::new(&beaker_binary)
+            .args(&full_args[1..]) // Skip the tool name since it's in args
+            .env("BEAKER_DEBUG", "true")
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .output()
+            .expect("Failed to execute beaker command with env var");
+
+        let exit_code = output.status.code().unwrap_or(-1);
+
+        // Print stdout and stderr for debugging when command fails
+        if exit_code != 0 {
+            eprintln!("=== BEAKER COMMAND WITH ENV VAR FAILED ===");
+            eprintln!(
+                "Command: beaker {} (with BEAKER_DEBUG=true)",
+                full_args[1..].join(" ")
+            );
+            eprintln!("Exit code: {exit_code}");
+            eprintln!("=== STDOUT ===");
+            eprintln!("{}", String::from_utf8_lossy(&output.stdout));
+            eprintln!("=== STDERR ===");
+            eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+            eprintln!("=== END BEAKER COMMAND OUTPUT ===");
+        }
+
+        exit_code
     } else {
         // Single tool execution - replace file placeholders with actual paths
         let mut full_args = vec![scenario.tool];
@@ -461,37 +668,52 @@ where
         }
     }
 
-    // Parse and validate metadata
-    let metadata_path = if scenario
-        .expected_files
-        .contains(&"example-2-birds.beaker.toml")
-    {
-        temp_dir.path().join("example-2-birds.beaker.toml")
-    } else {
-        temp_dir.path().join("example.beaker.toml")
-    };
-
-    assert!(
-        metadata_path.exists(),
-        "Metadata file should exist for test: {}",
-        scenario.name
-    );
-
-    let metadata = parse_metadata(&metadata_path);
-
-    // Validate all metadata checks
-    for check in &scenario.metadata_checks {
-        // Handle OutputCreated check at file system level
-        if let MetadataCheck::OutputCreated(filename) = check {
-            let output_path = temp_dir.path().join(filename);
-            assert!(
-                output_path.exists(),
-                "Output file {} should exist for test {}",
-                filename,
-                scenario.name
-            );
+    // Parse and validate metadata (skip for version command)
+    if scenario.tool != "version" {
+        let metadata_path = if scenario
+            .expected_files
+            .contains(&"example-2-birds.beaker.toml")
+        {
+            temp_dir.path().join("example-2-birds.beaker.toml")
         } else {
-            validate_metadata_check(&metadata, check, scenario.name);
+            temp_dir.path().join("example.beaker.toml")
+        };
+
+        assert!(
+            metadata_path.exists(),
+            "Metadata file should exist for test: {}",
+            scenario.name
+        );
+
+        let metadata = parse_metadata(&metadata_path);
+
+        // Validate all metadata checks
+        for check in &scenario.metadata_checks {
+            // Handle OutputCreated check at file system level
+            if let MetadataCheck::OutputCreated(filename) = check {
+                let output_path = temp_dir.path().join(filename);
+                assert!(
+                    output_path.exists(),
+                    "Output file {} should exist for test {}",
+                    filename,
+                    scenario.name
+                );
+            } else {
+                validate_metadata_check(&metadata, check, scenario.name);
+            }
+        }
+    } else {
+        // For version command, just validate OutputCreated checks if any
+        for check in &scenario.metadata_checks {
+            if let MetadataCheck::OutputCreated(filename) = check {
+                let output_path = temp_dir.path().join(filename);
+                assert!(
+                    output_path.exists(),
+                    "Output file {} should exist for test {}",
+                    filename,
+                    scenario.name
+                );
+            }
         }
     }
 }

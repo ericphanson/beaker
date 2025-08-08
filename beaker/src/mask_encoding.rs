@@ -29,6 +29,24 @@ pub struct AsciiPreview {
     pub rows: Vec<String>,
 }
 
+/// Calculate preview dimensions based on original image aspect ratio.
+/// The longer dimension is fixed to 40, and the shorter dimension is scaled proportionally.
+fn calculate_preview_dimensions(width: u32, height: u32) -> (u32, u32) {
+    const MAX_DIM: u32 = 40;
+
+    if width >= height {
+        // Width is longer or equal, fix width to 40
+        let aspect_ratio = height as f64 / width as f64;
+        let preview_height = (MAX_DIM as f64 * aspect_ratio).round() as u32;
+        (MAX_DIM, preview_height.max(1))
+    } else {
+        // Height is longer, fix height to 40
+        let aspect_ratio = width as f64 / height as f64;
+        let preview_width = (MAX_DIM as f64 * aspect_ratio).round() as u32;
+        (preview_width.max(1), MAX_DIM)
+    }
+}
+
 /// Encode a binary mask (0/1 values) into the specified TOML-friendly format.
 /// `mask` must be length == width*height, row-major (top-left to bottom-right).
 pub fn encode_mask_to_entry(
@@ -37,7 +55,8 @@ pub fn encode_mask_to_entry(
     height: u32,
     start_value: u8, // typically 0; if the first pixel is 1, we'll emit a leading 0-run
 ) -> Result<MaskEntry, String> {
-    encode_mask_to_entry_with_preview(mask, width, height, start_value, Some((80, 60)))
+    let preview_dims = calculate_preview_dimensions(width, height);
+    encode_mask_to_entry_with_preview(mask, width, height, start_value, Some(preview_dims))
 }
 
 /// Encode a binary mask (row-major, values 0/1) to the TOML-friendly entry,
@@ -63,10 +82,7 @@ pub fn encode_mask_to_entry_with_preview(
         .enumerate()
         .find(|(_, v)| *v != 0 && *v != 1)
     {
-        return Err(format!(
-            "mask contains non-binary value {} at index {}",
-            bad, i
-        ));
+        return Err(format!("mask contains non-binary value {bad} at index {i}"));
     }
 
     // --- RLE (binary, alternating runs starting at start_value) ---
@@ -91,7 +107,7 @@ pub fn encode_mask_to_entry_with_preview(
             rle.push(',');
         }
         use std::fmt::Write as _;
-        write!(&mut rle, "{}", r).unwrap();
+        write!(&mut rle, "{r}").unwrap();
     }
 
     // --- gzip and base64 ---
@@ -148,8 +164,8 @@ fn downsample_ascii(mask: &[u8], w: u32, h: u32, pw: u32, ph: u32) -> Vec<String
             let mut sum = 0usize;
             for yy in y0..y1 {
                 let row = &mask[yy * w..yy * w + w];
-                for xx in x0..x1 {
-                    sum += row[xx] as usize;
+                for &pixel in row.iter().take(x1).skip(x0) {
+                    sum += pixel as usize;
                 }
             }
             let area = (y1 - y0) * (x1 - x0);
@@ -224,13 +240,14 @@ mod tests {
         let entry = encode_mask_to_entry(&mask, 2, 2, 0).unwrap();
         assert_eq!(entry.start_value, 0);
 
-        // Verify preview exists with default parameters (80x60)
+        // Verify preview exists with aspect ratio-aware dimensions
         assert!(entry.preview.is_some());
         let preview = entry.preview.unwrap();
         assert_eq!(preview.format, "ascii");
-        assert_eq!(preview.width, 80);
-        assert_eq!(preview.height, 60);
-        assert_eq!(preview.rows.len(), 60);
+        // For a 2x2 mask, both dimensions should be 40 (square aspect ratio)
+        assert_eq!(preview.width, 40);
+        assert_eq!(preview.height, 40);
+        assert_eq!(preview.rows.len(), 40);
     }
 
     #[test]
@@ -250,6 +267,29 @@ mod tests {
         assert_eq!(preview.rows[1], "##..");
         assert_eq!(preview.rows[2], "..##");
         assert_eq!(preview.rows[3], "..##");
+    }
+
+    #[test]
+    fn test_preview_aspect_ratio_calculation() {
+        // Test landscape aspect ratio (1280x960) -> should be (40, 30)
+        let (pw, ph) = calculate_preview_dimensions(1280, 960);
+        assert_eq!(pw, 40);
+        assert_eq!(ph, 30);
+
+        // Test portrait aspect ratio (960x1280) -> should be (30, 40)
+        let (pw, ph) = calculate_preview_dimensions(960, 1280);
+        assert_eq!(pw, 30);
+        assert_eq!(ph, 40);
+
+        // Test square aspect ratio (1000x1000) -> should be (40, 40)
+        let (pw, ph) = calculate_preview_dimensions(1000, 1000);
+        assert_eq!(pw, 40);
+        assert_eq!(ph, 40);
+
+        // Test extreme aspect ratio (1600x400) -> should be (40, 10)
+        let (pw, ph) = calculate_preview_dimensions(1600, 400);
+        assert_eq!(pw, 40);
+        assert_eq!(ph, 10);
     }
 
     #[test]

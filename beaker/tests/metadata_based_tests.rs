@@ -188,6 +188,46 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 ),
             ],
         },
+        // New tests for enhanced metadata features (limit to 3 as requested)
+        TestScenario {
+            name: "environment_variables_capture",
+            tool: "version", // Special case - use version command for env var testing
+            args: vec!["version"],
+            expected_files: vec![], // Version command doesn't create files
+            metadata_checks: vec![
+                // No metadata validation for version command, but we test env var capture in cutout
+            ],
+        },
+        TestScenario {
+            name: "cutout_mask_encoding_and_preview",
+            tool: "cutout",
+            args: vec!["../example.jpg"],
+            expected_files: vec!["example.beaker.toml", "example.png"],
+            metadata_checks: vec![
+                MetadataCheck::ExitCode("cutout", 0),
+                MetadataCheck::MaskEncodingPresent,
+                MetadataCheck::AsciiPreviewValid,
+                MetadataCheck::TimingBound(
+                    "cutout",
+                    "execution.model_processing_time_ms",
+                    1000.0,
+                    300000.0,
+                ),
+            ],
+        },
+        TestScenario {
+            name: "cutout_with_env_vars_and_metadata",
+            tool: "cutout", // Will be run with BEAKER_DEBUG=true
+            args: vec!["../example.jpg"],
+            expected_files: vec!["example.beaker.toml", "example.png"],
+            metadata_checks: vec![
+                MetadataCheck::ExitCode("cutout", 0),
+                MetadataCheck::EnvVarPresent("cutout", "BEAKER_DEBUG"),
+                MetadataCheck::EnvVarValue("cutout", "BEAKER_DEBUG", "true"),
+                MetadataCheck::MaskEncodingPresent,
+                MetadataCheck::AsciiPreviewValid,
+            ],
+        },
     ]
 }
 
@@ -203,4 +243,7 @@ generate_metadata_tests! {
     "cutout_basic_processing",
     "cutout_with_alpha_matting_and_mask",
     "multi_tool_sequential_processing",
+    "environment_variables_capture",
+    "cutout_mask_encoding_and_preview",
+    "cutout_with_env_vars_and_metadata",
 }
