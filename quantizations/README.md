@@ -71,20 +71,32 @@ Before using this tool, ensure you have:
 Run the complete quantization pipeline (recommended for first-time users):
 
 ```bash
-# Dry run to see what would happen
+# DRY RUN - See what the full pipeline would do without uploads
 uv run quantize-models full-pipeline --model-type head --tolerance 200 --dry-run
 
-# Actually run the pipeline with all optimizations
+# DRY RUN with custom Beaker CLI path
+uv run quantize-models full-pipeline --model-type head --tolerance 200 --dry-run \
+  --beaker-cargo-path ../beaker/Cargo.toml
+
+# Actually run the pipeline with Beaker CLI-based comparisons
 uv run quantize-models full-pipeline --model-type head --tolerance 200
+
+# Run pipeline for cutout models
+uv run quantize-models full-pipeline --model-type cutout --tolerance 200 --dry-run
+
+# Process both model types
+uv run quantize-models full-pipeline --model-type all --tolerance 200 --dry-run
 ```
 
 This will:
-1. Download the latest head detection model
-2. Create quantized versions (dynamic and static INT8)
+1. Download the latest models to organized directories (`models/head/` and `models/cutout/`)
+2. Create quantized versions in model-type directories (`quantized/head/`, `quantized/cutout/`)
 3. Apply ONNX optimizations and simplifications
 4. Validate the quantized models with timing measurements
-5. Generate comparison images showing detection results
-6. Upload them to a new GitHub release with performance metrics
+5. Generate accurate comparisons using the Beaker Rust CLI (not Python inference)
+6. Upload them to new GitHub releases with performance metrics and visual comparisons
+
+**New Beaker CLI Integration**: The comparison system now uses your actual Beaker Rust CLI tool for preprocessing and inference, ensuring comparisons match real-world performance. This eliminates the preprocessing/postprocessing issues that occurred with Python-based inference.
 
 ### Individual Commands
 
@@ -108,14 +120,17 @@ uv run quantize-models download --model-type all -o models/
 Create quantized versions of your models:
 
 ```bash
-# Basic quantization (dynamic and static INT8)
-uv run quantize-models quantize models/best.onnx -o quantized/
+# Basic quantization (dynamic and static INT8) - now uses model-type directories
+uv run quantize-models quantize models/head/best.onnx -o quantized/ --model-type head
 
 # Specific quantization levels
-uv run quantize-models quantize models/best.onnx -o quantized/ --levels dynamic static
+uv run quantize-models quantize models/head/best.onnx -o quantized/ --levels dynamic static --model-type head
 
 # Individual quantization types
-uv run quantize-models quantize models/best.onnx -o quantized/ --levels dynamic
+uv run quantize-models quantize models/cutout/cutout-model.onnx -o quantized/ --levels dynamic --model-type cutout
+
+# Auto-detect model type from path (fallback)
+uv run quantize-models quantize models/head/best.onnx -o quantized/ --levels dynamic static
 
 # Verbose output
 uv run quantize-models quantize models/best.onnx -o quantized/ --levels dynamic static fp16 -v
@@ -126,6 +141,8 @@ Available quantization levels:
 - **static**: Static INT8 quantization (requires calibration data)
 - **fp16**: Half-precision floating-point (good balance of size and accuracy)
 - **int8**: Alias for static quantization
+
+**Note**: The `--model-type` parameter helps organize outputs into separate directories to avoid file clashes between head and cutout models.
 
 #### 3. Validate Quantized Models
 
@@ -144,34 +161,139 @@ uv run quantize-models validate models/best.onnx quantized/best-dynamic.onnx --t
 
 #### 4. Upload Quantized Models
 
-Upload quantized models to GitHub releases:
+Upload quantized models to GitHub releases with comprehensive comparisons:
 
 ```bash
-# Basic upload
+# Basic upload with Beaker CLI-based comparisons
+uv run quantize-models upload quantized/ --model-type head --version v1.0 \
+  --include-comparisons --test-images examples/
+
+# Specify custom Beaker CLI path if needed
+uv run quantize-models upload quantized/ --model-type head --version v1.0 \
+  --include-comparisons --test-images examples/ \
+  --beaker-cargo-path ../beaker/Cargo.toml
+
+# DRY RUN - See what would be uploaded without actually doing it
+uv run quantize-models upload quantized/ --model-type head --version v1.0 \
+  --include-comparisons --test-images examples/ --dry-run
+
+# Upload without comparisons (faster)
 uv run quantize-models upload quantized/ --model-type head --version v1.0
 
-# Include comparison images and performance metrics
-uv run quantize-models upload quantized/ --model-type head --version v1.0 \
-  --include-comparisons --test-images ../
-
-# Dry run to preview release
-uv run quantize-models upload quantized/ --model-type head --version v1.0 --dry-run
+# Upload cutout models with visual comparisons
+uv run quantize-models upload quantized/ --model-type cutout --version v1.0 \
+  --include-comparisons --test-images examples/ --dry-run
 ```
 
 The upload command now creates releases with:
-- All quantized models for the specified type in one release
-- Performance comparison tables
-- Visual comparison images with bounding boxes and IoU metrics
+- All quantized models for the specified type in organized releases
+- Performance comparison tables with inference timing
+- **Accurate visual comparisons**: Uses Beaker Rust CLI for proper preprocessing/postprocessing
+- **Bounding box comparisons**: For head models, includes IoU metrics from `.beaker.toml` metadata
+- **Visual cutout comparisons**: For cutout models, side-by-side cutout image comparisons
 - Comprehensive release notes with optimization details
 - SHA256 checksums for all files
+
+**Key Improvement**: Comparisons now use the actual Beaker CLI tool instead of Python inference, ensuring the preprocessing and postprocessing exactly match your production pipeline.
+
+## Beaker CLI Integration for Accurate Comparisons
+
+### Why Use Beaker CLI for Comparisons?
+
+The quantization tool now uses your actual Beaker Rust CLI for generating model comparisons instead of Python-based inference. This provides several key benefits:
+
+✅ **Accurate preprocessing/postprocessing** - Uses the exact same logic as your production pipeline
+✅ **No file clashes** - Organized output directories with model-type prefixes
+✅ **Quantitative metrics** - IoU calculations for head detection accuracy from `.beaker.toml` metadata
+✅ **Visual outputs** - Both cropped heads and cutout images for inspection
+✅ **Metadata preservation** - All Beaker metadata available for analysis
+
+### How It Works
+
+When generating comparisons, the tool:
+
+1. **Sets environment variables** for each model:
+   ```bash
+   BEAKER_HEAD_MODEL_PATH=/path/to/quantized/model.onnx
+   # or
+   BEAKER_CUTOUT_MODEL_PATH=/path/to/quantized/model.onnx
+   ```
+
+2. **Runs Beaker CLI commands**:
+   ```bash
+   # For head detection models
+   cargo run --manifest-path ../beaker/Cargo.toml head example.jpg \
+     --output-dir temp_dir --crop --bounding-box --metadata
+
+   # For cutout models
+   cargo run --manifest-path ../beaker/Cargo.toml cutout example.jpg \
+     --output-dir temp_dir --metadata
+   ```
+
+3. **Organizes outputs** with model prefixes to avoid clashes:
+   ```
+   output/comparisons/head/
+   ├── original_example.jpg
+   ├── original_example.beaker.toml
+   ├── dynamic-int8_example.jpg
+   ├── dynamic-int8_example.beaker.toml
+   └── comparison_summary.json
+   ```
+
+### Configuring Beaker CLI Path
+
+By default, the tool looks for Beaker at `../beaker/Cargo.toml`. You can specify a custom path:
+
+```bash
+# Custom Beaker repository location
+uv run quantize-models upload quantized/ --model-type head --version v1.0 \
+  --include-comparisons --test-images examples/ \
+  --beaker-cargo-path /path/to/your/beaker/Cargo.toml
+
+# Full pipeline with custom path
+uv run quantize-models full-pipeline --model-type head --tolerance 200 \
+  --beaker-cargo-path /path/to/your/beaker/Cargo.toml --dry-run
+```
+
+## Dry Run Features
+
+All commands that modify files or create releases support `--dry-run` to preview actions:
+
+### Upload Dry Runs
+```bash
+# See what would be uploaded without actually uploading
+uv run quantize-models upload quantized/ --model-type head --version v1.0 \
+  --include-comparisons --test-images examples/ --dry-run
+```
+
+**Dry run output shows**:
+- Which model files would be uploaded
+- Which comparison images would be generated
+- Release notes preview
+- File counts and sizes
+
+### Full Pipeline Dry Runs
+```bash
+# Complete dry run of the entire pipeline
+uv run quantize-models full-pipeline --model-type head --tolerance 200 --dry-run
+```
+
+**Dry run includes**:
+- Model download simulation
+- Quantization steps (but no actual quantization)
+- Validation steps (but no actual validation)
+- Comparison generation preview
+- Upload preview
+
+This lets you verify the entire workflow before committing to the full process.
 
 ## Integration with Beaker CLI
 
 Use quantized models with the existing Beaker CLI:
 
 ```bash
-# Set environment variable to use quantized model
-export BEAKER_HEAD_MODEL_URL="https://github.com/ericphanson/beaker/releases/download/head-quantizations-v1.0/head-fp16.onnx"
+# Set environment variable to use quantized head model
+export BEAKER_HEAD_MODEL_URL="https://github.com/ericphanson/beaker/releases/download/head-quantizations-v1.0/head-dynamic-int8.onnx"
 
 # Use with beaker as normal
 beaker head image.jpg --crop
@@ -179,6 +301,10 @@ beaker head image.jpg --crop
 # For cutout models
 export BEAKER_CUTOUT_MODEL_URL="https://github.com/ericphanson/beaker/releases/download/cutout-quantizations-v1.0/cutout-dynamic-int8.onnx"
 beaker cutout image.jpg
+
+# Use local quantized models
+export BEAKER_HEAD_MODEL_PATH="./quantized/head/head-dynamic-int8.onnx"
+beaker head image.jpg --crop
 ```
 
 ## Performance Optimizations
@@ -334,6 +460,22 @@ uv run quantize-models validate model.onnx quantized.onnx -v
 - Check repository permissions (need write access)
 - Ensure the tag doesn't already exist
 
+#### 7. Beaker CLI comparison failures
+```bash
+# Check if Beaker CLI is available at the expected path
+ls ../beaker/Cargo.toml
+
+# Test Beaker CLI manually
+cd ../beaker && cargo run head ../quantizations/examples/example.jpg --output-dir test_output
+
+# Specify custom Beaker path
+uv run quantize-models upload quantized/ --model-type head --version v1.0 \
+  --beaker-cargo-path /path/to/beaker/Cargo.toml --dry-run
+
+# Skip comparisons if Beaker CLI is not available
+uv run quantize-models upload quantized/ --model-type head --version v1.0
+```
+
 ### Verbose Logging
 
 Add `-v` or `--verbose` to any command for detailed logging:
@@ -347,15 +489,24 @@ uv run quantize-models full-pipeline --model-type head --tolerance 200 -v
 You can manually verify quantized models:
 
 ```bash
-# Check file sizes
-ls -lh models/ quantized/
+# Check file sizes and organization
+ls -lh models/head/ models/cutout/
+ls -lh quantized/head/ quantized/cutout/
 
 # Verify checksums
-sha256sum quantized/*.onnx
+sha256sum quantized/head/*.onnx quantized/cutout/*.onnx
 
-# Test with beaker CLI
-export BEAKER_HEAD_MODEL_URL=./quantized/best-dynamic.onnx
-beaker head ../example.jpg
+# Test with beaker CLI using local models
+export BEAKER_HEAD_MODEL_PATH=./quantized/head/head-dynamic-int8.onnx
+beaker head ../examples/example.jpg --crop
+
+# Test cutout model
+export BEAKER_CUTOUT_MODEL_PATH=./quantized/cutout/cutout-dynamic-int8.onnx
+beaker cutout ../examples/example.jpg
+
+# Compare outputs manually
+diff -r output/comparisons/head/original_example.beaker.toml \
+         output/comparisons/head/dynamic-int8_example.beaker.toml
 ```
 
 ## Development
