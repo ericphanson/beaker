@@ -995,18 +995,22 @@ Implement support for pipeline processors to coordinate temporary directory outp
 
 ### Issue 4: Enhanced Performance Analysis and Benchmarking
 
-**Title**: Expand file_io_assessment.py into comprehensive benchmark suite
+**Title**: Update benchmark.py to include I/O timing analysis and unify performance measurement
 
 **Description**:
-Extend the current `file_io_assessment.py` script into a comprehensive benchmarking tool that can validate pipeline performance against manual execution and track performance metrics over time.
+Enhance the existing `benchmark.py` script to include file I/O timing analysis and unify all performance measurement into a single comprehensive tool. This replaces the separate `file_io_assessment.py` script.
 
 **Scope**:
-- Expand `file_io_assessment.py` to support pipeline vs sequential manual execution comparison
-- Add memory usage validation under different batch sizes
-- Create structured output format for continuous performance monitoring
+- Update `benchmark.py` to parse metadata files and extract I/O timing information
+- Add display of % time spent in I/O vs model loading vs inference
+- Include pipeline vs sequential manual execution comparison capabilities
+- Enhance output formatting with cleaner printing and structured results
+- Delete `file_io_assessment.py` to consolidate all benchmarking functionality
 - Integration with CI for performance regression detection
 
 **Acceptance Criteria**:
+- Script displays % time breakdown: I/O, model loading, inference
+- `file_io_assessment.py` is removed from repository
 - Script can benchmark both standalone and pipeline processing modes
 - Validates that pipeline processing doesn't degrade performance
 - Generates structured performance data suitable for CI integration
@@ -1045,7 +1049,7 @@ Implement parsing and handling of step-specific overrides using the `cutout:--al
 
 ### Issue 6: Intermediate Output Management
 
-**Title**: Add --save-intermediates support and advanced output management
+**Title**: Add --save-intermediates support to pipeline command and advanced output management
 
 **Description**:
 Implement comprehensive output management including intermediate output saving and complex naming schemes for pipeline results.
