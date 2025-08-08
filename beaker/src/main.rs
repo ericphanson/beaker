@@ -11,6 +11,7 @@ mod cutout_preprocessing;
 mod cutout_processing;
 mod head_detection;
 mod image_input;
+mod mask_encoding;
 mod model_access;
 mod model_processing;
 mod onnx_session;

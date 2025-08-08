@@ -48,6 +48,8 @@ pub struct CutoutSections {
     pub system: Option<SystemInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input: Option<InputProcessing>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mask: Option<crate::mask_encoding::MaskEntry>,
 }
 
 /// Execution context for a tool invocation
@@ -63,6 +65,8 @@ pub struct ExecutionContext {
     pub exit_code: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_processing_time_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub beaker_env_vars: Option<std::collections::HashMap<String, String>>,
 }
 
 /// System information for a tool invocation
@@ -83,6 +87,8 @@ pub struct SystemInfo {
     pub model_size_bytes: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_load_time_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_checksum: Option<String>,
 }
 
 /// Input processing statistics for a tool invocation
@@ -176,6 +182,23 @@ pub fn get_metadata_path(
     Ok(metadata_path)
 }
 
+/// Collect all BEAKER_* environment variables that are present and non-empty
+pub fn collect_beaker_env_vars() -> Option<std::collections::HashMap<String, String>> {
+    let mut beaker_vars = std::collections::HashMap::new();
+    
+    for (key, value) in std::env::vars() {
+        if key.starts_with("BEAKER_") && !value.is_empty() {
+            beaker_vars.insert(key, value);
+        }
+    }
+    
+    if beaker_vars.is_empty() {
+        None
+    } else {
+        Some(beaker_vars)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -207,6 +230,7 @@ mod tests {
                     command_line: Some(vec!["head".to_string(), "test.jpg".to_string()]),
                     exit_code: Some(0),
                     model_processing_time_ms: Some(150.5),
+                    beaker_env_vars: None,
                 }),
                 system: Some(SystemInfo {
                     device_requested: Some("auto".to_string()),
@@ -217,6 +241,7 @@ mod tests {
                     model_path: None,
                     model_size_bytes: Some(12345678),
                     model_load_time_ms: Some(25.3),
+                    model_checksum: Some("abc123def456".to_string()),
                 }),
                 ..Default::default()
             }),
@@ -247,5 +272,122 @@ mod tests {
             metadata_path_with_output,
             Path::new("/output/image.beaker.toml")
         );
+    }
+
+    #[test]
+    fn test_collect_beaker_env_vars() {
+        // Test with no BEAKER_ variables
+        std::env::remove_var("BEAKER_TEST_VAR1");
+        std::env::remove_var("BEAKER_TEST_VAR2");
+        let _result = collect_beaker_env_vars();
+        // There might be other BEAKER_ variables in the system, so we don't test for None directly
+
+        // Set some test BEAKER_ variables
+        std::env::set_var("BEAKER_TEST_VAR1", "value1");
+        std::env::set_var("BEAKER_TEST_VAR2", "value2");
+        std::env::set_var("BEAKER_EMPTY_VAR", ""); // This should not be included
+
+        let result = collect_beaker_env_vars();
+        assert!(result.is_some());
+        let vars = result.unwrap();
+        assert_eq!(vars.get("BEAKER_TEST_VAR1"), Some(&"value1".to_string()));
+        assert_eq!(vars.get("BEAKER_TEST_VAR2"), Some(&"value2".to_string()));
+        assert!(!vars.contains_key("BEAKER_EMPTY_VAR")); // Empty vars should not be included
+
+        // Clean up
+        std::env::remove_var("BEAKER_TEST_VAR1");
+        std::env::remove_var("BEAKER_TEST_VAR2");
+        std::env::remove_var("BEAKER_EMPTY_VAR");
+    }
+
+    #[test]
+    fn test_enhanced_metadata_with_env_vars_and_cutout() {
+        // Set some test environment variables
+        std::env::set_var("BEAKER_TEST_ENV", "test_value");
+        std::env::set_var("BEAKER_CUSTOM_MODEL", "/custom/model.onnx");
+
+        // Create test metadata with cutout and environment variables
+        use crate::mask_encoding::MaskEntry;
+        
+        let mask_entry = MaskEntry {
+            width: 4,
+            height: 2,
+            format: "rle-binary-v1 | gzip | base64".to_string(),
+            start_value: 0,
+            order: "row-major".to_string(),
+            data: "H4sIAAAAAAAA/ytJLS4BAG0+lf4EAAAA".to_string(), // Example base64 data
+        };
+
+        let beaker_env_vars = collect_beaker_env_vars();
+        let has_env_vars = beaker_env_vars.is_some();
+
+        let metadata = BeakerMetadata {
+            cutout: Some(CutoutSections {
+                core: Some(
+                    toml::toml! {
+                        model_version = "isnet-general-use-v1"
+                        processing_time_ms = 2500.0
+                        output_path = "/path/to/output.png"
+                    }
+                    .into(),
+                ),
+                config: Some(
+                    toml::toml! {
+                        alpha_matting = false
+                        save_mask = true
+                        post_process_mask = true
+                    }
+                    .into(),
+                ),
+                execution: Some(ExecutionContext {
+                    timestamp: Some(chrono::Utc::now()),
+                    beaker_version: Some("0.1.1".to_string()),
+                    command_line: Some(vec!["cutout".to_string(), "test.jpg".to_string()]),
+                    exit_code: Some(0),
+                    model_processing_time_ms: Some(2500.0),
+                    beaker_env_vars,
+                }),
+                system: Some(SystemInfo {
+                    device_requested: Some("auto".to_string()),
+                    device_selected: Some("cpu".to_string()),
+                    device_selection_reason: Some("Auto-selected CPU".to_string()),
+                    execution_providers: vec!["CPUExecutionProvider".to_string()],
+                    model_source: Some("downloaded".to_string()),
+                    model_path: Some("/cache/isnet-general-use.onnx".to_string()),
+                    model_size_bytes: Some(45678901),
+                    model_load_time_ms: Some(1200.5),
+                    model_checksum: Some("fc16ebd8b0c10d971d3513d564d01e29".to_string()),
+                }),
+                input: Some(InputProcessing {
+                    image_path: "/path/to/test.jpg".to_string(),
+                    source: "/path/to/test.jpg".to_string(),
+                    source_type: "file".to_string(),
+                    strict_mode: false,
+                }),
+                mask: Some(mask_entry),
+            }),
+            ..Default::default()
+        };
+
+        // Serialize to TOML and print to see structure
+        let toml_output = toml::to_string_pretty(&metadata).unwrap();
+        println!("Enhanced TOML structure with env vars and mask:\n{toml_output}");
+
+        // Verify the structure includes the new fields
+        assert!(toml_output.contains("model_checksum"));
+        assert!(toml_output.contains("[cutout.mask]"));
+        assert!(toml_output.contains("beaker_env_vars") || !has_env_vars);
+
+        // Verify it can be parsed back
+        let parsed: BeakerMetadata = toml::from_str(&toml_output).unwrap();
+        assert!(parsed.cutout.is_some());
+        let cutout = parsed.cutout.unwrap();
+        assert!(cutout.system.is_some());
+        assert!(cutout.system.unwrap().model_checksum.is_some());
+        assert!(cutout.mask.is_some());
+
+        // Clean up test environment variables
+        std::env::remove_var("BEAKER_TEST_ENV");
+        std::env::remove_var("BEAKER_CUSTOM_MODEL");
     }
 }

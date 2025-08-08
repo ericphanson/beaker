@@ -65,6 +65,27 @@ pub struct CutoutResult {
     pub output_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mask_path: Option<String>,
+    // Store raw mask data for metadata encoding
+    #[serde(skip)]
+    pub raw_mask_data: Option<(Vec<u8>, u32, u32)>, // (mask_data, width, height)
+}
+
+/// Extract binary mask data from a GrayImage by thresholding at 128
+/// Returns (binary_data, width, height)
+fn extract_binary_mask_data(mask: &image::GrayImage) -> (Vec<u8>, u32, u32) {
+    let (width, height) = mask.dimensions();
+    let mut binary_data = Vec::with_capacity((width * height) as usize);
+    
+    for y in 0..height {
+        for x in 0..width {
+            let pixel = mask.get_pixel(x, y);
+            // Threshold at 128: >= 128 becomes 1, < 128 becomes 0
+            let binary_value = if pixel[0] >= 128 { 1 } else { 0 };
+            binary_data.push(binary_value);
+        }
+    }
+    
+    (binary_data, width, height)
 }
 
 /// Process multiple images sequentially
@@ -94,6 +115,20 @@ impl ModelResult for CutoutResult {
             format!("→ {} + mask", self.output_path)
         } else {
             format!("→ {}", self.output_path)
+        }
+    }
+
+    fn get_mask_entry(&self) -> Option<crate::mask_encoding::MaskEntry> {
+        if let Some((mask_data, width, height)) = &self.raw_mask_data {
+            match crate::mask_encoding::encode_mask_to_entry(mask_data, *width, *height, 0) {
+                Ok(entry) => Some(entry),
+                Err(e) => {
+                    log::warn!("Failed to encode mask data: {}", e);
+                    None
+                }
+            }
+        } else {
+            None
         }
     }
 }
@@ -146,6 +181,9 @@ impl ModelProcessor for CutoutProcessor {
 
         // Post-process the mask
         let mask = postprocess_mask(&mask_2d, original_size, config.post_process_mask)?;
+
+        // Extract binary mask data for metadata (threshold at 128)
+        let raw_mask_data = extract_binary_mask_data(&mask);
 
         // Generate output paths using OutputManager
         let output_manager = OutputManager::new(config, image_path);
@@ -202,6 +240,7 @@ impl ModelProcessor for CutoutProcessor {
             model_version: get_default_cutout_model_info().name,
             processing_time_ms: processing_time,
             mask_path: mask_path.map(|p| p.to_string_lossy().to_string()),
+            raw_mask_data: Some(raw_mask_data),
         };
 
         Ok(cutout_result)
