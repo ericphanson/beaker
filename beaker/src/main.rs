@@ -22,7 +22,7 @@ mod yolo_preprocessing;
 
 use color_utils::{colors, symbols};
 use config::{CutoutCommand, CutoutConfig, GlobalArgs, HeadCommand, HeadDetectionConfig};
-use cutout_processing::{get_cutout_model_info, run_cutout_processing};
+use cutout_processing::{get_default_cutout_model_info, run_cutout_processing};
 use head_detection::{run_head_detection, MODEL_VERSION};
 use progress::global_mp;
 use std::io::Write;
@@ -221,7 +221,7 @@ fn main() {
             println!("Head model version: {}", MODEL_VERSION.trim());
             println!(
                 "Cutout model version: {}",
-                get_cutout_model_info().name.trim()
+                get_default_cutout_model_info().name.trim()
             );
             println!("Repository: {}", env!("CARGO_PKG_REPOSITORY"));
         }

@@ -44,7 +44,7 @@ impl ModelAccess for HeadAccess {
 
     // Currently, head models don't support remote download (embedded only)
     // But this could be added in the future by uncommenting the following:
-    // fn get_base_model_info() -> Option<ModelInfo> {
+    // fn get_default_model_info() -> Option<ModelInfo> {
     //     Some(HEAD_MODEL_INFO)
     // }
 }

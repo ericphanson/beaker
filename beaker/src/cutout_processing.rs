@@ -16,8 +16,8 @@ use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
-/// ISNet General Use model information
-pub fn get_cutout_model_info() -> ModelInfo {
+/// ISNet General Use default model information
+pub fn get_default_cutout_model_info() -> ModelInfo {
     ModelInfo {
         name: "isnet-general-use-v1".to_string(),
         url: "https://github.com/ericphanson/beaker/releases/download/beaker-cutout-model-v1/isnet-general-use.onnx".to_string(),
@@ -51,8 +51,8 @@ impl ModelAccess for CutAccess {
         Some("BEAKER_CUTOUT_MODEL_CHECKSUM")
     }
 
-    fn get_base_model_info() -> Option<ModelInfo> {
-        Some(get_cutout_model_info())
+    fn get_default_model_info() -> Option<ModelInfo> {
+        Some(get_default_cutout_model_info())
     }
 }
 
@@ -199,7 +199,7 @@ impl ModelProcessor for CutoutProcessor {
         // Create result with timing information
         let cutout_result = CutoutResult {
             output_path: output_path.to_string_lossy().to_string(),
-            model_version: get_cutout_model_info().name,
+            model_version: get_default_cutout_model_info().name,
             processing_time_ms: processing_time,
             mask_path: mask_path.map(|p| p.to_string_lossy().to_string()),
         };
@@ -242,11 +242,11 @@ mod tests {
     }
 
     #[test]
-    fn test_cut_access_has_base_info() {
-        let model_info = CutAccess::get_base_model_info();
+    fn test_cut_access_has_default_info() {
+        let model_info = CutAccess::get_default_model_info();
         assert!(
             model_info.is_some(),
-            "Cutout model should have base model info"
+            "Cutout model should have default model info"
         );
 
         let info = model_info.unwrap();
@@ -307,8 +307,8 @@ mod tests {
     }
 
     #[test]
-    fn test_get_cutout_model_info() {
-        let model_info = get_cutout_model_info();
+    fn test_get_default_cutout_model_info() {
+        let model_info = get_default_cutout_model_info();
         assert_eq!(model_info.name, "isnet-general-use-v1");
         assert!(model_info.url.contains("isnet-general-use.onnx"));
         assert!(!model_info.md5_checksum.is_empty());
@@ -320,37 +320,37 @@ mod tests {
         use crate::model_access::RuntimeModelInfo;
 
         // Test RuntimeModelInfo creation with env var overrides
-        let base_info = get_cutout_model_info();
+        let default_info = get_default_cutout_model_info();
 
-        // Test without any env vars (should use base info)
+        // Test without any env vars (should use default info)
         env::remove_var("TEST_URL");
         env::remove_var("TEST_CHECKSUM");
 
         let runtime_info = RuntimeModelInfo::from_model_info_with_overrides(
-            &base_info,
+            &default_info,
             Some("TEST_URL"),
             Some("TEST_CHECKSUM"),
         );
 
-        assert_eq!(runtime_info.name, base_info.name);
-        assert_eq!(runtime_info.url, base_info.url);
-        assert_eq!(runtime_info.md5_checksum, base_info.md5_checksum);
-        assert_eq!(runtime_info.filename, base_info.filename);
+        assert_eq!(runtime_info.name, default_info.name);
+        assert_eq!(runtime_info.url, default_info.url);
+        assert_eq!(runtime_info.md5_checksum, default_info.md5_checksum);
+        assert_eq!(runtime_info.filename, default_info.filename);
 
         // Test with env var overrides
         env::set_var("TEST_URL", "https://custom-domain.test/custom.onnx");
         env::set_var("TEST_CHECKSUM", "abcd1234");
 
         let runtime_info = RuntimeModelInfo::from_model_info_with_overrides(
-            &base_info,
+            &default_info,
             Some("TEST_URL"),
             Some("TEST_CHECKSUM"),
         );
 
-        assert_eq!(runtime_info.name, base_info.name);
+        assert_eq!(runtime_info.name, default_info.name);
         assert_eq!(runtime_info.url, "https://custom-domain.test/custom.onnx");
         assert_eq!(runtime_info.md5_checksum, "abcd1234");
-        assert_eq!(runtime_info.filename, base_info.filename);
+        assert_eq!(runtime_info.filename, default_info.filename);
 
         // Clean up
         env::remove_var("TEST_URL");

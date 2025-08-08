@@ -553,9 +553,9 @@ pub trait ModelAccess {
         None
     }
 
-    /// Get base model info for downloading from remote sources.
+    /// Get default model info for downloading from remote sources.
     /// Returns None for models that don't support remote download.
-    fn get_base_model_info() -> Option<ModelInfo> {
+    fn get_default_model_info() -> Option<ModelInfo> {
         None
     }
 }
@@ -584,10 +584,10 @@ pub fn get_model_source_with_env_override<T: ModelAccess>() -> Result<ModelSourc
     }
 
     // Check if we should download from a remote source
-    if let Some(base_model_info) = T::get_base_model_info() {
+    if let Some(default_model_info) = T::get_default_model_info() {
         // Create RuntimeModelInfo with potential URL/checksum overrides
         let runtime_model_info = RuntimeModelInfo::from_model_info_with_overrides(
-            &base_model_info,
+            &default_model_info,
             T::get_url_env_var_name(),
             T::get_checksum_env_var_name(),
         );
@@ -639,7 +639,6 @@ pub fn get_model_source_with_env_override<T: ModelAccess>() -> Result<ModelSourc
 mod tests {
     use super::*;
     use std::env;
-    use tempfile::tempdir;
 
     // Model cache tests
     #[test]
