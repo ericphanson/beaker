@@ -110,9 +110,12 @@ def optimize_model(model_path: Path, output_path: Path) -> bool:
 def quantize_fp16_model(model_path: Path, output_path: Path) -> bool:
     """Apply FP16 quantization to a model (currently disabled due to complexity)."""
     try:
-        logger.warning("FP16 quantization is currently disabled due to ONNX type compatibility issues")
+        logger.warning(
+            "FP16 quantization is currently disabled due to ONNX type compatibility issues"
+        )
         # For now, just copy the original model as a placeholder
         import shutil
+
         shutil.copy2(model_path, output_path)
         logger.info(f"FP16 quantization skipped: {output_path}")
         return False  # Return False to indicate this quantization was skipped
