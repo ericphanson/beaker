@@ -1,10 +1,15 @@
+> Vigorous writing is concise. A sentence should contain no unnecessary words, a paragraph no unnecessary sentences, for the same reason that a drawing should have no unnecessary lines and a machine no unnecessary parts. This requires not that the writer make all his sentences short, or that he avoid all detail and treat his subjects only in outline, but that he make every word tell.
+
+— "Elementary Principles of Composition", _The Elements of Style_
+
 # Agent Development Guide
 
 This document outlines the checks and procedures that must pass before committing changes to ensure PRs pass CI on the first attempt.
 
 ## Focus Areas
 
-**Primary Development Target**: All development work should focus on the `beaker/` subdirectory, which contains the main Rust codebase and CI workflows. This is where agents should look for work that needs to be done.
+- if the `beaker` CLI app or rust code is mentioned, then work should focus on the `beaker/` subdirectory, which contains the main Rust codebase. Likewise, `beaker-ci.yml` is the github workflow to look for.
+- if python code or training is mentioned, these happen in separate top-level environments, look for changes there. New models may be tested against the CLI app in which case both directories may be useful.
 
 ## API Tool Usage Guidelines
 
@@ -25,11 +30,7 @@ When accessing GitHub information, **always prioritize GitHub API tools over bro
 
 ## Pre-Commit Setup
 
-### Installation
-```bash
-pip install pre-commit ruff
-pre-commit install
-```
+Tools like `cargo`, `pre-commit` and `ruff` should already be installed in your dev environment.
 
 ### Manual Execution
 Run all pre-commit hooks manually before committing:
@@ -102,10 +103,10 @@ Python code uses Ruff for linting and formatting:
 
 #### 1. Linting
 ```bash
-# Install ruff if not available
+# Install ruff if not available (check with `which ruff`)
 pip install ruff
 
-# Run linting
+# Run linting - `ruff.toml` is a top-level in repo so the path may need to be modified
 ruff check --config=ruff.toml --fix .
 ```
 
@@ -114,7 +115,7 @@ ruff check --config=ruff.toml --fix .
 ruff format --config=ruff.toml .
 ```
 
-**Note**: Some legacy Python code may not pass all checks. This is acceptable, but new Python code should follow current standards.
+**Note**: Some legacy Python code may not pass all checks. This is acceptable, but new Python code should follow current standards. If you must skip ruff checks to be able to commit, execute `skip=RUFF git commit -m "..."`.
 
 ### General File Checks
 
@@ -154,25 +155,24 @@ cp ../example.jpg .
 - Extract common functionality into reusable functions/modules
 - Avoid duplicating code across files
 - Use configuration files for repeated values
+- **Implement functions ergonomically**: When possible, implement path-based functions via byte-based versions (e.g., `calculate_md5(path)` via `calculate_md5_bytes()`)
 
 ### YAGNI (You Aren't Gonna Need It)
 - Implement only what's currently needed
 - Avoid over-engineering solutions
 - Keep interfaces simple and focused
+- **Inline trivial wrappers**: Replace 1-line wrapper functions with direct calls to avoid unnecessary indirection
+
+### Code Style Standards for Rust code
+- **Emoji handling**: All emojis must go through `color_utils::symbols` functions to respect no-color settings
+- **Consistent formatting**: Use `cargo fmt` for automatic code formatting
+- **Clear error messages**: Include context and suggestions in error messages
 
 ### Good PR Characteristics
 - **Small diff**: Minimize the number of changed lines
 - **Simple and targeted**: Address one specific issue per PR
 - **Breaking changes are acceptable**: Don't prioritize backwards compatibility at this development stage
 - **No test artifacts**: Do not commit test output files (*.beaker.toml, *.beaker.json), temporary files, or build artifacts
-
-### PR Summary Guidelines
-When summarizing updates and changes, provide:
-- **Factual technical details**: What was implemented and how it works
-- **Pros and cons**: Honest assessment of benefits and limitations of the approach taken
-- **Alternative approaches considered**: Brief mention of other options that were evaluated and why they were not chosen
-- **Engineering rationale**: Context-driven decisions considering use cases, constraints, and pragmatic trade-offs
-- **Avoid "selling"**: Focus on rational engineering decisions rather than promotional language
 
 ## Complete Pre-Commit Checklist
 
@@ -191,6 +191,7 @@ Before committing, ensure all these pass:
 - [ ] Valid YAML files
 - [ ] No large files
 - [ ] No merge conflicts
+- [ ] After staging files (`git add`) but before committing, run `pre-commit run` to auto-check the staged files. If there are errors, fix them and stage the files again before committing.
 
 ### Manual Verification
 - [ ] CLI help works: `./target/release/beaker --help`
@@ -198,7 +199,8 @@ Before committing, ensure all these pass:
 - [ ] Line counts updated: `bash scripts/run_warloc.sh`
 - [ ] **Check git status**: Verify no unintended files are staged (test artifacts, temporary files, etc.)
 
-### Final Check
+### Final Check for rust changes
+
 ```bash
 # If pre-commit is available, run everything at once
 pre-commit run --all-files
@@ -214,7 +216,7 @@ cd ..
 ruff check --config=ruff.toml . || echo "Ruff not available, skipping Python checks"
 ```
 
-## Quick Start Command Sequence
+## Quick Start Command Sequence (for rust / beaker changes)
 
 For a typical development session:
 
@@ -308,5 +310,6 @@ If your PR has conflicts with the main branch, merge the latest origin/main into
 - Use `report_progress` to push changes to the remote PR branch
 - If you have conflicts or other issues, resolve them and push your work to the remote PR branch
 - Never leave unpushed local commits - they will be lost
+- if `git commit` fails due to precommit, be sure to try to fix the issues, stage the files again `git add`, then try committing and pushing again. If this fails, you can skip pre-commit with `git commit -m "my message" --no-verify`. Then be sure to push your changes.
 
 Remember: **The goal is PRs that pass CI on the first attempt.**
