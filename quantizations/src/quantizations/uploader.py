@@ -33,31 +33,18 @@ def install_gh_cli() -> bool:
         logger.info("Attempting to install GitHub CLI...")
 
         # Try different installation methods
-        install_commands = [
-            [
-                "curl",
-                "-fsSL",
-                "https://cli.github.com/packages/githubcli-archive-keyring.gpg",
-                "|",
-                "sudo",
-                "dd",
-                "of=/usr/share/keyrings/githubcli-archive-keyring.gpg",
-            ],
-            [
-                "echo",
-                '"deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main"',
-                "|",
-                "sudo",
-                "tee",
-                "/etc/apt/sources.list.d/github-cli.list",
-            ],
-            ["sudo", "apt", "update"],
-            ["sudo", "apt", "install", "gh", "-y"],
-        ]
+        # Note: These commands are complex and may not work in all environments
+        # Keeping the variable unused for potential future use
+        # install_commands = [
+        #     ["curl", "-fsSL", "https://cli.github.com/packages/githubcli-archive-keyring.gpg", "|", "sudo", "dd", "of=/usr/share/keyrings/githubcli-archive-keyring.gpg"],
+        #     ["echo", '"deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main"', "|", "sudo", "tee", "/etc/apt/sources.list.d/github-cli.list"],
+        #     ["sudo", "apt", "update"],
+        #     ["sudo", "apt", "install", "gh", "-y"],
+        # ]
 
         # For simplicity, try using snap if available
         try:
-            result = subprocess.run(
+            subprocess.run(
                 ["snap", "install", "gh"], capture_output=True, text=True, check=True
             )
             logger.info("GitHub CLI installed via snap")
@@ -67,7 +54,7 @@ def install_gh_cli() -> bool:
 
         # Try using apt-get directly
         try:
-            result = subprocess.run(
+            subprocess.run(
                 ["apt-get", "install", "gh", "-y"],
                 capture_output=True,
                 text=True,

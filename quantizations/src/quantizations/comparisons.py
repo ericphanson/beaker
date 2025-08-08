@@ -146,7 +146,6 @@ def create_detection_comparison_figure(
             axes = [axes]
 
         baseline_detections = None
-        model_names = list(model_results.keys())
 
         for idx, (model_name, (model_path, detections)) in enumerate(
             model_results.items()

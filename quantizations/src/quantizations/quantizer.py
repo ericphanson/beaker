@@ -3,7 +3,6 @@ Quantize ONNX models using different techniques.
 """
 
 import logging
-import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -16,6 +15,16 @@ from onnxruntime.quantization import QuantType, quantize_dynamic, quantize_stati
 from onnxruntime.quantization.calibrate import CalibrationDataReader
 
 logger = logging.getLogger(__name__)
+
+
+def get_model_input_name(model_path: Path) -> str:
+    """Get the input name of an ONNX model."""
+    try:
+        model = onnx.load(str(model_path))
+        return model.graph.input[0].name
+    except Exception as e:
+        logger.warning(f"Could not get input name for {model_path}: {e}")
+        return "images"  # Default fallback
 
 
 class ImageCalibrationDataReader(CalibrationDataReader):
@@ -200,16 +209,12 @@ def quantize_static_model(
     try:
         logger.info(f"Applying static quantization to {model_path.name}")
 
-        # Create a temporary directory for augmented model
-        with tempfile.TemporaryDirectory() as temp_dir:
-            augmented_model_path = Path(temp_dir) / "augmented_model.onnx"
-
-            quantize_static(
-                model_input=str(model_path),
-                model_output=str(output_path),
-                calibration_data_reader=calibration_data_reader,
-                quant_format=QuantType.QUInt8,
-            )
+        quantize_static(
+            model_input=str(model_path),
+            model_output=str(output_path),
+            calibration_data_reader=calibration_data_reader,
+            quant_format=QuantType.QUInt8,
+        )
 
         logger.info(f"Static quantization complete: {output_path}")
         return True
@@ -363,7 +368,7 @@ def measure_inference_time(
                 image = image.astype(np.float32) / 255.0
                 image = np.transpose(image, (2, 0, 1))
                 image = np.expand_dims(image, axis=0)
-            except:
+            except Exception:
                 continue
 
             # Run multiple times for this image
