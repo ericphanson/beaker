@@ -16,6 +16,7 @@ pub struct TestScenario {
     pub args: Vec<&'static str>,
     pub expected_files: Vec<&'static str>,
     pub metadata_checks: Vec<MetadataCheck>,
+    pub env_vars: Vec<(&'static str, &'static str)>, // Environment variables to set
 }
 
 /// Metadata validation checks
@@ -550,25 +551,6 @@ where
             scenario.name
         );
         0
-    } else if scenario.name == "cutout_with_env_vars_and_metadata" {
-        // Special case: run cutout with BEAKER_DEBUG environment variable
-        let mut full_args = vec![scenario.tool];
-        for arg in &scenario.args {
-            if *arg == "../example.jpg" {
-                full_args.push(example_jpg.to_str().unwrap());
-            } else if *arg == "../example-2-birds.jpg" {
-                full_args.push(example_2_birds.to_str().unwrap());
-            } else {
-                full_args.push(arg);
-            }
-        }
-        full_args.extend_from_slice(&[
-            "--metadata",
-            "--output-dir",
-            temp_dir.path().to_str().unwrap(),
-        ]);
-
-        run_beaker_command_with_env(&full_args, &[("BEAKER_DEBUG", "true")])
     } else {
         // Single tool execution - replace file placeholders with actual paths
         let mut full_args = vec![scenario.tool];
@@ -586,7 +568,7 @@ where
             "--output-dir",
             temp_dir.path().to_str().unwrap(),
         ]);
-        run_beaker_command(&full_args)
+        run_beaker_command_with_env(&full_args, &scenario.env_vars)
     };
 
     let test_duration = start_time.elapsed();

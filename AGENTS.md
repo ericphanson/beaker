@@ -173,6 +173,7 @@ cp ../example.jpg .
 - **Simple and targeted**: Address one specific issue per PR
 - **Breaking changes are acceptable**: Don't prioritize backwards compatibility at this development stage
 - **No test artifacts**: Do not commit test output files (*.beaker.toml, *.beaker.json), temporary files, or build artifacts
+- **Preserve example files**: Do not delete `example-no-bg.png` and `example_crop.jpg` as they are used in README and documentation
 
 ## Complete Pre-Commit Checklist
 
