@@ -129,10 +129,13 @@ pub fn determine_optimal_device(requested_device: &str) -> DeviceSelection {
 }
 
 /// Create an ONNX Runtime session with the specified configuration
+/// Returns (Session, ModelInfo, CacheStats) where CacheStats contain CoreML cache information
 pub fn create_onnx_session(
     model_source: ModelSource,
     config: &SessionConfig,
-) -> Result<(Session, ModelInfo)> {
+) -> Result<(Session, ModelInfo, crate::shared_metadata::CacheStats)> {
+    let mut coreml_cache_stats = crate::shared_metadata::CacheStats::new();
+
     // Get model bytes for cache key generation and session creation
     let (bytes, model_info_base) = match model_source {
         ModelSource::EmbeddedBytes(bytes) => {
@@ -176,13 +179,28 @@ pub fn create_onnx_session(
                     );
                     None
                 } else {
-                    // Check if cache already exists
+                    // Check if cache already exists - this determines cache hit/miss
                     let compiled_model_path = cache_dir.join("compiled_model.mlmodelc");
-                    if compiled_model_path.exists() {
+                    let cache_hit = compiled_model_path.exists();
+
+                    if cache_hit {
                         log::debug!("♻️  Reusing existing CoreML cache: {}", cache_dir.display());
+                        coreml_cache_stats.coreml_cache_hit = Some(true);
                     } else {
                         log::debug!("🆕 Creating new CoreML cache: {}", cache_dir.display());
+                        coreml_cache_stats.coreml_cache_hit = Some(false);
                     }
+
+                    // Collect CoreML cache statistics (single traversal)
+                    if let Ok(base_coreml_cache) = crate::model_access::get_coreml_cache_dir() {
+                        if let Ok((count, size_mb)) =
+                            crate::shared_metadata::get_cache_info(&base_coreml_cache)
+                        {
+                            coreml_cache_stats.coreml_cache_count = Some(count);
+                            coreml_cache_stats.coreml_cache_size_mb = Some(size_mb);
+                        }
+                    }
+
                     Some(cache_dir)
                 }
             }
@@ -373,5 +391,5 @@ pub fn create_onnx_session(
         model_info.execution_providers.join(" -> ")
     );
 
-    Ok((session, model_info))
+    Ok((session, model_info, coreml_cache_stats))
 }

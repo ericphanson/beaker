@@ -7,6 +7,54 @@ use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
+/// Cache statistics collected from cache operations
+#[derive(Debug, Default, Clone)]
+pub struct CacheStats {
+    // ONNX cache statistics
+    pub onnx_cache_hit: Option<bool>,
+    pub download_time_ms: Option<f64>,
+    pub cached_onnx_models_count: Option<u32>,
+    pub cached_onnx_models_size_mb: Option<f64>,
+
+    // CoreML cache statistics
+    pub coreml_cache_hit: Option<bool>,
+    pub coreml_cache_count: Option<u32>,
+    pub coreml_cache_size_mb: Option<f64>,
+}
+
+impl CacheStats {
+    /// Create empty cache statistics
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Merge two CacheStats, keeping non-None values from both
+    pub fn merge(mut self, other: CacheStats) -> Self {
+        if other.onnx_cache_hit.is_some() {
+            self.onnx_cache_hit = other.onnx_cache_hit;
+        }
+        if other.download_time_ms.is_some() {
+            self.download_time_ms = other.download_time_ms;
+        }
+        if other.cached_onnx_models_count.is_some() {
+            self.cached_onnx_models_count = other.cached_onnx_models_count;
+        }
+        if other.cached_onnx_models_size_mb.is_some() {
+            self.cached_onnx_models_size_mb = other.cached_onnx_models_size_mb;
+        }
+        if other.coreml_cache_hit.is_some() {
+            self.coreml_cache_hit = other.coreml_cache_hit;
+        }
+        if other.coreml_cache_count.is_some() {
+            self.coreml_cache_count = other.coreml_cache_count;
+        }
+        if other.coreml_cache_size_mb.is_some() {
+            self.coreml_cache_size_mb = other.coreml_cache_size_mb;
+        }
+        self
+    }
+}
+
 /// Generic utility to track file I/O timing for any model
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct IoTiming {
@@ -140,6 +188,56 @@ pub struct SystemInfo {
     pub model_load_time_ms: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_checksum: Option<String>,
+
+    // ONNX Cache Statistics (only present when download cache was accessed)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_cache_hit: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub download_time_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cached_onnx_models_count: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cached_onnx_models_size_mb: Option<f64>,
+
+    // CoreML Cache Statistics (only present on Apple Silicon when CoreML device is used)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_cache_hit: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_cache_count: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_cache_size_mb: Option<f64>,
+}
+
+impl SystemInfo {
+    /// Update SystemInfo with cache statistics
+    pub fn with_cache_stats(mut self, cache_stats: CacheStats) -> Self {
+        // ONNX cache statistics
+        if cache_stats.onnx_cache_hit.is_some() {
+            self.model_cache_hit = cache_stats.onnx_cache_hit;
+        }
+        if cache_stats.download_time_ms.is_some() {
+            self.download_time_ms = cache_stats.download_time_ms;
+        }
+        if cache_stats.cached_onnx_models_count.is_some() {
+            self.cached_onnx_models_count = cache_stats.cached_onnx_models_count;
+        }
+        if cache_stats.cached_onnx_models_size_mb.is_some() {
+            self.cached_onnx_models_size_mb = cache_stats.cached_onnx_models_size_mb;
+        }
+
+        // CoreML cache statistics
+        if cache_stats.coreml_cache_hit.is_some() {
+            self.coreml_cache_hit = cache_stats.coreml_cache_hit;
+        }
+        if cache_stats.coreml_cache_count.is_some() {
+            self.coreml_cache_count = cache_stats.coreml_cache_count;
+        }
+        if cache_stats.coreml_cache_size_mb.is_some() {
+            self.coreml_cache_size_mb = cache_stats.coreml_cache_size_mb;
+        }
+
+        self
+    }
 }
 
 /// Input processing statistics for a tool invocation
@@ -252,6 +350,58 @@ pub fn collect_beaker_env_vars() -> Option<std::collections::BTreeMap<String, St
     }
 }
 
+/// Get cache information from a directory (single traversal)
+/// Returns (count, total_size_mb) for the cache directory
+pub fn get_cache_info(cache_dir: &Path) -> Result<(u32, f64)> {
+    if !cache_dir.exists() {
+        log::debug!("Cache directory does not exist: {}", cache_dir.display());
+        return Ok((0, 0.0));
+    }
+
+    let mut count = 0u32;
+    let mut total_size = 0u64;
+
+    log::debug!("Collecting cache info from: {}", cache_dir.display());
+
+    // Read directory entries
+    let entries = fs::read_dir(cache_dir)?;
+
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+
+        // Skip directories, lock files, and hidden files
+        if path.is_dir()
+            || path.extension().and_then(|s| s.to_str()) == Some("lock")
+            || path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .is_some_and(|s| s.starts_with('.'))
+        {
+            continue;
+        }
+
+        // Count regular files and accumulate their sizes
+        if let Ok(metadata) = fs::metadata(&path) {
+            if metadata.is_file() {
+                count += 1;
+                total_size += metadata.len();
+                log::debug!(
+                    "  Found cached file: {} ({} bytes)",
+                    path.file_name().unwrap_or_default().to_string_lossy(),
+                    metadata.len()
+                );
+            }
+        }
+    }
+
+    let total_size_mb = total_size as f64 / (1024.0 * 1024.0);
+
+    log::debug!("Cache summary: {count} files, {total_size_mb:.2} MB total");
+
+    Ok((count, total_size_mb))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -299,6 +449,14 @@ mod tests {
                     model_size_bytes: Some(12345678),
                     model_load_time_ms: Some(25.3),
                     model_checksum: Some("abc123def456".to_string()),
+                    // Cache statistics should be None for embedded models in this test
+                    model_cache_hit: None,
+                    download_time_ms: None,
+                    cached_onnx_models_count: None,
+                    cached_onnx_models_size_mb: None,
+                    coreml_cache_hit: None,
+                    coreml_cache_count: None,
+                    coreml_cache_size_mb: None,
                 }),
                 ..Default::default()
             }),

@@ -143,7 +143,9 @@ impl ModelProcessor for CutoutProcessor {
     type Config = CutoutConfig;
     type Result = CutoutResult;
 
-    fn get_model_source<'a>(config: &Self::Config) -> Result<ModelSource<'a>> {
+    fn get_model_source<'a>(
+        config: &Self::Config,
+    ) -> Result<(ModelSource<'a>, crate::shared_metadata::CacheStats)> {
         // Create CLI model info from config
         let cli_model_info = crate::model_access::CliModelInfo {
             model_path: config.model_path.clone(),
