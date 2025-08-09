@@ -226,6 +226,7 @@ Before committing, ensure all these pass:
 - [ ] No large files
 - [ ] No merge conflicts
 - [ ] After staging files (`git add`) but before committing, run `pre-commit run` to auto-check the staged files. If there are errors, fix them and stage the files again before committing.
+- [ ] **Pre-commit integration**: Commits will automatically run pre-commit hooks. If hooks make changes or find issues, the commit will be blocked until you stage the changes and try again.
 
 ### Manual Verification
 - [ ] CLI help works: `./target/release/beaker --help`
@@ -332,9 +333,42 @@ Contact your network administrator to allowlist the required URLs.
 - Verify ONNX_MODEL_CACHE_DIR environment variable if set
 
 ### Pre-commit Issues
+
+#### When Pre-commit Makes Changes or Blocks Commits
+
+Pre-commit hooks automatically fix many issues but may require manual intervention:
+
+**If pre-commit makes changes during commit:**
+1. The commit will be blocked with a message like "files were modified by this hook"
+2. Review the changes made: `git diff`
+3. Stage the fixed files: `git add .`
+4. Commit again: `git commit -m "your message"`
+
+**If pre-commit finds unfixable issues:**
+1. Read the error output carefully to understand what needs fixing
+2. Fix the issues manually (e.g., resolve clippy warnings, fix YAML syntax)
+3. Stage your fixes: `git add .`
+4. Try committing again: `git commit -m "your message"`
+
+**Common scenarios and solutions:**
+- **Rust formatting/clippy issues**: Run `cargo fmt` and `cargo clippy --fix --allow-dirty` in the `beaker/` directory
+- **Python formatting/linting**: Run `ruff format --config=ruff.toml .` and `ruff check --config=ruff.toml --fix .`
+- **Line counting updates**: The `cargo-warloc` hook updates `beaker/line_counts.md` automatically
+- **YAML syntax errors**: Fix the YAML file syntax manually
+- **Large files**: Remove or use Git LFS for files over the size limit
+
+**Emergency bypass (use sparingly):**
+If pre-commit is blocking critical work and fixes aren't immediately obvious:
+```bash
+git commit -m "your message" --no-verify
+```
+Then immediately follow up with a commit that fixes the pre-commit issues.
+
+**Troubleshooting pre-commit itself:**
 - Reinstall hooks: `pre-commit clean && pre-commit install`
 - Update hooks: `pre-commit autoupdate`
 - Run specific hook: `pre-commit run <hook-name> --all-files`
+- Check hook status: `pre-commit run --all-files` (shows which hooks pass/fail)
 
 ### PR Conflicts
 If your PR has conflicts with the main branch, merge the latest origin/main into the PR branch, resolving any conflicts. Then push to the PR branch.
@@ -344,6 +378,14 @@ If your PR has conflicts with the main branch, merge the latest origin/main into
 - Use `report_progress` to push changes to the remote PR branch
 - If you have conflicts or other issues, resolve them and push your work to the remote PR branch
 - Never leave unpushed local commits - they will be lost
-- if `git commit` fails due to precommit, be sure to try to fix the issues, stage the files again `git add`, then try committing and pushing again. If this fails, you can skip pre-commit with `git commit -m "my message" --no-verify`. Then be sure to push your changes.
+
+**If `git commit` fails due to pre-commit:**
+1. **Fix the issues**: Address the problems identified by pre-commit hooks
+2. **Stage the fixes**: Run `git add .` to stage your corrections
+3. **Try committing again**: `git commit -m "your message"`
+4. **If still failing**: Review the error output and repeat steps 1-3
+5. **Emergency bypass only**: If fixes aren't obvious and you need to push urgently, use `git commit -m "your message" --no-verify`, then immediately create a follow-up commit with the fixes
+
+**Always push your work**: Use `report_progress` to push all commits to the remote PR branch before finishing.
 
 Remember: **The goal is PRs that pass CI on the first attempt.**

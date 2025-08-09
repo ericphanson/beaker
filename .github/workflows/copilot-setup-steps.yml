@@ -42,10 +42,9 @@ jobs:
       run: |
         cargo install cargo-warloc || echo "cargo-warloc installation failed, continuing..."
 
-    # agents don't know how to fix errors at commit time
-    #- name: Setup pre-commit hooks
-    # run: |
-    #   pre-commit install || echo "pre-commit install failed, continuing..."
+    - name: Setup pre-commit hooks
+      run: |
+        pre-commit install || echo "pre-commit install failed, continuing..."
 
     - name: Cache ONNX models
       uses: actions/cache@v4
