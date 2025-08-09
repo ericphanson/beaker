@@ -160,43 +160,41 @@ clean:
 - **Variable counts**: Image count changes are acceptable as long as flow remains linear
 - **Simple routing**: All data flows forward through the pipeline without backtracking
 
-### Impact of Inference Caching
+### Makefile Integration and Caching Strategy
 
-Inference caching fundamentally changes the performance equation and design tradeoffs:
+Rather than implementing complex inference caching within the beaker tool, **makefiles provide "free" inference caching** through their dependency tracking system. This approach is simpler and more reliable than building caching into the pipeline processor.
 
-#### Without Caching (Current State)
-- **Inference**: 99%+ of execution time
-- **File I/O**: 0.8-1.5% of execution time
-- **Pipeline value**: Primarily ergonomic (single command vs multiple steps)
-- **Memory optimization**: Minimal performance benefit (1-2% improvement)
+#### Makefile-Based Caching Benefits
+- **Automatic cache invalidation**: Make tracks file timestamps and dependencies automatically
+- **Selective rebuilds**: Only re-runs steps when inputs or commands change
+- **No storage overhead**: Uses existing file system without additional caching infrastructure
+- **Debugging transparency**: All intermediate files are visible and inspectable
+- **Parallel execution**: Make can execute independent steps concurrently
 
-#### With Inference Caching
-```bash
-# First run: Full inference cost
-beaker pipeline --steps detect,crop,cutout,head-detect *.jpg
-# Subsequent runs with parameter tweaks: Major speedup
-beaker pipeline --steps detect,crop,cutout,head-detect:--confidence=0.8 *.jpg  # Only re-runs head-detect
-beaker collage results/head-detect/*.png --layout=grid                        # Only runs collage
+#### Beaker + Make Integration Strategy
+Instead of complex internal caching, focus on making beaker **makefile-friendly**:
+
+```makefile
+# Makefile provides natural caching through dependency tracking
+stage1/%.png: input/%.jpg
+	@mkdir -p stage1
+	beaker cutout $< --output-dir stage1
+
+stage2/%.png: stage1/%.png
+	@mkdir -p stage2
+	beaker head $< --output-dir stage2 --crop
+
+# Only rebuilds changed files automatically
+all: $(patsubst input/%.jpg,stage2/%.png,$(wildcard input/*.jpg))
 ```
 
-**Cache hit scenarios:**
-- **Parameter tuning**: Adjust confidence thresholds without re-running earlier steps
-- **Pipeline iteration**: Add/modify final steps while preserving expensive intermediate results
-- **Partial failures**: Resume from cached intermediate results after fixing errors
+**Best practices for makefile integration:**
+- **Deterministic output naming**: Ensure beaker produces predictable output filenames
+- **Metadata preservation**: Write metadata files alongside images for dependency tracking
+- **Exit code consistency**: Proper error codes for make to detect failures
+- **Directory management**: Clean directory creation patterns
 
-**Performance implications with caching:**
-- **First run**: Same performance as sequential commands
-- **Subsequent runs**: File I/O becomes significant portion of remaining work
-- **Memory optimization value**: Increases substantially for cached scenarios
-- **Pipeline value**: Shifts from purely ergonomic to performance-critical
-
-**Design considerations:**
-- **Cache invalidation**: Must detect when input changes invalidate cached results
-- **Metadata tracking**: Cache must store sufficient metadata to validate reuse
-- **Storage overhead**: Intermediate results require substantial disk space
-- **Memory vs disk tradeoffs**: In-memory pipelines become much more attractive for cached workflows
-
-**Implementation impact:** Caching makes the case for in-memory processing much stronger, as the performance bottleneck shifts from inference to data marshaling when intermediate results are cached.
+**Pipeline tool role:** Focus on ergonomic single-command workflows rather than caching complexity. Users requiring sophisticated caching and dependency management can use makefiles with individual beaker commands.
 
 ## Implementation
 
@@ -282,7 +280,7 @@ Orthogonal, well-scoped GitHub issues for parallel development:
 
 **Title**: Implement PipelineProcessor with file-based sequential processing and metadata support
 
-**Description**: Implement the actual pipeline processing logic using existing file-based model processing infrastructure. This provides the ergonomic benefits without memory optimization complexity. **Initial scope focuses on 1:1 image transformations (cutout → head detection); complex variable-count scenarios are deferred to future enhancements.**
+**Description**: Implement the actual pipeline processing logic using existing file-based model processing infrastructure. This provides the ergonomic benefits without memory optimization complexity. **Initial scope focuses on pipelines where only the previous step of the pipeline is needed to feed the next step.**
 
 **Scope:**
 - Implement `PipelineProcessor::process_pipeline()` method
@@ -291,7 +289,7 @@ Orthogonal, well-scoped GitHub issues for parallel development:
 - Generate comprehensive pipeline metadata in TOML format
 - Add metadata test validations
 
-**Limitations**: Does not handle variable image counts, filtering steps, or many-to-one transformations. Complex scenarios should use bash scripts until advanced pipeline features are implemented.
+**Limitations**: Does not handle situations in which intermediate outputs (besides just the prior step) are needed for later steps. Complex scenarios should use bash scripts until advanced pipeline features are implemented.
 
 **Acceptance Criteria:**
 - `beaker pipeline --steps cutout,head --output-dir results *.jpg` works correctly
