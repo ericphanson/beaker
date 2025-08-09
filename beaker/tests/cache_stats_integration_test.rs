@@ -17,7 +17,7 @@ fn test_cache_stats_integration() {
     let embedded_model_scenario = TestScenario {
         name: "cache_stats_embedded_model",
         tool: "detect",
-        args: vec!["../example.jpg", "--confidence", "0.5"],
+        args: vec!["../example.jpg", "--confidence", "0.5", "--device", "cpu"],
         expected_files: vec!["example.beaker.toml"],
         metadata_checks: vec![
             MetadataCheck::OnnxCacheStatsAbsent("detect"), // No cache stats for embedded models
@@ -38,7 +38,7 @@ fn test_cache_stats_integration() {
     let downloaded_model_scenario = TestScenario {
         name: "cache_stats_downloaded_model",
         tool: "cutout",
-        args: vec!["../example.jpg"],
+        args: vec!["../example.jpg", "--device", "cpu"],
         expected_files: vec!["example.beaker.toml", "example_cutout.png"],
         metadata_checks: vec![
             MetadataCheck::OnnxCacheStatsPresent("cutout"), // General cache stats should be present
