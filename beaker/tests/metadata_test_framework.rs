@@ -166,6 +166,7 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
         MetadataCheck::DeviceUsed(tool, expected_device) => {
             let system = match *tool {
                 "head" => metadata.head.as_ref().and_then(|h| h.system.as_ref()),
+                "detect" => metadata.head.as_ref().and_then(|h| h.system.as_ref()), // detect uses head metadata sections
                 "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
                 _ => panic!("Unknown tool: {tool}"),
             };

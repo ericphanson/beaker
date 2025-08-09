@@ -16,12 +16,12 @@ fn test_head_model_path_override() {
     let test_image = temp_dir.path().join("test.jpg");
     std::fs::copy("../example.jpg", &test_image).unwrap();
 
-    // Run beaker head with BEAKER_HEAD_MODEL_PATH set to non-existent file
+    // Run beaker detect with BEAKER_HEAD_MODEL_PATH set to non-existent file
     let output = Command::new("cargo")
         .args([
             "run",
             "--",
-            "head",
+            "detect",
             test_image.to_str().unwrap(),
             "--confidence",
             "0.5",
@@ -110,12 +110,12 @@ fn test_metadata_captures_env_vars() {
     let test_image = temp_dir.path().join("test.jpg");
     std::fs::copy("../example.jpg", &test_image).unwrap();
 
-    // Run beaker head with environment variables and metadata
+    // Run beaker detect with environment variables and metadata
     let output = Command::new("cargo")
         .args([
             "run",
             "--",
-            "head",
+            "detect",
             test_image.to_str().unwrap(),
             "--confidence",
             "0.5",
@@ -130,7 +130,7 @@ fn test_metadata_captures_env_vars() {
         .expect("Failed to execute beaker command");
 
     // Should succeed
-    assert!(output.status.success(), "Head command should succeed");
+    assert!(output.status.success(), "Detect command should succeed");
 
     // Check metadata file was created
     let metadata_path = temp_dir.path().join("test.beaker.toml");
