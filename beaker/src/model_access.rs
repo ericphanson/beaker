@@ -42,6 +42,13 @@ impl CliModelInfo {
             ));
         }
 
+        // Checksum requires URL
+        if self.model_checksum.is_some() && self.model_url.is_none() {
+            return Err(anyhow!(
+                "--model-checksum can only be used with --model-url"
+            ));
+        }
+
         // If URL is provided, validate it's a proper URL
         if let Some(url) = &self.model_url {
             if !url.starts_with("http://") && !url.starts_with("https://") {
@@ -877,6 +884,10 @@ pub fn get_model_source_with_cli_and_env_override<T: ModelAccess>(
     // First, validate CLI arguments
     cli_model_info.validate()?;
 
+    // Collect general cache system stats that are always available for "free"
+    let onnx_cache_info = get_onnx_cache_info();
+    let coreml_cache_info = get_coreml_cache_info();
+
     // Priority 1: CLI-provided model path
     if let Some(model_path) = &cli_model_info.model_path {
         log::info!("🔧 Using CLI-provided model path: {model_path}");
@@ -896,10 +907,19 @@ pub fn get_model_source_with_cli_and_env_override<T: ModelAccess>(
         // Test model functionality for new models
         test_model_basic_functionality(&path)?;
 
-        // Custom path doesn't use cache, so NO cache stats
+        // Custom paths don't use the download cache but get general cache system visibility
+        let cache_stats = CacheStats {
+            cache_hit: false,       // Not applicable for custom paths
+            download_time_ms: None, // No download occurred
+            cached_models_count: Some(onnx_cache_info.count),
+            cached_models_size_mb: Some(onnx_cache_info.size_mb()),
+            coreml_cache_count: Some(coreml_cache_info.count),
+            coreml_cache_size_mb: Some(coreml_cache_info.size_mb()),
+        };
+
         return Ok(ModelSourceWithStats {
             source: ModelSource::FilePath(model_path.clone()),
-            cache_stats: None, // No cache access = no cache stats
+            cache_stats: Some(cache_stats),
         });
     }
 
@@ -1013,10 +1033,19 @@ pub fn get_model_source_with_cli_and_env_override<T: ModelAccess>(
         validate_model_file_size(&path)?;
         test_model_basic_functionality(&path)?;
 
-        // Custom path doesn't use cache, so NO cache stats
+        // Custom paths don't use the download cache but get general cache system visibility
+        let cache_stats = CacheStats {
+            cache_hit: false,       // Not applicable for custom paths
+            download_time_ms: None, // No download occurred
+            cached_models_count: Some(onnx_cache_info.count),
+            cached_models_size_mb: Some(onnx_cache_info.size_mb()),
+            coreml_cache_count: Some(coreml_cache_info.count),
+            coreml_cache_size_mb: Some(coreml_cache_info.size_mb()),
+        };
+
         return Ok(ModelSourceWithStats {
             source: ModelSource::FilePath(model_path),
-            cache_stats: None, // No cache access = no cache stats
+            cache_stats: Some(cache_stats),
         });
     }
 
@@ -1024,10 +1053,19 @@ pub fn get_model_source_with_cli_and_env_override<T: ModelAccess>(
     if let Some(embedded_bytes) = T::get_embedded_bytes() {
         log::debug!("📦 Using embedded model bytes");
 
-        // Embedded models don't use cache, so NO cache stats
+        // Embedded models get general cache system visibility but no cache-specific metrics
+        let cache_stats = CacheStats {
+            cache_hit: false, // Not applicable for embedded models
+            download_time_ms: None,
+            cached_models_count: Some(onnx_cache_info.count),
+            cached_models_size_mb: Some(onnx_cache_info.size_mb()),
+            coreml_cache_count: Some(coreml_cache_info.count),
+            coreml_cache_size_mb: Some(coreml_cache_info.size_mb()),
+        };
+
         return Ok(ModelSourceWithStats {
             source: ModelSource::EmbeddedBytes(embedded_bytes),
-            cache_stats: None, // No cache access = no cache stats
+            cache_stats: Some(cache_stats),
         });
     }
 
