@@ -29,6 +29,11 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 MetadataCheck::BeakerVersion("head"),
                 MetadataCheck::CoreResultsField("head", "model_version"),
                 MetadataCheck::IoTimingExists("head"),
+                // Cache statistics checks for embedded models
+                MetadataCheck::OnnxCacheStatsPresent("head"), // General cache stats should be present
+                MetadataCheck::DownloadCacheHitAbsent("head"), // No cache hit/miss for embedded models
+                MetadataCheck::DownloadTimingAbsent("head"), // No download timing for embedded models
+                MetadataCheck::CoremlCacheStatsAbsent("head"), // No CoreML stats when using CPU
             ],
             env_vars: vec![],
         },
@@ -150,6 +155,10 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 MetadataCheck::ExitCode("cutout", 0),
                 MetadataCheck::CoreResultsField("cutout", "model_version"),
                 MetadataCheck::IoTimingExists("cutout"),
+                // Cache statistics checks for downloaded models
+                MetadataCheck::OnnxCacheStatsPresent("cutout"), // General cache stats should be present
+                MetadataCheck::DownloadCacheHitPresent("cutout"), // Cache hit/miss should be present for downloaded models
+                MetadataCheck::CoremlCacheStatsAbsent("cutout"),  // No CoreML stats when using CPU
             ],
             env_vars: vec![],
         },
