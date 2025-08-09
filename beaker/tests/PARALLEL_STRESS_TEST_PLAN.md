@@ -125,14 +125,14 @@ impl TestFixtures {
             // Small deterministic model for basic tests (~200-500 KB)
             small_model_bytes: include_bytes!("small_test_model.onnx"),
             small_model_sha256: "a1b2c3d4e5f6...", // Precomputed SHA-256
-            
+
             // Corrupted variant (first byte flipped)
             corrupted_model_bytes: {
                 let mut data = *include_bytes!("small_test_model.onnx");
                 data[0] = !data[0];  // Flip first bit
                 &data
             },
-            
+
             // Larger model for partial download stress (~1-2 MB)
             large_model_bytes: include_bytes!("large_test_model.onnx"),
             large_model_sha256: "f6e5d4c3b2a1...", // Precomputed SHA-256
@@ -286,7 +286,7 @@ fn configure_failure_injection(pattern: &[FailureEvent]) -> (MockServer, Option<
     } else {
         None
     };
-    
+
     // Route HTTP-level failures to httpmock
     // Route TCP-level failures to hyper helper
     (mock_server, tcp_server)
@@ -320,15 +320,15 @@ fn inject_failpoint(point: CacheFailpoint, process_id: usize) {
 fn test_crash_during_write_before_rename() {
     // Set up shared cache directory
     let shared_cache = TempDir::new().unwrap();
-    
+
     // Configure failpoint for one process
     #[cfg(test)]
     fail::cfg("cache_after_write_before_rename_0", "panic").unwrap();
-    
+
     // Start multiple processes downloading same model
     // Process 0 will crash after write but before atomic rename
     // Other processes should detect stale lock and recover
-    
+
     // Validation:
     // - No orphaned .tmp files remain
     // - Exactly one valid final artifact exists
@@ -344,7 +344,7 @@ fn test_cross_process_lock_semantics() {
     // Test stale lock detection and cleanup
     // Verify lock acquisition/release patterns
     use fd_lock::RwLock;
-    
+
     // Test that beaker's locking matches expected cross-process semantics
 }
 ```
@@ -510,7 +510,7 @@ impl CacheValidator {
 - **Atomic Operation Validation**: Write → fsync → rename completeness under failpoint testing
 
 **Metadata Analysis**:
-- Leverage issue #35 cache metadata when available
+- Leverage cache metadata functionality for stress test validation
 - Track model load times under concurrent access
 - Monitor cache hit/miss patterns
 - Analyze failure recovery timing
@@ -601,8 +601,8 @@ fn test_concurrent_model_download_stress() {
                         .body(test_fixtures.corrupted_model_bytes.to_vec())
                 }
                 // TCP-level failures handled by hyper helper, not httpmock
-                FailureEvent::TcpConnectionRefused | 
-                FailureEvent::TcpMidStreamAbort(_) | 
+                FailureEvent::TcpConnectionRefused |
+                FailureEvent::TcpMidStreamAbort(_) |
                 FailureEvent::TcpHeaderThenClose => {
                     // Redirect to TCP fault server
                     Then::new()
@@ -644,7 +644,7 @@ fn test_concurrent_model_download_stress() {
                     "--metadata",
                     "--output-dir", output_dir.to_str().unwrap()
                 ])
-                .env("CUTOUT_MODEL_URL", mock_url)
+                .args(&["--model-url", &mock_url])
                 .env("ONNX_MODEL_CACHE_DIR", shared_cache.to_str().unwrap())  // SHARED
                 .output()
                 .unwrap();
@@ -687,7 +687,7 @@ fn test_concurrent_model_download_stress() {
     // Critical: Exactly one final artifact in shared cache for this model
     let cached_model = shared_cache.join("small-test-model.onnx");
     assert!(cached_model.exists(), "Shared cache should have the model");
-    
+
     // Verify SHA-256 checksum on shared cache
     let checksum = calculate_sha256(&cached_model).unwrap();
     assert_eq!(checksum, test_fixtures.small_model_sha256);
@@ -721,7 +721,7 @@ fn test_concurrent_model_download_stress() {
     // Validate error patterns match expected TCP/HTTP failures
     let tcp_failures = results.iter()
         .filter(|r| r.exit_code != 0 && (
-            r.error_output.contains("connection refused") || 
+            r.error_output.contains("connection refused") ||
             r.error_output.contains("connection reset")
         ))
         .count();
@@ -794,7 +794,7 @@ fd-lock = "4.0"                 # Cross-process lock validation
 
 **Dependency Rationale**:
 - **Minimal Impact**: Only 5 additional crates for comprehensive stress testing
-- **Well-maintained**: All are industry standard with active development  
+- **Well-maintained**: All are industry standard with active development
 - **Zero runtime impact**: Only in dev-dependencies, no production overhead
 - **Compatible**: Work well with beaker's existing blocking/synchronous model
 - **No timing dependencies**: Deterministic behavior without sleep or delays
@@ -881,17 +881,17 @@ cargo test stress --release -- --test-threads=1  // For deterministic results
 
 This stress testing framework is designed to work alongside and validate upcoming features:
 
-### Issue #22 - CLI API for Model Access
-- **Integration Point**: Test framework will validate concurrent access when users specify custom model URLs/paths via CLI
+### CLI Model Access Support
+- **Integration Point**: Test framework validates concurrent access when users specify custom model URLs/paths via CLI options (--model-url, --model-path, --model-checksum)
 - **Stress Scenarios**: Multiple processes using different models specified via CLI arguments
 - **Validation**: Ensure cache isolation between different model URLs and local paths
 
-### Issue #35 - Cache Metadata Enhancement
+### Cache Metadata Integration
 - **Integration Point**: Leverage cache hit/miss metadata for stress test validation
 - **Metrics Collection**: Use cache timing and hit rate data to validate performance under load
-- **Instrumentation**: Additional metadata will help identify cache contention and performance bottlenecks
+- **Instrumentation**: Cache metadata helps identify cache contention and performance bottlenecks
 
-The framework is designed to evolve with these features, providing immediate testing capabilities as they are implemented.
+The framework integrates with these implemented features to provide comprehensive testing capabilities.
 
 ## Conclusion
 
