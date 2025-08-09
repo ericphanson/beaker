@@ -5,7 +5,6 @@ Train YOLOv8n model for bird head detection on M1 MacBook Pro with Comet.ml trac
 """
 
 import os
-import re
 import glob
 import tqdm.auto as _tqdm_auto
 
@@ -64,9 +63,6 @@ TRAINING_CONFIG = {
     "plots": True,
     # Enable/disable Fast NMS prefilter monkey patch
     "fast_nms_prefilter": True,
-    # Optional resumable training
-    "resume": True,
-    "exist_ok": False,
     # Per-epoch prediction logging
     "log_epoch_predictions": True,  # set True to enable
     "pred_samples": 8,  # number of val images to predict/log per epoch
@@ -190,109 +186,15 @@ CALLBACKS = {
 # Global references for callbacks
 COMET_EXPERIMENT = None
 GLOBAL_YOLO = None
-
-
-def on_train_start_log_comet_key(trainer):
-    global COMET_EXPERIMENT
-    try:
-        if COMET_EXPERIMENT is not None:
-            save_dir = str(trainer.save_dir) if hasattr(trainer, "save_dir") else None
-            if save_dir:
-                write_comet_key(save_dir, getattr(COMET_EXPERIMENT, "id", ""))
-    except Exception as _e:
-        print(f"⚠️ Could not persist Comet key at train start: {_e}")
-
-
-# add callback
-CALLBACKS["on_train_start"] = on_train_start_log_comet_key
+GLOBAL_DEVICE = None
 
 
 # ----------------- Run directory helpers -----------------
-from typing import Optional, Tuple
-
-
-def find_last_run_with_checkpoint(
-    project_dir: str, base_name: str
-) -> Tuple[Optional[str], Optional[str]]:
-    """Return (resolved_run_name, last_ckpt_path) for the latest numeric-suffixed run with last.pt, else (None, None)."""
-    try:
-        entries = [
-            d
-            for d in os.listdir(project_dir)
-            if os.path.isdir(os.path.join(project_dir, d))
-        ]
-    except FileNotFoundError:
-        return None, None
-    pat = re.compile(rf"^{re.escape(base_name)}(\d+)?$")
-    candidates = []  # (suffix_int, dir_name)
-    for d in entries:
-        m = pat.match(d)
-        if m:
-            suffix = int(m.group(1)) if m.group(1) else 1
-            candidates.append((suffix, d))
-    candidates.sort(reverse=True)
-    for _, d in candidates:
-        ckpt = os.path.join(project_dir, d, "weights", "last.pt")
-        if os.path.exists(ckpt):
-            return d, ckpt
-    # also check base without suffix explicitly
-    base_ckpt = os.path.join(project_dir, base_name, "weights", "last.pt")
-    if os.path.exists(base_ckpt):
-        return base_name, base_ckpt
-    return None, None
-
-
-def next_run_name(project_dir: str, base_name: str) -> str:
-    """Return base_name if unused, else the next available numeric-suffixed name (base2, base3, ...)."""
-    base_path = os.path.join(project_dir, base_name)
-    if not os.path.exists(base_path):
-        return base_name
-    # find max suffix
-    try:
-        entries = [
-            d
-            for d in os.listdir(project_dir)
-            if os.path.isdir(os.path.join(project_dir, d))
-        ]
-    except FileNotFoundError:
-        return base_name
-    pat = re.compile(rf"^{re.escape(base_name)}(\d+)?$")
-    max_suffix = 1
-    for d in entries:
-        m = pat.match(d)
-        if m:
-            s = int(m.group(1)) if m.group(1) else 1
-            if s > max_suffix:
-                max_suffix = s
-    return f"{base_name}{max_suffix + 1}"
-
-
-def comet_key_file(run_dir: str) -> str:
-    return os.path.join(run_dir, "comet_experiment_key.txt")
-
-
-def read_comet_key(run_dir: str) -> Optional[str]:
-    try:
-        with open(comet_key_file(run_dir), "r") as f:
-            return f.read().strip() or None
-    except Exception:
-        return None
-
-
-def write_comet_key(run_dir: str, key: str) -> None:
-    try:
-        os.makedirs(run_dir, exist_ok=True)
-        with open(comet_key_file(run_dir), "w") as f:
-            f.write(key)
-    except Exception as _e:
-        print(f"⚠️ Failed to write Comet experiment key to {run_dir}: {_e}")
-
-
-# ---------------------------------------------------------
+from typing import Optional
 
 
 def setup_comet(device, experiment_key: Optional[str] = None):
-    """Setup Comet.ml experiment tracking. If experiment_key is provided, resume that experiment."""
+    """Setup Comet.ml experiment tracking."""
     api_key = os.getenv("COMET_API_KEY")
     if not api_key:
         print("⚠️  COMET_API_KEY not found. Comet.ml tracking will be disabled.")
@@ -304,21 +206,12 @@ def setup_comet(device, experiment_key: Optional[str] = None):
     workspace = os.getenv("COMET_WORKSPACE")
 
     try:
-        if experiment_key:
-            experiment = comet_ml.ExistingExperiment(
-                api_key=api_key,
-                previous_experiment=experiment_key,
-                project_name=project_name,
-                workspace=workspace,
-            )
-            print(f"✅ Resumed Comet.ml experiment: {experiment.url}")
-        else:
-            experiment = comet_ml.Experiment(
-                api_key=api_key,
-                project_name=project_name,
-                workspace=workspace,
-            )
-            print(f"✅ Comet.ml experiment started: {experiment.url}")
+        experiment = comet_ml.Experiment(
+            api_key=api_key,
+            project_name=project_name,
+            workspace=workspace,
+        )
+        print(f"✅ Comet.ml experiment started: {experiment.url}")
 
         # Log hyperparameters from global config
         log_params = TRAINING_CONFIG.copy()
@@ -396,51 +289,6 @@ def create_debug_dataset():
     return str(yaml_path)
 
 
-def get_trained_epochs(run_dir: str) -> Optional[int]:
-    """Return number of completed epochs inferred from results.csv (last epoch + 1)."""
-    import csv
-
-    path = os.path.join(run_dir, "results.csv")
-    if not os.path.exists(path):
-        return None
-    try:
-        last_epoch = None
-        with open(path, "r") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                if "epoch" in row and row["epoch"] != "":
-                    try:
-                        last_epoch = int(float(row["epoch"]))
-                    except Exception:
-                        pass
-        if last_epoch is not None:
-            return last_epoch + 1
-    except Exception as _e:
-        print(f"⚠️ Could not read trained epochs from {path}: {_e}")
-    return None
-
-
-def get_planned_epochs(run_dir: str) -> Optional[int]:
-    """Return the planned epochs recorded in args.yaml for a run directory."""
-    try:
-        import yaml  # local import to avoid top-of-file import rules
-
-        path = os.path.join(run_dir, "args.yaml")
-        if not os.path.exists(path):
-            return None
-        with open(path, "r") as f:
-            data = yaml.safe_load(f) or {}
-        ep = data.get("epochs")
-        return (
-            int(ep)
-            if isinstance(ep, (int, float, str)) and str(ep).strip().isdigit()
-            else None
-        )
-    except Exception as _e:
-        print(f"⚠️ Could not read planned epochs from args.yaml: {_e}")
-        return None
-
-
 def main():
     # Check if MPS is available
     if torch.backends.mps.is_available():
@@ -472,69 +320,14 @@ def main():
         epochs = TRAINING_CONFIG["epochs"]
         run_name = TRAINING_CONFIG["name"]
 
-    # Determine run_name and resume state earlier (supports numeric suffixes)
-    project_dir = TRAINING_CONFIG["project"]
-    resume_flag = bool(TRAINING_CONFIG.get("resume", False))
-    last_ckpt = None
-    experiment_key_for_resume = None
-    init_from_ckpt = False
-    base_name = (
-        f"{TRAINING_CONFIG['name']}_debug" if is_debug else TRAINING_CONFIG["name"]
-    )
-    if resume_flag:
-        resolved, last = find_last_run_with_checkpoint(project_dir, run_name)
-        if resolved and last:
-            run_name = resolved
-            last_ckpt = last
-            run_dir = os.path.join(project_dir, run_name)
-            experiment_key_for_resume = read_comet_key(run_dir)
-            trained_eps = get_trained_epochs(run_dir) or 0
-            planned_eps = get_planned_epochs(run_dir)
-            # If checkpoint run is finished to its planned epochs, or planned epochs < requested, start a new run from weights
-            if (planned_eps is not None and trained_eps >= planned_eps) or (
-                planned_eps is not None and epochs > planned_eps
-            ):
-                # Adjust epochs to train only the remaining to reach requested total
-                if epochs > trained_eps:
-                    print(
-                        f"ℹ️ Checkpoint finished to {trained_eps} epochs (planned={planned_eps}). "
-                        f"Starting a NEW run from weights to reach requested {epochs} total (training {epochs - trained_eps} more)."
-                    )
-                    epochs = max(1, epochs - trained_eps)
-                else:
-                    print(
-                        f"ℹ️ Checkpoint already trained {trained_eps} epochs which >= requested {epochs}. Starting new run from weights for 1 epoch."
-                    )
-                    epochs = 1
-                resume_flag = False
-                init_from_ckpt = True
-                run_name = next_run_name(project_dir, base_name)
-            else:
-                # Safe to actually resume optimizer/scheduler state
-                print(f"🔁 Resuming training from checkpoint: {last_ckpt}")
-                init_from_ckpt = True
-        else:
-            print(
-                f"ℹ️  Resume requested but no checkpoint found under '{project_dir}' for base '{TRAINING_CONFIG['name']}'. Starting fresh."
-            )
-            resume_flag = False
-    else:
-        # choose the next available run name so we can predict the save directory
-        run_name = next_run_name(project_dir, run_name)
-
-    # Setup Comet.ml tracking with device info (resume with key if available)
-    experiment = setup_comet(device, experiment_key=experiment_key_for_resume)
-    global COMET_EXPERIMENT
+    # Setup Comet.ml tracking
+    experiment = setup_comet(device)
+    global COMET_EXPERIMENT, GLOBAL_DEVICE
     COMET_EXPERIMENT = experiment
+    GLOBAL_DEVICE = device
 
-    # Log debug/resume info to Comet.ml
+    # Log debug info to Comet.ml
     if experiment:
-        experiment.log_parameter(
-            "resume_requested", TRAINING_CONFIG.get("resume", False)
-        )
-        experiment.log_parameter("resume_active", resume_flag)
-        if last_ckpt:
-            experiment.log_parameter("resume_checkpoint", last_ckpt)
         experiment.log_parameter("run_name", run_name)
         experiment.log_parameter("debug_mode", is_debug)
         if is_debug:
@@ -544,16 +337,20 @@ def main():
             )
 
     # Load a pretrained YOLO model
-    if init_from_ckpt and last_ckpt:
-        if resume_flag:
-            print(f"📦 Loading checkpoint for resume: {last_ckpt}")
-            model = YOLO(last_ckpt)
-        else:
-            print(f"📦 Initializing new run from checkpoint weights: {last_ckpt}")
-            model = YOLO(last_ckpt)
-    else:
-        print(f"📦 Loading {TRAINING_CONFIG['model']} pretrained model...")
-        model = YOLO(TRAINING_CONFIG["model_yaml"]).load(TRAINING_CONFIG["model_file"])
+    print(f"📦 Loading {TRAINING_CONFIG['model']} pretrained model...")
+    model = YOLO(TRAINING_CONFIG["model_yaml"]).load(TRAINING_CONFIG["model_file"])
+
+    # Ensure model is on the intended device (important for MPS)
+    try:
+        if hasattr(model, "to"):
+            model.to(device)
+    except Exception:
+        try:
+            inner = getattr(model, "model", None)
+            if isinstance(inner, nn.Module):
+                inner.to(device)
+        except Exception as _e:
+            print(f"⚠️ Could not move model to device '{device}': {_e}")
 
     # Store model reference for callbacks
     global GLOBAL_YOLO
@@ -566,14 +363,6 @@ def main():
     # Configure Comet.ml integration for YOLO
     if experiment:
         os.environ["COMET_MODE"] = "online"
-        # If resuming, ensure the key file exists in run dir now
-        if resume_flag:
-            try:
-                run_dir = os.path.join(project_dir, run_name)
-                if getattr(experiment, "id", None):
-                    write_comet_key(run_dir, experiment.id)
-            except Exception:
-                pass
 
     # Train the model on bird head dataset
     mode_text = "DEBUG" if is_debug else "FULL"
@@ -592,10 +381,11 @@ def main():
         iou=TRAINING_CONFIG["iou"],
         max_det=TRAINING_CONFIG["max_det"],
         plots=TRAINING_CONFIG["plots"],
-        resume=resume_flag,
-        exist_ok=(True if resume_flag else TRAINING_CONFIG.get("exist_ok", False)),
         amp=True,
+        save_json=True,
+        save_period=1,
     )
+
     # Log final results to Comet.ml
     if experiment and results:
         try:
@@ -617,9 +407,8 @@ def main():
             print("✅ Comet.ml experiment completed")
 
         except Exception as e:
-            print(f"⚠️  Error logging to Comet.ml: {e}")
+            print(f"⚠️ Error logging to Comet.ml: {e}")
 
-    mode_text = "DEBUG" if is_debug else "FULL"
     print(f"✅ {mode_text} training completed!")
     print(
         f"📊 Best model saved to: {TRAINING_CONFIG['project']}/{run_name}/weights/best.pt"
@@ -651,6 +440,75 @@ if TRAINING_CONFIG.get("progress_bar_eta", True):
         print("📈 Patched tqdm progress bar to show ETA.")
     except Exception as _e:
         print(f"⚠️ Progress bar patch skipped: {_e}")
+
+
+# --- Progress bar ETA tweaks via callbacks ---
+
+
+def _format_seconds(secs: float) -> str:
+    try:
+        s = max(0, int(secs))
+        h, s = divmod(s, 3600)
+        m, s = divmod(s, 60)
+        if h:
+            return f"{h:d}:{m:02d}:{s:02d}"
+        return f"{m:02d}:{s:02d}"
+    except Exception:
+        return "--:--"
+
+
+def _set_eta_postfix_from_pbar(pbar):
+    try:
+        if pbar is None:
+            return
+        # tqdm maintains format_dict with elapsed, remaining, rate
+        fd = getattr(pbar, "format_dict", None) or {}
+        remaining = fd.get("remaining")
+        rate = fd.get("rate")
+        eta = _format_seconds(remaining) if remaining is not None else None
+        postfix = None
+        if eta is not None:
+            postfix = f"ETA {eta}"
+            if rate:
+                postfix += f" | {rate:.2f} it/s"
+        elif rate:
+            postfix = f"{rate:.2f} it/s"
+        if postfix:
+            # reduce spam: only update every few steps
+            n = getattr(pbar, "n", 0)
+            if n % 5 == 0:
+                pbar.set_postfix_str(postfix, refresh=False)
+    except Exception:
+        pass
+
+
+def on_train_batch_end_set_eta(trainer):
+    if not TRAINING_CONFIG.get("progress_bar_eta", True):
+        return
+    try:
+        pbar = getattr(trainer, "pbar", None)
+        _set_eta_postfix_from_pbar(pbar)
+    except Exception:
+        pass
+
+
+def on_val_batch_end_set_eta(trainer):
+    if not TRAINING_CONFIG.get("progress_bar_eta", True):
+        return
+    try:
+        # trainer may have its own pbar
+        pbar = getattr(trainer, "pbar", None)
+        _set_eta_postfix_from_pbar(pbar)
+        # and also a validator with its own pbar
+        validator = getattr(trainer, "validator", None)
+        if validator is not None:
+            _set_eta_postfix_from_pbar(getattr(validator, "pbar", None))
+    except Exception:
+        pass
+
+
+CALLBACKS["on_train_batch_end"] = on_train_batch_end_set_eta
+CALLBACKS["on_val_batch_end"] = on_val_batch_end_set_eta
 
 
 # --- Debugging and Per-Epoch Prediction Logging ---
@@ -737,6 +595,7 @@ def on_fit_epoch_end_log_preds(trainer):
             project=pred_project,
             name=pred_name,
             verbose=False,
+            device=GLOBAL_DEVICE,
         )
         # Log to Comet
         if COMET_EXPERIMENT is not None:
