@@ -29,22 +29,6 @@ impl IoTiming {
         Ok(img)
     }
 
-    pub fn time_cutout_save<P: AsRef<Path>>(
-        &mut self,
-        img: &image::ImageBuffer<image::Rgba<u8>, Vec<u8>>,
-        path: P,
-    ) -> Result<()> {
-        self.time_save_operation(|| Ok(img.save(path)?))
-    }
-
-    pub fn time_mask_save<P: AsRef<Path>>(
-        &mut self,
-        img: &image::ImageBuffer<image::Luma<u8>, Vec<u8>>,
-        path: P,
-    ) -> Result<()> {
-        self.time_save_operation(|| Ok(img.save(path)?))
-    }
-
     /// Add timing for a generic save operation
     pub fn time_save_operation<F>(&mut self, operation: F) -> Result<()>
     where

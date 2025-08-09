@@ -121,8 +121,8 @@ impl ModelResult for CutoutResult {
         }
     }
 
-    fn get_io_timing(&self) -> Option<crate::shared_metadata::IoTiming> {
-        Some(self.io_timing.clone())
+    fn get_io_timing(&self) -> crate::shared_metadata::IoTiming {
+        self.io_timing.clone()
     }
 
     fn get_mask_entry(&self) -> Option<crate::mask_encoding::MaskEntry> {
@@ -221,7 +221,7 @@ impl ModelProcessor for CutoutProcessor {
         if let Some(parent) = output_path.parent() {
             fs::create_dir_all(parent)?;
         }
-        io_timing.time_cutout_save(&cutout_result, &output_path)?;
+        io_timing.time_save_operation(|| Ok(cutout_result.save(&output_path)?))?;
         debug!(
             "{} Cutout saved to: {}",
             symbols::completed_successfully(),
@@ -232,7 +232,7 @@ impl ModelProcessor for CutoutProcessor {
             if let Some(parent) = Path::new(mask_path_val).parent() {
                 fs::create_dir_all(parent)?;
             }
-            io_timing.time_mask_save(&mask, mask_path_val)?;
+            io_timing.time_save_operation(|| Ok(mask.save(mask_path_val)?))?;
             debug!(
                 "{} Mask saved to: {}",
                 symbols::completed_successfully(),

@@ -113,8 +113,8 @@ impl ModelResult for HeadDetectionResult {
         }
     }
 
-    fn get_io_timing(&self) -> Option<crate::shared_metadata::IoTiming> {
-        Some(self.io_timing.clone())
+    fn get_io_timing(&self) -> crate::shared_metadata::IoTiming {
+        self.io_timing.clone()
     }
 }
 
