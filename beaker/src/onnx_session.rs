@@ -190,9 +190,10 @@ pub fn create_onnx_session(
                     }
 
                     // Collect CoreML cache statistics (single traversal) - only when CoreML is used
-                    let mut coreml_cache_stats =
-                        crate::shared_metadata::CoremlCacheStats::default();
-                    coreml_cache_stats.cache_hit = Some(cache_hit);
+                    let mut coreml_cache_stats = crate::shared_metadata::CoremlCacheStats {
+                        cache_hit: Some(cache_hit),
+                        ..Default::default()
+                    };
 
                     if let Ok(base_coreml_cache) = crate::model_access::get_coreml_cache_dir() {
                         if let Ok((count, size_mb)) =
