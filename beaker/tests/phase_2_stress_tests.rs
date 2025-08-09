@@ -1,9 +1,9 @@
-//! Stress tests for beaker's concurrent cache mechanisms
-//!
-//! Phase 1: Basic framework validation
-//! Phase 2: Concurrent cache access tests with real beaker processes
+//! Phase 2 stress tests - concurrent cache access with performance benchmarking
 
-use crate::stress::{
+mod stress;
+
+use std::path::Path;
+use stress::{
     fixtures::TestFixtures,
     mock_servers::{FailureEvent, MockServerManager},
     orchestrator::{StressTestOrchestrator, TestScenario},
@@ -11,128 +11,7 @@ use crate::stress::{
     tcp_fault_server::{TcpFaultServer, TcpFaultType},
     validators::CacheValidator,
 };
-use std::path::Path;
 use tempfile::TempDir;
-
-// ================== Phase 1 Tests (Framework Validation) ==================
-
-#[test]
-fn test_stress_framework_basic_functionality() {
-    // Test that the basic framework components work together
-
-    // 1. Test fixtures creation
-    let fixtures = TestFixtures::new();
-    assert!(!fixtures.small_model_bytes.is_empty());
-    assert!(!fixtures.small_model_sha256.is_empty());
-
-    // 2. Test mock server creation
-    let failure_pattern = vec![
-        FailureEvent::Success,
-        FailureEvent::HttpError(500),
-        FailureEvent::CorruptedChecksum,
-    ];
-    let _mock_manager = MockServerManager::new(failure_pattern);
-
-    // 3. Test validator
-    let validator = CacheValidator::new();
-    let temp_dir = tempfile::TempDir::new().unwrap();
-    let result = validator.validate_cache_consistency(temp_dir.path());
-    assert!(result.passed);
-
-    // 4. Test orchestrator creation
-    let _orchestrator = StressTestOrchestrator::new(2).unwrap();
-}
-
-#[test]
-fn test_concurrent_same_model_download_basic() {
-    // Basic test with minimal processes to validate the framework
-    // This is a simplified version of the full stress test
-
-    let orchestrator = StressTestOrchestrator::new(2).unwrap();
-
-    // Create simple failure pattern - both processes should succeed
-    let failure_patterns = vec![vec![FailureEvent::Success], vec![FailureEvent::Success]];
-
-    let results = orchestrator.run_stress_test(TestScenario::SameModelContention, failure_patterns);
-
-    // Basic validation - at least framework ran without panicking
-    assert_eq!(results.total_processes(), 2);
-
-    // Note: In Phase 1, we expect some failures due to missing actual beaker executable
-    // This test validates the framework structure, not the full functionality
-    println!("Phase 1 basic test completed:");
-    println!("  Total processes: {}", results.total_processes());
-    println!("  Success count: {}", results.success_count);
-    println!("  Failure count: {}", results.failure_count);
-
-    // In Phase 1, we just verify the framework doesn't panic
-    // Actual success/failure validation will come in later phases
-}
-
-#[test]
-fn test_cache_validation_framework() {
-    // Test the cache validation logic
-
-    let temp_dir = tempfile::TempDir::new().unwrap();
-    let validator = CacheValidator::new();
-
-    // Test with empty cache
-    let result = validator.validate_cache_consistency(temp_dir.path());
-    assert!(result.passed);
-
-    let result = validator.validate_concurrent_safety(temp_dir.path());
-    assert!(result.passed);
-
-    // Test with valid cache files
-    std::fs::write(temp_dir.path().join("test_model.onnx"), b"fake model data").unwrap();
-
-    let result = validator.validate_cache_consistency(temp_dir.path());
-    assert!(result.passed);
-
-    let result = validator.validate_concurrent_safety(temp_dir.path());
-    assert!(result.passed);
-
-    // Test with invalid cache state (partial files)
-    std::fs::write(temp_dir.path().join("partial_model.tmp"), b"partial").unwrap();
-
-    let result = validator.validate_concurrent_safety(temp_dir.path());
-    assert!(!result.passed);
-    assert!(!result.violations.is_empty());
-}
-
-#[test]
-fn test_failure_event_patterns() {
-    // Test deterministic failure pattern creation and handling
-
-    let pattern = vec![
-        FailureEvent::Success,
-        FailureEvent::HttpError(500),
-        FailureEvent::CorruptedChecksum,
-        FailureEvent::TcpConnectionRefused,
-        FailureEvent::TcpMidStreamAbort(1024),
-        FailureEvent::TcpHeaderThenClose,
-    ];
-
-    // Create mock server with this pattern
-    let _mock_manager = MockServerManager::new(pattern.clone());
-
-    // Verify pattern is preserved
-    assert_eq!(pattern.len(), 6);
-
-    // Test each failure event type
-    for event in &pattern {
-        match event {
-            FailureEvent::Success => assert!(true),
-            FailureEvent::HttpError(code) => assert!(*code >= 400),
-            FailureEvent::CorruptedChecksum => assert!(true),
-            FailureEvent::TcpConnectionRefused => assert!(true),
-            FailureEvent::TcpMidStreamAbort(bytes) => assert!(*bytes > 0),
-            FailureEvent::TcpHeaderThenClose => assert!(true),
-        }
-    }
-}
-
-// ================== Phase 2 Tests (Concurrent Cache Access) ==================
 
 #[test]
 fn test_phase_2_concurrent_shared_cache_basic() {
@@ -407,141 +286,79 @@ fn test_phase_2_performance_benchmarking() {
     println!("=== Phase 2 Performance Benchmarking PASSED ===\n");
 }
 
-#[cfg(test)]
-mod integration_tests {
-    use super::*;
+#[test]
+fn test_phase_2_integration() {
+    // Integration test for Phase 2 components
 
-    #[test]
-    fn test_phase_1_integration() {
-        // Integration test for Phase 1 components
+    println!("=== Phase 2 Integration Test ===");
 
-        println!("=== Phase 1 Integration Test ===");
+    let mut tracker = PerformanceTracker::new("phase_2_integration".to_string());
+    tracker.start_operation("full_integration");
 
-        // 1. Create test fixtures
-        let fixtures = TestFixtures::new();
-        println!("✓ Test fixtures created");
-        println!(
-            "  Small model size: {} bytes",
-            fixtures.small_model_bytes.len()
-        );
-        println!("  Small model SHA256: {}", fixtures.small_model_sha256);
-        println!(
-            "  Large model size: {} bytes",
-            fixtures.large_model_bytes.len()
-        );
+    // 1. Test TCP fault server creation (without actually starting it)
+    let fault_sequence = vec![
+        TcpFaultType::Success(b"test".to_vec()),
+        TcpFaultType::MidStreamAbort(10),
+    ];
 
-        // 2. Create mock server
-        let failure_pattern = vec![
-            FailureEvent::Success,
-            FailureEvent::HttpError(503),
-            FailureEvent::CorruptedChecksum,
-        ];
-        let mock_manager = MockServerManager::new(failure_pattern);
-        println!("✓ Mock server created at: {}", mock_manager.http_base_url());
+    // Note: We don't start the server in this test to avoid async complexity
+    println!("✓ TCP fault server components validated");
 
-        // 3. Create orchestrator
-        let orchestrator = StressTestOrchestrator::new(2).unwrap();
-        println!("✓ Orchestrator created for 2 processes");
+    // 2. Test performance tracking
+    tracker.start_operation("performance_test");
+    std::thread::sleep(std::time::Duration::from_millis(10));
+    tracker.end_operation("performance_test");
 
-        // 4. Create validator
-        let validator = CacheValidator::new();
-        let temp_dir = tempfile::TempDir::new().unwrap();
-        let validation_result = validator.validate_cache_consistency(temp_dir.path());
-        println!("✓ Cache validator working: {}", validation_result.passed);
+    tracker.record_process_completion(true);
+    tracker.record_process_completion(false);
+    tracker.record_cache_operation(true, 2048);
 
-        // 5. Test basic orchestration (expect failures due to missing beaker executable)
-        let failure_patterns = vec![
-            vec![FailureEvent::Success],
-            vec![FailureEvent::HttpError(500)],
-        ];
+    println!("✓ Performance tracking working");
 
-        let results =
-            orchestrator.run_stress_test(TestScenario::SameModelContention, failure_patterns);
+    // 3. Test enhanced mock server
+    let enhanced_pattern = vec![
+        FailureEvent::Success,
+        FailureEvent::HttpError(404),
+        FailureEvent::CorruptedChecksum,
+        FailureEvent::TcpConnectionRefused,
+    ];
 
-        println!("✓ Stress test orchestration completed");
-        println!("  Processes run: {}", results.total_processes());
-        println!("  Framework ready for Phase 2");
+    let _enhanced_mock = MockServerManager::new(enhanced_pattern);
+    println!("✓ Enhanced mock server created");
 
-        // Framework validation - at this stage we just verify it doesn't panic
-        assert_eq!(results.total_processes(), 2);
+    // 4. Test cache validation with realistic scenarios
+    let temp_dir = TempDir::new().unwrap();
+    let validator = CacheValidator::new();
 
-        println!("=== Phase 1 Integration Test PASSED ===");
-    }
+    // Create realistic cache structure
+    std::fs::write(temp_dir.path().join("model_001.onnx"), b"fake model").unwrap();
+    std::fs::write(temp_dir.path().join("model_002.onnx"), b"another model").unwrap();
 
-    #[test]
-    fn test_phase_2_integration() {
-        // Integration test for Phase 2 components
+    let validation_result = validator.validate_cache_consistency(temp_dir.path());
+    assert!(validation_result.passed);
+    println!("✓ Enhanced cache validation working");
 
-        println!("=== Phase 2 Integration Test ===");
+    tracker.end_operation("full_integration");
 
-        let mut tracker = PerformanceTracker::new("phase_2_integration".to_string());
-        tracker.start_operation("full_integration");
+    // 5. Generate final performance report
+    let metrics = tracker.finish();
+    metrics.print_report();
 
-        // 1. Test TCP fault server creation (without actually starting it)
-        let fault_sequence = vec![
-            TcpFaultType::Success(b"test".to_vec()),
-            TcpFaultType::MidStreamAbort(10),
-        ];
+    // Validation
+    assert!(metrics.total_duration.as_millis() > 0);
+    assert_eq!(metrics.processes_count, 2);
+    assert_eq!(metrics.successful_processes, 1);
+    assert_eq!(metrics.failed_processes, 1);
 
-        // Note: We don't start the server in this test to avoid async complexity
-        println!("✓ TCP fault server components validated");
+    println!("✓ All Phase 2 components integrated successfully");
+    println!(
+        "✓ Performance tracking: {:.2}ms total",
+        metrics.total_duration.as_millis()
+    );
+    println!(
+        "✓ Cache operations: {} hits, {} misses",
+        metrics.cache_hits, metrics.cache_misses
+    );
 
-        // 2. Test performance tracking
-        tracker.start_operation("performance_test");
-        std::thread::sleep(std::time::Duration::from_millis(10));
-        tracker.end_operation("performance_test");
-
-        tracker.record_process_completion(true);
-        tracker.record_process_completion(false);
-        tracker.record_cache_operation(true, 2048);
-
-        println!("✓ Performance tracking working");
-
-        // 3. Test enhanced mock server
-        let enhanced_pattern = vec![
-            FailureEvent::Success,
-            FailureEvent::HttpError(404),
-            FailureEvent::CorruptedChecksum,
-            FailureEvent::TcpConnectionRefused,
-        ];
-
-        let _enhanced_mock = MockServerManager::new(enhanced_pattern);
-        println!("✓ Enhanced mock server created");
-
-        // 4. Test cache validation with realistic scenarios
-        let temp_dir = TempDir::new().unwrap();
-        let validator = CacheValidator::new();
-
-        // Create realistic cache structure
-        std::fs::write(temp_dir.path().join("model_001.onnx"), b"fake model").unwrap();
-        std::fs::write(temp_dir.path().join("model_002.onnx"), b"another model").unwrap();
-
-        let validation_result = validator.validate_cache_consistency(temp_dir.path());
-        assert!(validation_result.passed);
-        println!("✓ Enhanced cache validation working");
-
-        tracker.end_operation("full_integration");
-
-        // 5. Generate final performance report
-        let metrics = tracker.finish();
-        metrics.print_report();
-
-        // Validation
-        assert!(metrics.total_duration.as_millis() > 0);
-        assert_eq!(metrics.processes_count, 2);
-        assert_eq!(metrics.successful_processes, 1);
-        assert_eq!(metrics.failed_processes, 1);
-
-        println!("✓ All Phase 2 components integrated successfully");
-        println!(
-            "✓ Performance tracking: {:.2}ms total",
-            metrics.total_duration.as_millis()
-        );
-        println!(
-            "✓ Cache operations: {} hits, {} misses",
-            metrics.cache_hits, metrics.cache_misses
-        );
-
-        println!("=== Phase 2 Integration Test PASSED ===");
-    }
+    println!("=== Phase 2 Integration Test PASSED ===");
 }

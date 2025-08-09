@@ -65,35 +65,48 @@ impl MockServerManager {
         let failure_controller = Arc::new(FailureController::new(failure_pattern));
         let fixtures = self.fixtures.clone();
 
-        let failure_controller_clone = Arc::clone(&failure_controller);
+        // Create a dynamic mock that responds based on current failure pattern
+        for model_path in &["/small-test-model.onnx", "/large-test-model.onnx"] {
+            let failure_controller_clone = Arc::clone(&failure_controller);
+            let fixtures_clone = fixtures.clone();
 
-        // Simple mock configuration for Phase 1
-        // Note: This is a simplified version. Full implementation with dynamic responses
-        // will be completed in Phase 2
-        let _mock = self.http_server.mock(|when, then| {
-            when.path("/small-test-model.onnx");
-            match failure_controller_clone.next_response() {
-                FailureEvent::Success => {
-                    then.status(200).body(fixtures.small_model_bytes);
+            self.http_server.mock(|when, then| {
+                when.path(*model_path);
+
+                // Configure response based on next failure event
+                let next_event = failure_controller_clone.next_response();
+                match next_event {
+                    FailureEvent::Success => {
+                        let data = if model_path.contains("small") {
+                            fixtures_clone.small_model_bytes
+                        } else {
+                            fixtures_clone.large_model_bytes
+                        };
+                        then.status(200)
+                            .header("content-type", "application/octet-stream")
+                            .body(data);
+                    }
+                    FailureEvent::HttpError(code) => {
+                        then.status(code).body("HTTP Error");
+                    }
+                    FailureEvent::CorruptedChecksum => {
+                        then.status(200)
+                            .header("content-type", "application/octet-stream")
+                            .body(&fixtures_clone.corrupted_model_bytes);
+                    }
+                    // TCP-level failures mapped to HTTP errors for compatibility
+                    FailureEvent::TcpConnectionRefused => {
+                        then.status(503).body("Connection Refused");
+                    }
+                    FailureEvent::TcpMidStreamAbort(_) => {
+                        then.status(502).body("Connection Reset");
+                    }
+                    FailureEvent::TcpHeaderThenClose => {
+                        then.status(500).body("Unexpected Connection Close");
+                    }
                 }
-                FailureEvent::HttpError(code) => {
-                    then.status(code);
-                }
-                FailureEvent::CorruptedChecksum => {
-                    then.status(200).body(&fixtures.corrupted_model_bytes);
-                }
-                // For TCP-level failures, just return HTTP errors for now
-                FailureEvent::TcpConnectionRefused => {
-                    then.status(503);
-                }
-                FailureEvent::TcpMidStreamAbort(_) => {
-                    then.status(502);
-                }
-                FailureEvent::TcpHeaderThenClose => {
-                    then.status(500);
-                }
-            }
-        });
+            });
+        }
     }
 }
 
