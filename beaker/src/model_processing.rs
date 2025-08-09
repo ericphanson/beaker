@@ -314,7 +314,7 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
     start_timestamp: chrono::DateTime<chrono::Utc>,
 ) -> Result<()> {
     use crate::output_manager::OutputManager;
-    use crate::shared_metadata::{CutoutSections, ExecutionContext, HeadSections};
+    use crate::shared_metadata::{CutoutSections, DetectSections, ExecutionContext};
 
     let output_manager = OutputManager::new(config, image_path);
 
@@ -335,15 +335,15 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
 
     // Create the appropriate sections based on tool type
     match result.tool_name() {
-        "head" => {
-            let head_sections = HeadSections {
+        "detect" => {
+            let detect_sections = DetectSections {
                 core: Some(core_results),
                 config: Some(config_value),
                 execution: Some(execution),
                 system: Some(system),
                 input: Some(input),
             };
-            output_manager.save_complete_metadata(Some(head_sections), None)?;
+            output_manager.save_complete_metadata(Some(detect_sections), None)?;
         }
         "cutout" => {
             let cutout_sections = CutoutSections {

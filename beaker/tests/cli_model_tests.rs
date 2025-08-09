@@ -17,7 +17,7 @@ fn test_cli_model_path_validation() {
         .args([
             "run",
             "--",
-            "head",
+            "detect",
             test_image.to_str().unwrap(),
             "--model-path",
             "/non/existent/model.onnx",
@@ -49,7 +49,7 @@ fn test_cli_model_validation_conflicts() {
         .args([
             "run",
             "--",
-            "head",
+            "detect",
             test_image.to_str().unwrap(),
             "--model-path",
             "/some/path.onnx",
@@ -83,7 +83,7 @@ fn test_cli_model_checksum_without_url() {
         .args([
             "run",
             "--",
-            "head",
+            "detect",
             test_image.to_str().unwrap(),
             "--model-checksum",
             "abcd1234",
@@ -119,7 +119,7 @@ fn test_cli_empty_model_file_rejection() {
         .args([
             "run",
             "--",
-            "head",
+            "detect",
             test_image.to_str().unwrap(),
             "--model-path",
             empty_model.to_str().unwrap(),
@@ -152,7 +152,7 @@ fn test_cli_model_url_without_checksum() {
         .args([
             "run",
             "--",
-            "head",
+            "detect",
             test_image.to_str().unwrap(),
             "--model-url",
             "https://github.com/ericphanson/beaker/releases/download/bird-head-detector-v0.1.1/best.onnx",

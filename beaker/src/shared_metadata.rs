@@ -115,23 +115,23 @@ pub const RELEVANT_ENV_VARS: &[&str] = &[
     "RUST_LOG",
 ];
 
-/// Shared metadata structure that can contain both head and cutout results
+/// Shared metadata structure that can contain detect and cutout results
 #[derive(Serialize, Deserialize, Default, Debug)]
 pub struct BeakerMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub head: Option<HeadSections>,
+    pub detect: Option<DetectSections>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cutout: Option<CutoutSections>,
 }
 
-/// All sections for head detection tool
+/// All sections for detect command tool
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
-pub struct HeadSections {
-    // Core results (backwards compatibility - flatten the existing head results)
+pub struct DetectSections {
+    // Core results (flattened detection results)
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     pub core: Option<toml::Value>,
 
-    // New subsections
+    // Subsections
     #[serde(skip_serializing_if = "Option::is_none")]
     pub config: Option<toml::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -267,10 +267,10 @@ pub fn save_metadata(metadata: &BeakerMetadata, path: &Path) -> Result<()> {
         Err(e) => {
             log::debug!("About to serialize metadata: {metadata:#?}");
             // Try to serialize each section individually to isolate the problem
-            if let Some(ref head) = metadata.head {
-                log::error!("Head section: {head:#?}");
-                if let Err(head_err) = toml::to_string_pretty(head) {
-                    log::error!("Head section serialization failed: {head_err}");
+            if let Some(ref detect) = metadata.detect {
+                log::error!("Detect section: {detect:#?}");
+                if let Err(detect_err) = toml::to_string_pretty(detect) {
+                    log::error!("Detect section serialization failed: {detect_err}");
                 }
             }
             if let Some(ref cutout) = metadata.cutout {
@@ -393,7 +393,7 @@ mod tests {
     fn test_toml_structure() {
         // Create test metadata with tool sections
         let metadata = BeakerMetadata {
-            head: Some(HeadSections {
+            detect: Some(DetectSections {
                 core: Some(
                     toml::toml! {
                         model_version = "test-v1.0.0"
@@ -406,14 +406,14 @@ mod tests {
                     toml::toml! {
                         confidence = 0.25
                         iou_threshold = 0.45
-                        crop = true
+                        crop = ["head"]
                     }
                     .into(),
                 ),
                 execution: Some(ExecutionContext {
                     timestamp: Some(chrono::Utc::now()),
                     beaker_version: Some("0.1.1".to_string()),
-                    command_line: Some(vec!["head".to_string(), "test.jpg".to_string()]),
+                    command_line: Some(vec!["detect".to_string(), "test.jpg".to_string()]),
                     exit_code: Some(0),
                     model_processing_time_ms: Some(150.5),
                     file_io: Some(IoTiming {
@@ -447,10 +447,10 @@ mod tests {
 
         // Verify it can be parsed back
         let parsed: BeakerMetadata = toml::from_str(&toml_output).unwrap();
-        assert!(parsed.head.is_some());
-        assert!(parsed.head.as_ref().unwrap().config.is_some());
-        assert!(parsed.head.as_ref().unwrap().execution.is_some());
-        assert!(parsed.head.as_ref().unwrap().system.is_some());
+        assert!(parsed.detect.is_some());
+        assert!(parsed.detect.as_ref().unwrap().config.is_some());
+        assert!(parsed.detect.as_ref().unwrap().execution.is_some());
+        assert!(parsed.detect.as_ref().unwrap().system.is_some());
     }
 
     #[test]
