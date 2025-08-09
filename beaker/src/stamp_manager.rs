@@ -161,17 +161,18 @@ pub fn create_or_update_stamp(stamp_type: &str, hash: &str, content: &str) -> Re
     Ok(stamp_path)
 }
 
-/// Generate all stamps for a detection run
-pub fn generate_detection_stamps(
-    config: &DetectionConfig,
+/// Generic stamp generation helper that reduces boilerplate
+fn generate_stamps_for_tool(
+    tool_name: &str,
+    config_hash: String,
     model_path: Option<&Path>,
 ) -> Result<StampInfo> {
-    let config_hash = generate_detection_config_hash(config);
     let tool_hash = generate_tool_hash();
 
     // Generate config stamp
-    let config_content = format!("detection-config:{config_hash}");
-    let config_stamp = create_or_update_stamp("cfg-detect", &config_hash, &config_content)?;
+    let config_content = format!("{tool_name}-config:{config_hash}");
+    let config_stamp =
+        create_or_update_stamp(&format!("cfg-{tool_name}"), &config_hash, &config_content)?;
 
     // Generate tool stamp
     let tool_content = format!("tool:{tool_hash}");
@@ -180,9 +181,9 @@ pub fn generate_detection_stamps(
     // Generate model stamp if model file exists
     let model_stamp = if let Some(model_path) = model_path {
         let model_hash = generate_model_hash_from_path(model_path)?;
-        let model_content = format!("model-detect:{model_hash}");
+        let model_content = format!("model-{tool_name}:{model_hash}");
         Some(create_or_update_stamp(
-            "model-detect",
+            &format!("model-{tool_name}"),
             &model_hash,
             &model_content,
         )?)
@@ -197,40 +198,22 @@ pub fn generate_detection_stamps(
     })
 }
 
+/// Generate all stamps for a detection run
+pub fn generate_detection_stamps(
+    config: &DetectionConfig,
+    model_path: Option<&Path>,
+) -> Result<StampInfo> {
+    let config_hash = generate_detection_config_hash(config);
+    generate_stamps_for_tool("detect", config_hash, model_path)
+}
+
 /// Generate all stamps for a cutout run
 pub fn generate_cutout_stamps(
     config: &CutoutConfig,
     model_path: Option<&Path>,
 ) -> Result<StampInfo> {
     let config_hash = generate_cutout_config_hash(config);
-    let tool_hash = generate_tool_hash();
-
-    // Generate config stamp
-    let config_content = format!("cutout-config:{config_hash}");
-    let config_stamp = create_or_update_stamp("cfg-cutout", &config_hash, &config_content)?;
-
-    // Generate tool stamp
-    let tool_content = format!("tool:{tool_hash}");
-    let tool_stamp = create_or_update_stamp("tool", &tool_hash, &tool_content)?;
-
-    // Generate model stamp if model file exists
-    let model_stamp = if let Some(model_path) = model_path {
-        let model_hash = generate_model_hash_from_path(model_path)?;
-        let model_content = format!("model-cutout:{model_hash}");
-        Some(create_or_update_stamp(
-            "model-cutout",
-            &model_hash,
-            &model_content,
-        )?)
-    } else {
-        None
-    };
-
-    Ok(StampInfo {
-        config_stamp,
-        tool_stamp,
-        model_stamp,
-    })
+    generate_stamps_for_tool("cutout", config_hash, model_path)
 }
 
 /// Information about generated stamp files

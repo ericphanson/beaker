@@ -424,10 +424,13 @@ fn generate_depfile_for_image<P: ModelProcessor>(
     // Input files are just the source image
     let inputs = vec![image_path.to_path_buf()];
 
-    // Combine result's created files with metadata files tracked by OutputManager
-    let mut outputs = result.get_created_files();
-    let metadata_files = output_manager.get_produced_outputs();
-    outputs.extend(metadata_files);
+    // Track outputs from result in the main OutputManager
+    for output_file in result.get_created_files() {
+        output_manager.track_output(output_file);
+    }
+
+    // Use OutputManager as single source of truth for all outputs
+    let outputs = output_manager.get_produced_outputs();
 
     // Generate the depfile
     generate_depfile(Path::new(depfile_path), &outputs, &inputs, stamp_info)?;

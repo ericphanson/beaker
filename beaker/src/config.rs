@@ -186,6 +186,15 @@ pub struct DetectCommand {
 }
 
 /// Internal configuration for detection processing
+///
+/// **IMPORTANT**: This struct must be kept in sync with generate_detection_config_hash().
+/// When adding new fields that affect byte-level output:
+/// 1. Add the field to the hash computation in stamp_manager.rs
+/// 2. Update tests in stamp_manager.rs
+/// 3. Consider if the field should be included in serialized config
+///
+/// Only include parameters that affect the actual image bytes produced,
+/// not metadata-only or performance-related settings.
 #[derive(Debug, Clone, Serialize)]
 pub struct DetectionConfig {
     #[serde(skip)]
@@ -254,6 +263,15 @@ pub struct CutoutCommand {
 }
 
 /// Internal configuration for cutout processing
+///
+/// **IMPORTANT**: This struct must be kept in sync with generate_cutout_config_hash().
+/// When adding new fields that affect byte-level output:
+/// 1. Add the field to the hash computation in stamp_manager.rs
+/// 2. Update tests in stamp_manager.rs
+/// 3. Consider if the field should be included in serialized config
+///
+/// Only include parameters that affect the actual image bytes produced,
+/// not metadata-only or performance-related settings.
 #[derive(Debug, Clone, Serialize)]
 pub struct CutoutConfig {
     #[serde(skip)]
