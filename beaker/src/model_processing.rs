@@ -38,6 +38,9 @@ pub trait ModelResult {
     /// Get a summary of all output files created
     fn output_summary(&self) -> String;
 
+    /// Get file I/O timing information
+    fn get_io_timing(&self) -> crate::shared_metadata::IoTiming;
+
     /// Get mask entry for cutout results (only applicable for cutout tools)
     fn get_mask_entry(&self) -> Option<crate::mask_encoding::MaskEntry> {
         None
@@ -314,6 +317,7 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
         command_line: Some(command_line.to_vec()),
         exit_code: Some(0),
         model_processing_time_ms: Some(result.processing_time_ms()),
+        file_io: Some(result.get_io_timing()),
         beaker_env_vars: crate::shared_metadata::collect_beaker_env_vars(),
     };
 
