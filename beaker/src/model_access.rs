@@ -115,16 +115,6 @@ pub fn get_onnx_cache_info() -> CacheInfo {
     })
 }
 
-/// Count the number of cached models in the cache directory
-pub fn count_cached_models() -> usize {
-    get_onnx_cache_info().count
-}
-
-/// Calculate the total size of cached models in MB
-pub fn calculate_cached_models_size_mb() -> f64 {
-    get_onnx_cache_info().size_mb()
-}
-
 /// Count the number of compiled CoreML models and calculate their total size
 pub fn get_coreml_cache_info() -> CacheInfo {
     let Ok(cache_dir) = get_coreml_cache_dir() else {
@@ -135,16 +125,6 @@ pub fn get_coreml_cache_info() -> CacheInfo {
         let path = entry.path();
         path.is_dir() && path.extension().is_some_and(|ext| ext == "mlmodelc")
     })
-}
-
-/// Count the number of compiled CoreML models in the CoreML cache directory
-pub fn count_coreml_cached_models() -> usize {
-    get_coreml_cache_info().count
-}
-
-/// Calculate the total size of CoreML cached models in MB
-pub fn calculate_coreml_cache_size_mb() -> f64 {
-    get_coreml_cache_info().size_mb()
 }
 
 /// Calculate the total size of a directory recursively
@@ -491,11 +471,9 @@ pub fn get_or_download_model(model_info: &ModelInfo) -> Result<(PathBuf, CacheSt
     log::debug!("🗂️  Cache directory: {}", cache_dir.display());
     log::debug!("📄 Model path: {}", model_path.display());
 
-    // Collect cache stats
-    let cached_models_count = count_cached_models();
-    let cached_models_size_mb = calculate_cached_models_size_mb();
-    let coreml_cache_count = count_coreml_cached_models();
-    let coreml_cache_size_mb = calculate_coreml_cache_size_mb();
+    // Collect cache stats once during actual cache access
+    let onnx_cache_info = get_onnx_cache_info();
+    let coreml_cache_info = get_coreml_cache_info();
 
     // Check if model already exists and has correct checksum
     if model_path.exists() {
@@ -529,10 +507,10 @@ pub fn get_or_download_model(model_info: &ModelInfo) -> Result<(PathBuf, CacheSt
                         let cache_stats = CacheStats {
                             cache_hit: true,
                             download_time_ms: None,
-                            cached_models_count: Some(cached_models_count),
-                            cached_models_size_mb: Some(cached_models_size_mb),
-                            coreml_cache_count: Some(coreml_cache_count),
-                            coreml_cache_size_mb: Some(coreml_cache_size_mb),
+                            cached_models_count: Some(onnx_cache_info.count),
+                            cached_models_size_mb: Some(onnx_cache_info.size_mb()),
+                            coreml_cache_count: Some(coreml_cache_info.count),
+                            coreml_cache_size_mb: Some(coreml_cache_info.size_mb()),
                         };
 
                         return Ok((model_path, cache_stats));
@@ -625,18 +603,14 @@ pub fn get_or_download_model(model_info: &ModelInfo) -> Result<(PathBuf, CacheSt
         crate::color_utils::symbols::completed_successfully()
     );
 
-    // Recalculate cache stats after download
-    let final_cached_models_count = count_cached_models();
-    let final_cached_models_size_mb = calculate_cached_models_size_mb();
-
-    // Return cache miss stats
+    // Return cache miss stats using the pre-download stats
     let cache_stats = CacheStats {
         cache_hit: false,
         download_time_ms,
-        cached_models_count: Some(final_cached_models_count),
-        cached_models_size_mb: Some(final_cached_models_size_mb),
-        coreml_cache_count: Some(coreml_cache_count),
-        coreml_cache_size_mb: Some(coreml_cache_size_mb),
+        cached_models_count: Some(onnx_cache_info.count),
+        cached_models_size_mb: Some(onnx_cache_info.size_mb()),
+        coreml_cache_count: Some(coreml_cache_info.count),
+        coreml_cache_size_mb: Some(coreml_cache_info.size_mb()),
     };
 
     Ok((model_path, cache_stats))
@@ -747,7 +721,7 @@ pub trait ModelAccess {
 /// Returns both the model source and cache statistics.
 pub fn get_model_source_with_env_override_and_stats<T: ModelAccess>(
 ) -> Result<ModelSourceWithStats<'static>> {
-    // First, get cache info for current state
+    // Collect general cache system stats that are always available
     let onnx_cache_info = get_onnx_cache_info();
     let coreml_cache_info = get_coreml_cache_info();
 
@@ -832,7 +806,7 @@ pub fn get_model_source_with_env_override_and_stats<T: ModelAccess>(
     if let Some(embedded_bytes) = T::get_embedded_bytes() {
         log::debug!("📦 Using embedded model bytes");
 
-        // For embedded models, provide general cache stats
+        // For embedded models, provide general cache system stats but no cache hit info
         let cache_stats = CacheStats {
             cache_hit: false, // Not applicable for embedded models
             download_time_ms: None,

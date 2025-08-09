@@ -20,7 +20,7 @@ pub struct TestScenario {
 }
 
 /// Metadata validation checks
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum MetadataCheck {
     /// Verify device was used for a specific tool
     DeviceUsed(&'static str, &'static str), // tool, device

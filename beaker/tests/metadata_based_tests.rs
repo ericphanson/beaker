@@ -9,7 +9,7 @@ mod test_performance_tracker;
 fn get_test_scenarios() -> Vec<TestScenario> {
     // Helper function to create cache statistics checks
     fn cache_checks(tool: &'static str) -> Vec<MetadataCheck> {
-        let mut checks = vec![
+        let checks = vec![
             MetadataCheck::CacheStatsPresent(tool, "cached_models_count"),
             MetadataCheck::CacheStatsPresent(tool, "cached_models_size_mb"),
             MetadataCheck::CacheStatsNonNegative(tool, "cached_models_count"),
