@@ -34,6 +34,14 @@ impl ModelAccess for CutAccess {
         get_model_source_with_env_override::<Self>()
     }
 
+    fn get_cache_stats() -> Result<Option<crate::model_access::CacheStats>> {
+        use crate::model_access::get_last_cache_stats;
+        
+        // Return the last cache stats from thread-local storage
+        // This will be populated after get_model_source is called
+        Ok(get_last_cache_stats())
+    }
+
     fn get_embedded_bytes() -> Option<&'static [u8]> {
         // Cutout models are not embedded, they are downloaded
         None
@@ -143,6 +151,10 @@ impl ModelProcessor for CutoutProcessor {
     fn get_model_source<'a>() -> Result<ModelSource<'a>> {
         // Use the new model access interface for cutout models
         CutAccess::get_model_source()
+    }
+
+    fn get_cache_stats() -> Result<Option<crate::model_access::CacheStats>> {
+        CutAccess::get_cache_stats()
     }
 
     fn process_single_image(

@@ -55,6 +55,11 @@ pub trait ModelProcessor {
     /// Get the model source for loading the ONNX model
     fn get_model_source<'a>() -> Result<ModelSource<'a>>;
 
+    /// Get cache statistics for this model type
+    fn get_cache_stats() -> Result<Option<crate::model_access::CacheStats>> {
+        Ok(None)
+    }
+
     /// Process a single image through the complete pipeline
     fn process_single_image(
         session: &mut Session,
@@ -140,6 +145,9 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
         timing_str
     );
 
+    // Get cache statistics for this model type
+    let cache_stats = P::get_cache_stats().unwrap_or_default();
+
     let system = SystemInfo {
         device_requested: Some(config.base().device.clone()),
         device_selected: Some(device_selected.to_string()),
@@ -150,6 +158,10 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
         model_size_bytes: Some(model_info.model_size_bytes.try_into().unwrap()),
         model_load_time_ms: Some(model_load_time_ms),
         model_checksum: Some(model_info.model_checksum),
+        model_cache_hit: cache_stats.as_ref().map(|s| s.cache_hit),
+        model_download_time_ms: cache_stats.as_ref().and_then(|s| s.download_time_ms),
+        coreml_cache_hit: model_info.coreml_cache_hit,
+        cached_models_count: cache_stats.as_ref().and_then(|s| s.cached_models_count),
     };
 
     // Process each image and collect results

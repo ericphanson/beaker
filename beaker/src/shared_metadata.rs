@@ -101,6 +101,14 @@ pub struct SystemInfo {
     pub model_load_time_ms: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_checksum: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_cache_hit: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_download_time_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_cache_hit: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cached_models_count: Option<usize>,
 }
 
 /// Input processing statistics for a tool invocation

@@ -10,10 +10,11 @@ use crate::onnx_session::ModelSource;
 use crate::progress::{add_progress_bar, remove_progress_bar};
 use anyhow::{anyhow, Result};
 use indicatif::{ProgressBar, ProgressStyle};
+use std::cell::RefCell;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Model information for caching and verification (with owned strings)
 #[derive(Debug, Clone)]
@@ -22,6 +23,31 @@ pub struct ModelInfo {
     pub url: String,
     pub md5_checksum: String,
     pub filename: String,
+}
+
+/// Cache statistics for tracking model access patterns
+#[derive(Debug, Clone, Default)]
+pub struct CacheStats {
+    pub cache_hit: bool,
+    pub download_time_ms: Option<f64>,
+    pub cached_models_count: Option<usize>,
+}
+
+// Thread-local storage for cache stats from the last model access
+thread_local! {
+    static LAST_CACHE_STATS: RefCell<Option<CacheStats>> = RefCell::new(None);
+}
+
+/// Get the last recorded cache stats from thread-local storage
+pub fn get_last_cache_stats() -> Option<CacheStats> {
+    LAST_CACHE_STATS.with(|stats| stats.borrow().clone())
+}
+
+/// Set cache stats in thread-local storage
+fn set_cache_stats(stats: CacheStats) {
+    LAST_CACHE_STATS.with(|tl_stats| {
+        *tl_stats.borrow_mut() = Some(stats);
+    });
 }
 
 /// Get the cache directory for storing downloaded models
@@ -39,8 +65,32 @@ fn get_file_info(path: &Path) -> Result<String> {
     cache_common::get_file_info(path)
 }
 
+/// Count the number of cached models in the cache directory
+fn count_cached_models() -> usize {
+    let Ok(cache_dir) = get_cache_dir() else {
+        return 0;
+    };
+
+    fs::read_dir(&cache_dir)
+        .map(|entries| {
+            entries
+                .filter_map(|entry| entry.ok())
+                .filter(|entry| {
+                    entry
+                        .path()
+                        .extension()
+                        .map_or(false, |ext| ext == "onnx")
+                })
+                .count()
+        })
+        .unwrap_or(0)
+}
+
 /// Download a model from URL to the specified path with progress bar
-fn download_model(url: &str, output_path: &Path) -> Result<()> {
+/// Returns the download time in milliseconds
+fn download_model(url: &str, output_path: &Path) -> Result<f64> {
+    let download_start = Instant::now();
+    
     log::info!("📥 Downloading model from: {url}");
 
     // Create parent directory if it doesn't exist
@@ -187,21 +237,24 @@ fn download_model(url: &str, output_path: &Path) -> Result<()> {
         ));
     }
 
+    let download_time_ms = download_start.elapsed().as_secs_f64() * 1000.0;
+
     log::info!(
-        "{} Model downloaded to: {}",
+        "{} Model downloaded to: {} (in {download_time_ms:.0}ms)",
         crate::color_utils::symbols::completed_successfully(),
         output_path.display()
     );
 
-    Ok(())
+    Ok(download_time_ms)
 }
 
 /// Download model with concurrency protection using lock files
+/// Returns the download time in milliseconds
 fn download_with_concurrency_protection(
     model_path: &Path,
     lock_path: &Path,
     model_info: &ModelInfo,
-) -> Result<()> {
+) -> Result<f64> {
     const MAX_WAIT_TIME: Duration = Duration::from_secs(300); // 5 minutes max wait
     const INITIAL_WAIT: Duration = Duration::from_millis(50);
     const MAX_WAIT_INTERVAL: Duration = Duration::from_millis(1000);
@@ -271,7 +324,7 @@ fn download_with_concurrency_protection(
                                 "{} Model downloaded by another process, using cached version",
                                 symbols::resources_found()
                             );
-                            return Ok(());
+                            return Ok(0.0); // No download time since it was concurrent
                         }
                         Ok(false) => {
                             log::debug!(
@@ -349,6 +402,7 @@ fn download_with_concurrency_protection(
 }
 
 /// Get the cached model path, downloading if necessary
+/// Returns the model path and stores cache statistics in thread-local storage
 pub fn get_or_download_model(model_info: &ModelInfo) -> Result<PathBuf> {
     let cache_dir = get_cache_dir()?;
     let model_path = cache_dir.join(&model_info.filename);
@@ -356,6 +410,8 @@ pub fn get_or_download_model(model_info: &ModelInfo) -> Result<PathBuf> {
 
     log::debug!("🗂️  Cache directory: {}", cache_dir.display());
     log::debug!("📄 Model path: {}", model_path.display());
+
+    let cached_models_count = count_cached_models();
 
     // Check if model already exists and has correct checksum
     if model_path.exists() {
@@ -384,6 +440,14 @@ pub fn get_or_download_model(model_info: &ModelInfo) -> Result<PathBuf> {
                             crate::color_utils::symbols::completed_successfully(),
                             model_info.filename
                         );
+                        
+                        // Store cache hit stats
+                        set_cache_stats(CacheStats {
+                            cache_hit: true,
+                            download_time_ms: None,
+                            cached_models_count: Some(cached_models_count),
+                        });
+                        
                         return Ok(model_path);
                     }
                     Ok(false) => {
@@ -422,8 +486,9 @@ pub fn get_or_download_model(model_info: &ModelInfo) -> Result<PathBuf> {
             );
         }
     }
+    
     // Handle concurrent downloads with lock file
-    download_with_concurrency_protection(&model_path, &lock_path, model_info)?;
+    let download_time_ms = download_with_concurrency_protection(&model_path, &lock_path, model_info)?;
 
     // Verify the downloaded model
     log::debug!(
@@ -471,6 +536,15 @@ pub fn get_or_download_model(model_info: &ModelInfo) -> Result<PathBuf> {
         "{} Model downloaded and verified successfully",
         crate::color_utils::symbols::completed_successfully()
     );
+
+    let final_cached_models_count = count_cached_models();
+
+    // Store cache miss stats
+    set_cache_stats(CacheStats {
+        cache_hit: false,
+        download_time_ms: Some(download_time_ms),
+        cached_models_count: Some(final_cached_models_count),
+    });
 
     Ok(model_path)
 }
@@ -530,12 +604,25 @@ pub fn get_or_download_runtime_model(model_info: RuntimeModelInfo) -> Result<Pat
     get_or_download_model(&model_info)
 }
 
+/// Get cache statistics for a model download (separate from the path)
+/// This is now just an alias to get_last_cache_stats for compatibility
+pub fn get_model_cache_stats(_model_info: RuntimeModelInfo) -> Result<CacheStats> {
+    Ok(get_last_cache_stats().unwrap_or_default())
+}
+
 /// Internal interface for accessing models at runtime.
 /// Provides unified access to embedded models and runtime model paths.
 pub trait ModelAccess {
     /// Get the model source for this model type.
     /// Returns either embedded bytes (default) or a file path (if overridden via env vars).
     fn get_model_source<'a>() -> Result<ModelSource<'a>>;
+
+    /// Get cache statistics for this model type.
+    /// Returns None for embedded models, Some(CacheStats) for downloadable models.
+    fn get_cache_stats() -> Result<Option<CacheStats>> {
+        // Default implementation for models that don't support caching
+        Ok(None)
+    }
 
     /// Get the embedded model bytes (fallback), if any.
     /// Returns None for models that don't have embedded versions.

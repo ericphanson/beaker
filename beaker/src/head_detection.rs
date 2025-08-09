@@ -203,6 +203,10 @@ impl ModelProcessor for HeadProcessor {
         HeadAccess::get_model_source()
     }
 
+    fn get_cache_stats() -> Result<Option<crate::model_access::CacheStats>> {
+        HeadAccess::get_cache_stats()
+    }
+
     fn process_single_image(
         session: &mut Session,
         image_path: &Path,

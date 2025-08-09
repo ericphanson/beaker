@@ -31,6 +31,17 @@ fn get_stable_coreml_cache_dir(model_bytes: &[u8]) -> Result<std::path::PathBuf>
     Ok(stable_dir)
 }
 
+/// Check if CoreML cache exists for the given model bytes
+fn check_coreml_cache_hit(model_bytes: &[u8]) -> bool {
+    match get_stable_coreml_cache_dir(model_bytes) {
+        Ok(cache_dir) => {
+            let compiled_model_path = cache_dir.join("compiled_model.mlmodelc");
+            compiled_model_path.exists()
+        }
+        Err(_) => false,
+    }
+}
+
 /// Generate a unique CoreML cache directory to avoid conflicts (fallback only)
 fn get_unique_coreml_cache_dir() -> Result<std::path::PathBuf> {
     use std::process;
@@ -94,6 +105,8 @@ pub struct ModelInfo {
     pub description: String,
     pub execution_providers: Vec<String>,
     pub model_checksum: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_cache_hit: Option<bool>,
 }
 
 /// Device selection result
@@ -134,7 +147,7 @@ pub fn create_onnx_session(
     config: &SessionConfig,
 ) -> Result<(Session, ModelInfo)> {
     // Get model bytes for cache key generation and session creation
-    let (bytes, model_info_base) = match model_source {
+    let (bytes, mut model_info_base) = match model_source {
         ModelSource::EmbeddedBytes(bytes) => {
             let model_checksum = cache_common::calculate_md5_bytes(bytes);
             let model_info = ModelInfo {
@@ -144,6 +157,7 @@ pub fn create_onnx_session(
                 description: "Embedded model bytes".to_string(),
                 execution_providers: vec![], // Will be populated later
                 model_checksum,
+                coreml_cache_hit: None, // Will be populated later if CoreML is used
             };
             (bytes.to_vec(), model_info)
         }
@@ -157,10 +171,23 @@ pub fn create_onnx_session(
                 description: format!("Model loaded from: {path}"),
                 execution_providers: vec![], // Will be populated later
                 model_checksum,
+                coreml_cache_hit: None, // Will be populated later if CoreML is used
             };
             (bytes, model_info)
         }
     };
+
+    // Check CoreML cache hit if using CoreML
+    if config.device == "coreml" {
+        let coreml_cache_hit = check_coreml_cache_hit(&bytes);
+        model_info_base.coreml_cache_hit = Some(coreml_cache_hit);
+        
+        if coreml_cache_hit {
+            log::debug!("♻️  CoreML cache hit detected");
+        } else {
+            log::debug!("🆕 CoreML cache miss - will compile model");
+        }
+    }
 
     // Set up stable CoreML cache directory if using CoreML
     let coreml_cache_dir = if config.device == "coreml" {
