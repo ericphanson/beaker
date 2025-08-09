@@ -557,7 +557,7 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
         // Cache Statistics Checks
         MetadataCheck::OnnxCacheStatsPresent(tool) => {
             let system = match *tool {
-                "head" => metadata.head.as_ref().and_then(|h| h.system.as_ref()),
+                "detect" => metadata.detect.as_ref().and_then(|h| h.system.as_ref()),
                 "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
                 _ => panic!("Unknown tool: {tool}"),
             };
@@ -585,7 +585,7 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
 
         MetadataCheck::OnnxCacheStatsAbsent(tool) => {
             let system = match *tool {
-                "head" => metadata.head.as_ref().and_then(|h| h.system.as_ref()),
+                "detect" => metadata.detect.as_ref().and_then(|h| h.system.as_ref()),
                 "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
                 _ => panic!("Unknown tool: {tool}"),
             };
@@ -600,7 +600,7 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
 
         MetadataCheck::DownloadCacheHitPresent(tool) => {
             let system = match *tool {
-                "head" => metadata.head.as_ref().and_then(|h| h.system.as_ref()),
+                "detect" => metadata.detect.as_ref().and_then(|h| h.system.as_ref()),
                 "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
                 _ => panic!("Unknown tool: {tool}"),
             };
@@ -624,7 +624,7 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
 
         MetadataCheck::DownloadCacheHitAbsent(tool) => {
             let system = match *tool {
-                "head" => metadata.head.as_ref().and_then(|h| h.system.as_ref()),
+                "detect" => metadata.detect.as_ref().and_then(|h| h.system.as_ref()),
                 "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
                 _ => panic!("Unknown tool: {tool}"),
             };
@@ -642,7 +642,7 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
 
         MetadataCheck::DownloadTimingPresent(tool) => {
             let system = match *tool {
-                "head" => metadata.head.as_ref().and_then(|h| h.system.as_ref()),
+                "detect" => metadata.detect.as_ref().and_then(|h| h.system.as_ref()),
                 "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
                 _ => panic!("Unknown tool: {tool}"),
             };
@@ -666,7 +666,7 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
 
         MetadataCheck::DownloadTimingAbsent(tool) => {
             let system = match *tool {
-                "head" => metadata.head.as_ref().and_then(|h| h.system.as_ref()),
+                "detect" => metadata.detect.as_ref().and_then(|h| h.system.as_ref()),
                 "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
                 _ => panic!("Unknown tool: {tool}"),
             };
@@ -684,7 +684,7 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
 
         MetadataCheck::CoremlCacheStatsPresent(tool) => {
             let system = match *tool {
-                "head" => metadata.head.as_ref().and_then(|h| h.system.as_ref()),
+                "detect" => metadata.detect.as_ref().and_then(|h| h.system.as_ref()),
                 "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
                 _ => panic!("Unknown tool: {tool}"),
             };
@@ -716,7 +716,7 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
 
         MetadataCheck::CoremlCacheStatsAbsent(tool) => {
             let system = match *tool {
-                "head" => metadata.head.as_ref().and_then(|h| h.system.as_ref()),
+                "detect" => metadata.detect.as_ref().and_then(|h| h.system.as_ref()),
                 "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
                 _ => panic!("Unknown tool: {tool}"),
             };

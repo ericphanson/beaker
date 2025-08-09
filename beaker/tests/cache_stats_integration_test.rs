@@ -11,19 +11,19 @@ fn test_cache_stats_integration() {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
     let (_example_jpg, _example_2_birds) = setup_test_files(&temp_dir);
 
-    println!("Testing cache statistics with embedded model (head detection)...");
+    println!("Testing cache statistics with embedded model (detect detection)...");
 
-    // Test 1: Embedded model (head detection) - should NOT have cache stats since cache is not used
+    // Test 1: Embedded model (detect detection) - should NOT have cache stats since cache is not used
     let embedded_model_scenario = TestScenario {
         name: "cache_stats_embedded_model",
-        tool: "head",
+        tool: "detect",
         args: vec!["../example.jpg", "--confidence", "0.5"],
         expected_files: vec!["example.beaker.toml"],
         metadata_checks: vec![
-            MetadataCheck::OnnxCacheStatsAbsent("head"), // No cache stats for embedded models
-            MetadataCheck::DownloadCacheHitAbsent("head"), // No cache hit/miss for embedded models
-            MetadataCheck::DownloadTimingAbsent("head"), // No download timing for embedded models
-            MetadataCheck::CoremlCacheStatsAbsent("head"), // No CoreML stats when using CPU
+            MetadataCheck::OnnxCacheStatsAbsent("detect"), // No cache stats for embedded models
+            MetadataCheck::DownloadCacheHitAbsent("detect"), // No cache hit/miss for embedded models
+            MetadataCheck::DownloadTimingAbsent("detect"), // No download timing for embedded models
+            MetadataCheck::CoremlCacheStatsAbsent("detect"), // No CoreML stats when using CPU
         ],
         env_vars: vec![],
     };
