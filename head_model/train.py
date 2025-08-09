@@ -81,7 +81,7 @@ TRAINING_CONFIG = {
     "architecture": "YOLOv8n",
     # Debug Configuration
     "debug_run": True,  # Set to True for quick testing
-    "debug_epochs": 5,  # Reduced epochs for debug
+    "debug_epochs": 10,  # Reduced epochs for debug
     "debug_fraction": 0.1,  # Use 10% of data for debug (0.1 = 10%)
 }
 
