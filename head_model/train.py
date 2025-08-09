@@ -5,12 +5,11 @@ Train YOLOv8n model for bird head detection on M1 MacBook Pro with Comet.ml trac
 """
 
 import os
-import glob
-import tqdm.auto as _tqdm_auto
 
 import comet_ml
 import torch
 import torch.nn as nn
+import tqdm.auto as _tqdm_auto
 from ultralytics import YOLO
 
 
@@ -19,7 +18,7 @@ def safe_view(t, *shape):
     return t.view(*shape) if t.is_contiguous() else t.reshape(*shape)
 
 
-setattr(torch.Tensor, "safe_view", safe_view)  # type: ignore[attr-defined]
+torch.Tensor.safe_view = safe_view  # type: ignore[attr-defined]
 # save original implementation
 _orig_bn_forward = nn.BatchNorm2d.forward
 
@@ -183,17 +182,10 @@ CALLBACKS = {
     "on_model_save": print_checkpoint_metrics,
 }
 
-# Global references for callbacks
-COMET_EXPERIMENT = None
-GLOBAL_YOLO = None
-GLOBAL_DEVICE = None
-
-
 # ----------------- Run directory helpers -----------------
-from typing import Optional
 
 
-def setup_comet(device, experiment_key: Optional[str] = None):
+def setup_comet(device, experiment_key: str | None = None):
     """Setup Comet.ml experiment tracking."""
     api_key = os.getenv("COMET_API_KEY")
     if not api_key:
@@ -322,9 +314,6 @@ def main():
 
     # Setup Comet.ml tracking
     experiment = setup_comet(device)
-    global COMET_EXPERIMENT, GLOBAL_DEVICE
-    COMET_EXPERIMENT = experiment
-    GLOBAL_DEVICE = device
 
     # Log debug info to Comet.ml
     if experiment:
@@ -509,132 +498,6 @@ def on_val_batch_end_set_eta(trainer):
 
 CALLBACKS["on_train_batch_end"] = on_train_batch_end_set_eta
 CALLBACKS["on_val_batch_end"] = on_val_batch_end_set_eta
-
-
-# --- Debugging and Per-Epoch Prediction Logging ---
-
-
-def on_fit_epoch_end_log_preds(trainer):
-    # Log epoch-level sample/batch info to Comet
-    try:
-        if COMET_EXPERIMENT is not None and TRAINING_CONFIG.get(
-            "log_epoch_samples", True
-        ):
-            epoch = int(getattr(trainer, "epoch", -1))
-            bs = getattr(trainer, "batch_size", None)
-            nb = getattr(trainer, "nb", None)
-            train_samples = None
-            if bs is not None and nb is not None:
-                train_samples = int(bs) * int(nb)
-            else:
-                tl = getattr(trainer, "train_loader", None)
-                try:
-                    if tl is not None and hasattr(tl, "dataset"):
-                        train_samples = len(tl.dataset)
-                except Exception:
-                    pass
-            val_dl = getattr(getattr(trainer, "validator", None), "dataloader", None)
-            val_samples = None
-            try:
-                if val_dl is not None and hasattr(val_dl, "dataset"):
-                    val_samples = len(val_dl.dataset)
-            except Exception:
-                pass
-            if epoch >= 0:
-                if train_samples is not None:
-                    COMET_EXPERIMENT.log_metric(
-                        "train_samples_per_epoch", int(train_samples), step=epoch
-                    )
-                if val_samples is not None:
-                    COMET_EXPERIMENT.log_metric(
-                        "val_samples_per_epoch", int(val_samples), step=epoch
-                    )
-                if nb is not None:
-                    COMET_EXPERIMENT.log_metric(
-                        "train_batches_per_epoch", int(nb), step=epoch
-                    )
-                if bs is not None:
-                    COMET_EXPERIMENT.log_metric("batch_size", int(bs), step=epoch)
-    except Exception as _e:
-        print(f"⚠️ Failed to log epoch sample metrics: {_e}")
-
-    if not TRAINING_CONFIG.get("log_epoch_predictions", False):
-        return
-    try:
-        epoch = int(getattr(trainer, "epoch", -1))
-        interval = max(1, int(TRAINING_CONFIG.get("pred_log_interval", 1)))
-        if epoch >= 0 and (epoch % interval) != 0:
-            return
-
-        # Determine a small set of validation images
-        ds = getattr(getattr(trainer, "validator", None), "dataloader", None)
-        paths = []
-        try:
-            if (
-                ds is not None
-                and hasattr(ds, "dataset")
-                and hasattr(ds.dataset, "im_files")
-            ):
-                paths = list(ds.dataset.im_files)[
-                    : int(TRAINING_CONFIG.get("pred_samples", 8))
-                ]
-        except Exception:
-            paths = []
-        if not paths:
-            return
-
-        # Get the best checkpoint path instead of using the global YOLO instance
-        # This avoids interfering with training gradients
-        weights_dir = os.path.join(trainer.save_dir, "weights")
-        last_pt = os.path.join(weights_dir, "last.pt")
-
-        # Use the best model if available, otherwise last
-        model_path = None
-        if os.path.exists(last_pt):
-            model_path = last_pt
-
-        if model_path is None:
-            return
-
-        # Save predictions under the train run directory
-        project_dir = str(trainer.save_dir)
-        pred_project = os.path.join(project_dir, "epoch_preds")
-        pred_name = f"epoch_{epoch:03d}"
-
-        # Create a temporary model instance for prediction only
-        # This prevents interference with the training model's gradients
-        with torch.no_grad():
-            pred_model = YOLO(model_path)
-            pred_model.predict(
-                source=paths,
-                imgsz=TRAINING_CONFIG["imgsz"],
-                conf=TRAINING_CONFIG["conf"],
-                iou=TRAINING_CONFIG["iou"],
-                save=True,
-                project=pred_project,
-                name=pred_name,
-                verbose=False,
-                device=GLOBAL_DEVICE,
-            )
-            # Clear the temporary model
-            del pred_model
-
-        # Log to Comet
-        if COMET_EXPERIMENT is not None:
-            out_dir = os.path.join(pred_project, pred_name)
-            for img_path in sorted(
-                glob.glob(os.path.join(out_dir, "*.jpg"))
-                + glob.glob(os.path.join(out_dir, "*.png"))
-            ):
-                try:
-                    COMET_EXPERIMENT.log_image(img_path, step=epoch, image_format="png")
-                except Exception:
-                    pass
-    except Exception as _e:
-        print(f"⚠️ Failed to save/log epoch predictions: {_e}")
-
-
-CALLBACKS["on_fit_epoch_end"] = on_fit_epoch_end_log_preds
 
 
 if __name__ == "__main__":
