@@ -24,6 +24,37 @@ pub struct ModelInfo {
     pub filename: String,
 }
 
+/// CLI model information provided by user arguments
+#[derive(Debug, Clone)]
+pub struct CliModelInfo {
+    pub model_path: Option<String>,
+    pub model_url: Option<String>,
+    pub model_checksum: Option<String>,
+}
+
+impl CliModelInfo {
+    /// Validate CLI model arguments for consistency
+    pub fn validate(&self) -> Result<()> {
+        // Can't specify both path and URL
+        if self.model_path.is_some() && self.model_url.is_some() {
+            return Err(anyhow!(
+                "Cannot specify both --model-path and --model-url. Please use only one."
+            ));
+        }
+
+        // If URL is provided, validate it's a proper URL
+        if let Some(url) = &self.model_url {
+            if !url.starts_with("http://") && !url.starts_with("https://") {
+                return Err(anyhow!(
+                    "Model URL must start with http:// or https://: {url}"
+                ));
+            }
+        }
+
+        Ok(())
+    }
+}
+
 /// Cache statistics for tracking model access patterns
 #[derive(Debug, Clone, Default)]
 pub struct CacheStats {
@@ -144,6 +175,77 @@ fn calculate_directory_size(dir: &Path) -> Result<u64> {
     }
 
     Ok(total_size)
+}
+
+/// Validate model file size and reject empty files
+fn validate_model_file_size(path: &Path) -> Result<()> {
+    let metadata = fs::metadata(path)?;
+    let file_size = metadata.len();
+
+    if file_size == 0 {
+        return Err(anyhow!(
+            "Model file is empty (0 bytes): {}\n\
+             Empty model files are not valid ONNX models and will cause runtime errors.",
+            path.display()
+        ));
+    }
+
+    let size_mb = file_size as f64 / (1024.0 * 1024.0);
+    log::debug!("✓ Model file size: {size_mb:.2} MB");
+
+    Ok(())
+}
+
+/// Test a newly downloaded or specified model to ensure it doesn't crash
+fn test_model_basic_functionality(model_path: &Path) -> Result<()> {
+    log::info!(
+        "{} Testing model functionality: {}",
+        symbols::checking(),
+        model_path.display()
+    );
+
+    // Create a simple test to ensure the model loads without crashing
+    // We'll use a minimal ONNX session creation test
+    use crate::onnx_session::{create_onnx_session, ModelSource, SessionConfig};
+
+    let path_str = model_path.to_str().ok_or_else(|| {
+        anyhow!(
+            "Model path contains invalid UTF-8 characters: {}",
+            model_path.display()
+        )
+    })?;
+
+    let model_source = ModelSource::FilePath(path_str.to_string());
+    let config = SessionConfig { device: "cpu" };
+
+    match create_onnx_session(model_source, &config) {
+        Ok((_session, model_info)) => {
+            log::info!(
+                "{} Model loaded successfully - basic functionality test passed",
+                symbols::completed_successfully()
+            );
+            log::debug!(
+                "   Model size: {:.2} MB",
+                model_info.model_size_bytes as f64 / (1024.0 * 1024.0)
+            );
+            log::debug!("   Model checksum: {}", model_info.model_checksum);
+            Ok(())
+        }
+        Err(e) => {
+            let file_info = get_file_info(model_path)
+                .unwrap_or_else(|e| format!("Error getting file info: {e}"));
+
+            Err(anyhow!(
+                "Model failed basic functionality test: {}\n\
+                 File details: {}\n\
+                 \n\
+                 This model appears to be corrupted or incompatible.\n\
+                 Please verify the model file or try a different model.",
+                e,
+                file_info
+            ))
+        }
+    }
 }
 
 /// Download a model from URL to the specified path with progress bar
@@ -305,6 +407,10 @@ fn download_model(url: &str, output_path: &Path) -> Result<f64> {
         output_path.display()
     );
 
+    // Validate the downloaded file
+    validate_model_file_size(output_path)?;
+    test_model_basic_functionality(output_path)?;
+
     Ok(download_time_ms)
 }
 
@@ -462,7 +568,7 @@ fn download_with_concurrency_protection(
 }
 
 /// Get the cached model path, downloading if necessary
-/// Returns the model path and cache statistics
+/// Returns the model path and cache statistics only when actually accessing the download cache
 pub fn get_or_download_model(model_info: &ModelInfo) -> Result<(PathBuf, CacheStats)> {
     let cache_dir = get_cache_dir()?;
     let model_path = cache_dir.join(&model_info.filename);
@@ -471,7 +577,8 @@ pub fn get_or_download_model(model_info: &ModelInfo) -> Result<(PathBuf, CacheSt
     log::debug!("🗂️  Cache directory: {}", cache_dir.display());
     log::debug!("📄 Model path: {}", model_path.display());
 
-    // Collect cache stats once during actual cache access
+    // Collect cache stats ONCE when we first access the cache directory
+    // This represents the natural flow of cache statistics from actual cache usage
     let onnx_cache_info = get_onnx_cache_info();
     let coreml_cache_info = get_coreml_cache_info();
 
@@ -503,7 +610,7 @@ pub fn get_or_download_model(model_info: &ModelInfo) -> Result<(PathBuf, CacheSt
                             model_info.filename
                         );
 
-                        // Return cache hit stats
+                        // Return cache hit stats using the stats collected when we accessed the cache
                         let cache_stats = CacheStats {
                             cache_hit: true,
                             download_time_ms: None,
@@ -603,7 +710,7 @@ pub fn get_or_download_model(model_info: &ModelInfo) -> Result<(PathBuf, CacheSt
         crate::color_utils::symbols::completed_successfully()
     );
 
-    // Return cache miss stats using the pre-download stats
+    // Return cache miss stats using the stats collected when we initially accessed the cache
     let cache_stats = CacheStats {
         cache_hit: false,
         download_time_ms,
@@ -677,9 +784,27 @@ pub fn get_or_download_runtime_model(
 /// Internal interface for accessing models at runtime.
 /// Provides unified access to embedded models and runtime model paths.
 pub trait ModelAccess {
-    /// Get the model source for this model type.
-    /// Returns either embedded bytes (default) or a file path (if overridden via env vars).
-    fn get_model_source<'a>() -> Result<ModelSource<'a>>;
+    /// Get the model source with CLI arguments and environment variable overrides.
+    /// CLI arguments take priority over environment variables.
+    /// Returns both the model source and cache statistics if cache was accessed.
+    fn get_model_source_with_cli_and_stats<'a>(
+        cli_model_info: &CliModelInfo,
+    ) -> Result<ModelSourceWithStats<'a>>
+    where
+        Self: Sized,
+    {
+        get_model_source_with_cli_and_env_override::<Self>(cli_model_info)
+    }
+
+    /// Get the model source with CLI arguments and environment variable overrides.
+    /// CLI arguments take priority over environment variables.
+    /// Convenience method that returns just the source.
+    fn get_model_source_with_cli<'a>(cli_model_info: &CliModelInfo) -> Result<ModelSource<'a>>
+    where
+        Self: Sized,
+    {
+        Ok(Self::get_model_source_with_cli_and_stats(cli_model_info)?.source)
+    }
 
     /// Get cache statistics for this model type.
     /// This method automatically collects cache statistics as part of model access.
@@ -687,8 +812,13 @@ pub trait ModelAccess {
     where
         Self: Sized,
     {
-        // Use the unified infrastructure to get cache stats
-        Ok(get_model_source_with_env_override_and_stats::<Self>()?.cache_stats)
+        // Use empty CLI info to get just the cache stats
+        let cli_info = CliModelInfo {
+            model_path: None,
+            model_url: None,
+            model_checksum: None,
+        };
+        Ok(Self::get_model_source_with_cli_and_stats(&cli_info)?.cache_stats)
     }
 
     /// Get the embedded model bytes (fallback), if any.
@@ -715,6 +845,188 @@ pub trait ModelAccess {
     fn get_default_model_info() -> Option<ModelInfo> {
         None
     }
+}
+
+/// Generic implementation of model access that handles CLI arguments, env var checking and fallbacks.
+/// Returns model source along with cache statistics if cache was accessed.
+pub fn get_model_source_with_cli_and_env_override<T: ModelAccess>(
+    cli_model_info: &CliModelInfo,
+) -> Result<ModelSourceWithStats<'static>> {
+    // First, validate CLI arguments
+    cli_model_info.validate()?;
+
+    // Priority 1: CLI-provided model path
+    if let Some(model_path) = &cli_model_info.model_path {
+        log::info!("🔧 Using CLI-provided model path: {model_path}");
+
+        // Validate that the path exists
+        let path = PathBuf::from(model_path);
+        if !path.exists() {
+            return Err(anyhow!(
+                "Model path specified with --model-path does not exist: {}",
+                model_path
+            ));
+        }
+
+        // Validate file size (reject 0 bytes)
+        validate_model_file_size(&path)?;
+
+        // Test model functionality for new models
+        test_model_basic_functionality(&path)?;
+
+        // Custom path doesn't use cache, so NO cache stats
+        return Ok(ModelSourceWithStats {
+            source: ModelSource::FilePath(model_path.clone()),
+            cache_stats: None, // No cache access = no cache stats
+        });
+    }
+
+    // Priority 2: CLI-provided model URL
+    if let Some(model_url) = &cli_model_info.model_url {
+        log::info!("🔧 Using CLI-provided model URL: {model_url}");
+
+        // Create a temporary model info for downloading
+        let default_model_info = T::get_default_model_info();
+        let filename = if let Some(ref info) = default_model_info {
+            // Use default filename if available
+            info.filename.clone()
+        } else {
+            // Extract filename from URL or use a generic name
+            model_url
+                .split('/')
+                .next_back()
+                .unwrap_or("custom_model.onnx")
+                .to_string()
+        };
+
+        // Check if checksum was provided
+        let checksum = if let Some(ref checksum) = cli_model_info.model_checksum {
+            checksum.clone()
+        } else {
+            log::warn!(
+                "{} No checksum provided for model URL. Skipping verification.",
+                symbols::warning()
+            );
+            "skip_verification".to_string()
+        };
+
+        let temp_model_info = ModelInfo {
+            name: "cli_model".to_string(),
+            url: model_url.clone(),
+            md5_checksum: checksum,
+            filename,
+        };
+
+        // This accesses the download cache and returns natural cache stats
+        let (model_path, cache_stats) = get_or_download_model(&temp_model_info)?;
+        return Ok(ModelSourceWithStats {
+            source: ModelSource::FilePath(model_path.to_string_lossy().to_string()),
+            cache_stats: Some(cache_stats),
+        });
+    }
+
+    // Priority 3: Environment variables
+    // Check for URL override first
+    if let Some(url_env_name) = T::get_url_env_var_name() {
+        if let Ok(model_url) = std::env::var(url_env_name) {
+            log::info!("🌐 Using model URL from environment variable {url_env_name}: {model_url}");
+
+            let default_model_info = T::get_default_model_info();
+            let filename = if let Some(ref info) = default_model_info {
+                info.filename.clone()
+            } else {
+                model_url
+                    .split('/')
+                    .next_back()
+                    .unwrap_or("env_model.onnx")
+                    .to_string()
+            };
+
+            // Check for checksum env var
+            let checksum = if let Some(checksum_env_name) = T::get_checksum_env_var_name() {
+                std::env::var(checksum_env_name).unwrap_or_else(|_| {
+                    log::warn!(
+                        "{} No checksum environment variable {}. Skipping verification.",
+                        symbols::warning(),
+                        checksum_env_name
+                    );
+                    "skip_verification".to_string()
+                })
+            } else {
+                log::warn!(
+                    "{} No checksum verification available for model URL from environment.",
+                    symbols::warning()
+                );
+                "skip_verification".to_string()
+            };
+
+            let temp_model_info = ModelInfo {
+                name: "env_model".to_string(),
+                url: model_url,
+                md5_checksum: checksum,
+                filename,
+            };
+
+            // This accesses the download cache and returns natural cache stats
+            let (model_path, cache_stats) = get_or_download_model(&temp_model_info)?;
+            return Ok(ModelSourceWithStats {
+                source: ModelSource::FilePath(model_path.to_string_lossy().to_string()),
+                cache_stats: Some(cache_stats),
+            });
+        }
+    }
+
+    // Check for path override
+    let env_var_name = T::get_env_var_name();
+    if let Ok(model_path) = std::env::var(env_var_name) {
+        log::info!("🔧 Using model path from environment variable {env_var_name}: {model_path}");
+
+        let path = PathBuf::from(&model_path);
+        if !path.exists() {
+            return Err(anyhow!(
+                "Model path from environment variable {env_var_name} does not exist: {model_path}"
+            ));
+        }
+
+        validate_model_file_size(&path)?;
+        test_model_basic_functionality(&path)?;
+
+        // Custom path doesn't use cache, so NO cache stats
+        return Ok(ModelSourceWithStats {
+            source: ModelSource::FilePath(model_path),
+            cache_stats: None, // No cache access = no cache stats
+        });
+    }
+
+    // Priority 4: Embedded model (if available)
+    if let Some(embedded_bytes) = T::get_embedded_bytes() {
+        log::debug!("📦 Using embedded model bytes");
+
+        // Embedded models don't use cache, so NO cache stats
+        return Ok(ModelSourceWithStats {
+            source: ModelSource::EmbeddedBytes(embedded_bytes),
+            cache_stats: None, // No cache access = no cache stats
+        });
+    }
+
+    // Priority 5: Default model info (download from remote)
+    if let Some(default_model_info) = T::get_default_model_info() {
+        log::info!("🌐 Using default model info for download");
+
+        // This accesses the download cache and returns natural cache stats
+        let (model_path, cache_stats) = get_or_download_model(&default_model_info)?;
+        return Ok(ModelSourceWithStats {
+            source: ModelSource::FilePath(model_path.to_string_lossy().to_string()),
+            cache_stats: Some(cache_stats),
+        });
+    }
+
+    // No model source available
+    Err(anyhow!(
+        "No model source available for {}. Set environment variable {} or provide --model-path/--model-url.",
+        std::any::type_name::<T>(),
+        env_var_name
+    ))
 }
 
 /// Generic implementation of model access that handles env var checking and fallbacks.

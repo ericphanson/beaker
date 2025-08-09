@@ -96,6 +96,18 @@ pub struct HeadCommand {
     /// Save an image with bounding boxes drawn
     #[arg(long)]
     pub bounding_box: bool,
+
+    /// Path to custom head detection model file
+    #[arg(long)]
+    pub model_path: Option<String>,
+
+    /// URL to download custom head detection model from
+    #[arg(long)]
+    pub model_url: Option<String>,
+
+    /// MD5 checksum for model verification (used with --model-url)
+    #[arg(long)]
+    pub model_checksum: Option<String>,
 }
 
 /// Internal configuration for head detection processing
@@ -107,6 +119,15 @@ pub struct HeadDetectionConfig {
     pub iou_threshold: f32,
     pub crop: bool,
     pub bounding_box: bool,
+    /// CLI-provided model path override
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_path: Option<String>,
+    /// CLI-provided model URL override
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_url: Option<String>,
+    /// CLI-provided model checksum override
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_checksum: Option<String>,
 }
 
 /// CLI command for cutout processing (only command-specific arguments)
@@ -143,6 +164,18 @@ pub struct CutoutCommand {
     /// Save the segmentation mask as a separate image
     #[arg(long)]
     pub save_mask: bool,
+
+    /// Path to custom cutout model file
+    #[arg(long)]
+    pub model_path: Option<String>,
+
+    /// URL to download custom cutout model from
+    #[arg(long)]
+    pub model_url: Option<String>,
+
+    /// MD5 checksum for model verification (used with --model-url)
+    #[arg(long)]
+    pub model_checksum: Option<String>,
 }
 
 /// Internal configuration for cutout processing
@@ -158,6 +191,15 @@ pub struct CutoutConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub background_color: Option<[u8; 4]>,
     pub save_mask: bool,
+    /// CLI-provided model path override
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_path: Option<String>,
+    /// CLI-provided model URL override
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_url: Option<String>,
+    /// CLI-provided model checksum override
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_checksum: Option<String>,
 }
 
 // Conversion traits from CLI commands to internal configurations
@@ -186,6 +228,9 @@ impl HeadDetectionConfig {
             iou_threshold: cmd.iou_threshold,
             crop: cmd.crop,
             bounding_box: cmd.bounding_box,
+            model_path: cmd.model_path,
+            model_url: cmd.model_url,
+            model_checksum: cmd.model_checksum,
         }
     }
 }
@@ -205,6 +250,9 @@ impl CutoutConfig {
             alpha_matting_erode_size: cmd.alpha_matting_erode_size,
             background_color: cmd.background_color,
             save_mask: cmd.save_mask,
+            model_path: cmd.model_path,
+            model_url: cmd.model_url,
+            model_checksum: cmd.model_checksum,
         }
     }
 }
@@ -266,6 +314,9 @@ mod tests {
             iou_threshold: 0.5,
             crop: true,
             bounding_box: false,
+            model_path: None,
+            model_url: None,
+            model_checksum: None,
         };
 
         let config = HeadDetectionConfig::from_args(global_args, head_cmd);
@@ -276,6 +327,9 @@ mod tests {
         assert!(config.crop);
         assert!(!config.bounding_box);
         assert!(config.base.strict); // permissive=false -> strict=true
+        assert_eq!(config.model_path, None);
+        assert_eq!(config.model_url, None);
+        assert_eq!(config.model_checksum, None);
     }
 
     #[test]
@@ -298,6 +352,9 @@ mod tests {
             alpha_matting_erode_size: 10,
             background_color: Some([255, 255, 255, 255]),
             save_mask: true,
+            model_path: None,
+            model_url: None,
+            model_checksum: None,
         };
 
         let config = CutoutConfig::from_args(global_args, cutout_cmd);
@@ -308,6 +365,9 @@ mod tests {
         assert!(!config.alpha_matting);
         assert_eq!(config.background_color, Some([255, 255, 255, 255]));
         assert!(config.save_mask);
+        assert_eq!(config.model_path, None);
+        assert_eq!(config.model_url, None);
+        assert_eq!(config.model_checksum, None);
     }
 
     #[test]
@@ -324,6 +384,9 @@ mod tests {
             iou_threshold: 0.45,
             crop: false,
             bounding_box: false,
+            model_path: None,
+            model_url: None,
+            model_checksum: None,
         };
 
         // Test field access through base config

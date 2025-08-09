@@ -9,16 +9,15 @@ mod test_performance_tracker;
 fn get_test_scenarios() -> Vec<TestScenario> {
     // Helper function to create cache statistics checks
     fn cache_checks(tool: &'static str) -> Vec<MetadataCheck> {
-        let checks = vec![
+        let mut checks = vec![
             MetadataCheck::CacheStatsPresent(tool, "cached_models_count"),
             MetadataCheck::CacheStatsPresent(tool, "cached_models_size_mb"),
             MetadataCheck::CacheStatsNonNegative(tool, "cached_models_count"),
             MetadataCheck::CacheStatsNonNegative(tool, "cached_models_size_mb"),
         ];
 
-        // Only add CoreML checks on Apple Silicon
-        #[cfg(target_arch = "aarch64")]
-        {
+        // Only add CoreML checks on Apple Silicon at runtime
+        if std::env::consts::ARCH == "aarch64" {
             checks.extend_from_slice(&[
                 MetadataCheck::CacheStatsPresent(tool, "coreml_cache_count"),
                 MetadataCheck::CacheStatsPresent(tool, "coreml_cache_size_mb"),

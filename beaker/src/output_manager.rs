@@ -203,6 +203,9 @@ mod tests {
             iou_threshold: 0.45,
             crop: true,
             bounding_box: false,
+            model_path: None,
+            model_url: None,
+            model_checksum: None,
         }
     }
 
