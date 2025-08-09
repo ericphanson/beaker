@@ -10,6 +10,8 @@ This document outlines the design and implementation plan for the `beaker pipeli
 
 Based on real performance measurements, file I/O represents only 0.8-1.5% of total processing time, making ergonomic workflow improvements the primary value proposition rather than performance optimization.
 
+**Current scope limitation:** The initial pipeline design targets linear sequential processing where each step consumes only the outputs of the immediately preceding step. This includes variable image counts (many → fewer → many → one) as long as the flow remains linear. Complex scenarios requiring DAG-style routing (where later steps need outputs from multiple earlier steps) are out of scope and better served by makefiles or bash scripts.
+
 Currently, users must run separate beaker commands to chain operations:
 ```bash
 beaker cutout *.jpg --output-dir cutout_results
@@ -21,11 +23,186 @@ The proposed pipeline subcommand addresses user friction and workflow complexity
 beaker pipeline --steps cutout,head --output-dir results --crop *.jpg
 ```
 
+## Complex Pipeline Scenarios
+
+### Linear Variable-Count Pipeline Example
+
+Consider a hypothetical `collage` command that creates artistic composites from multiple oriented bird images. Despite variable image counts at each stage, this represents a **linear pipeline** since each step only consumes outputs from the immediately preceding step:
+
+**Pipeline stages:**
+1. **Bird detection** → Detect birds in directory photos (0+ birds per photo)
+2. **Image filtering** → Discard photos with zero birds detected
+3. **Bird cropping** → Crop to detected birds (may yield more/fewer images than input)
+4. **Background removal** → Cut out backgrounds from cropped birds
+5. **Head detection** → Detect heads and beak-eye orientation on cropped images
+6. **Collage generation** → Combine head crops + orientation metadata → single collage image
+
+**Linear flow characteristics:**
+- **Variable image counts** at each stage (many → fewer → many → one)
+- **Metadata propagation** flows forward through each step
+- **Sequential dependencies** where each step processes only the outputs of the previous step
+
+This pipeline is **in-scope** for the initial implementation since the data flow remains linear despite count variations.
+
+### Pipeline vs Bash Script Comparison
+
+#### Bash Script Approach
+```bash
+#!/bin/bash
+set -e
+
+# Stage 1: Detect birds, filter empties
+mkdir -p stage1_birds
+beaker head *.jpg --output-dir stage1_birds --confidence 0.3 --metadata
+find stage1_birds -name "*.toml" -exec grep -L "detections = \[\]" {} \; | \
+  xargs -I {} dirname {} | sort -u > valid_dirs.txt
+
+# Stage 2: Crop to birds
+mkdir -p stage2_crops
+while read dir; do
+  beaker head "$dir"/*.jpg --crop --output-dir stage2_crops
+done < valid_dirs.txt
+
+# Stage 3: Remove backgrounds
+mkdir -p stage3_cutouts
+beaker cutout stage2_crops/*.png --output-dir stage3_cutouts
+
+# Stage 4: Head detection on crops
+mkdir -p stage4_heads
+beaker head stage3_cutouts/*.png --crop --metadata --output-dir stage4_heads
+
+# Stage 5: Collage generation (hypothetical)
+beaker collage stage4_heads/*.png --metadata-dir stage4_heads --output final_collage.jpg
+
+# Cleanup
+rm -rf stage1_birds stage2_crops stage3_cutouts stage4_heads valid_dirs.txt
+```
+
+#### Pipeline Command Approach
+```bash
+# Hypothetical advanced pipeline syntax
+beaker pipeline \
+  --steps "detect:'--confidence=0.3 --crop=bird',filter-empty,crop-detections,cutout,head-detect:'--confidence=0.7',collage:'--layout=grid'" \
+  --output-dir results \
+  --save-intermediates \
+  *.jpg
+```
+
+**Syntax for multiple options within one step**: Use quoted space-separated arguments within the step specification, e.g., `stepname:'--flag1=value1 --flag2=value2'`.
+
+#### Comparison Analysis
+
+| Aspect | Bash Script | Pipeline Command |
+|--------|-------------|------------------|
+| **Clarity** | Explicit control flow, easy to debug | Concise but requires learning pipeline syntax |
+| **Flexibility** | Full shell capabilities, custom logic | Limited to predefined pipeline operations |
+| **Error handling** | Manual cleanup and error checking | Automatic cleanup and consistent error handling |
+| **Reusability** | Requires script modification for different params | Command-line parameter overrides |
+| **Intermediate inspection** | Easy access to all intermediate files | Requires `--save-intermediates` flag |
+| **Metadata handling** | Manual parsing and coordination | Automatic metadata threading |
+
+**Key insight:** For linear variable-count pipelines, the pipeline command may be simpler than bash scripts since each step naturally handles variable input counts. For complex DAG scenarios requiring routing between non-adjacent steps, makefiles or specialized workflow tools are more appropriate.
+
+### Complex DAG Scenarios (Out of Scope)
+
+**Example complex workflow**: "cutout, crop to bird, run detect again on crop for head orientation (more accurate), return to original cropped bird (not just the head), use head orientation in collage"
+
+This requires using the "crop to bird" results twice:
+1. First path: crop → head detection → orientation metadata
+2. Second path: crop → collage input (reusing same crops with orientation metadata)
+
+#### Makefile Approach for Complex Routing
+```makefile
+# Advanced workflow requiring DAG-style routing
+# Each target represents a processing step with explicit dependencies
+
+# Stage 1: Initial bird detection
+stage1_detections/%.toml: input/%.jpg
+	@mkdir -p stage1_detections
+	beaker head $< --output-dir stage1_detections --confidence 0.3 --metadata
+
+# Stage 2: Crop to detected birds
+stage2_crops/%.png: stage1_detections/%.toml
+	@mkdir -p stage2_crops
+	beaker crop input/$*.jpg --detections-file $< --output-dir stage2_crops
+
+# Stage 3a: Background removal on crops
+stage3_cutouts/%.png: stage2_crops/%.png
+	@mkdir -p stage3_cutouts
+	beaker cutout $< --output-dir stage3_cutouts
+
+# Stage 3b: Head detection on crops (for orientation metadata)
+stage3_heads/%.toml: stage2_crops/%.png
+	@mkdir -p stage3_heads
+	beaker head $< --output-dir stage3_heads --confidence 0.7 --metadata
+
+# Stage 4: Final collage (depends on both cutouts AND head metadata)
+final_collage.jpg: $(wildcard stage3_cutouts/*.png) $(wildcard stage3_heads/*.toml)
+	beaker collage stage3_cutouts/*.png --orientation-metadata-dir stage3_heads --output $@
+
+# Convenience targets
+all: final_collage.jpg
+
+clean:
+	rm -rf stage1_detections stage2_crops stage3_cutouts stage3_heads final_collage.jpg
+
+.PHONY: all clean
+```
+
+**DAG characteristics requiring makefiles:**
+- **Multiple consumers**: Same intermediate results used by different subsequent steps
+- **Cross-step dependencies**: Later steps need outputs from non-adjacent earlier steps
+- **Conditional branching**: Different processing paths based on intermediate results
+- **Parallel execution**: Independent branches that can run simultaneously
+
+**Linear pipeline characteristics (in-scope):**
+- **Sequential dependencies**: Each step consumes only the outputs of the previous step
+- **Variable counts**: Image count changes are acceptable as long as flow remains linear
+- **Simple routing**: All data flows forward through the pipeline without backtracking
+
+### Makefile Integration and Caching Strategy
+
+Rather than implementing complex inference caching within the beaker tool, **makefiles provide "free" inference caching** through their dependency tracking system. This approach is simpler and more reliable than building caching into the pipeline processor.
+
+#### Makefile-Based Caching Benefits
+- **Automatic cache invalidation**: Make tracks file timestamps and dependencies automatically
+- **Selective rebuilds**: Only re-runs steps when inputs or commands change
+- **No storage overhead**: Uses existing file system without additional caching infrastructure
+- **Debugging transparency**: All intermediate files are visible and inspectable
+- **Parallel execution**: Make can execute independent steps concurrently
+
+#### Beaker + Make Integration Strategy
+Instead of complex internal caching, focus on making beaker **makefile-friendly**:
+
+```makefile
+# Makefile provides natural caching through dependency tracking
+stage1/%.png: input/%.jpg
+	@mkdir -p stage1
+	beaker cutout $< --output-dir stage1
+
+stage2/%.png: stage1/%.png
+	@mkdir -p stage2
+	beaker head $< --output-dir stage2 --crop
+
+# Only rebuilds changed files automatically
+all: $(patsubst input/%.jpg,stage2/%.png,$(wildcard input/*.jpg))
+```
+
+**Best practices for makefile integration:**
+- **Deterministic output naming**: Ensure beaker produces predictable output filenames
+- **Metadata preservation**: Write metadata files alongside images for dependency tracking
+- **Exit code consistency**: Proper error codes for make to detect failures
+- **Directory management**: Clean directory creation patterns
+
+**Pipeline tool role:** Focus on ergonomic single-command workflows rather than caching complexity. Users requiring sophisticated caching and dependency management can use makefiles with individual beaker commands.
+
 ## Implementation
 
 ### Phase 1: File-Based Foundation
 
 **File-based sequential processing** is the recommended starting point. Each step reads files, processes them using existing `process_single_image` methods, and writes results to temporary directories managed by the pipeline processor.
+
+**Scope:** Handles linear sequential processing with variable image counts effectively. Each step processes all outputs from the previous step, regardless of count variations. Complex DAG scenarios requiring routing between non-adjacent steps are out of scope and better handled by makefiles.
 
 **Key Components:**
 - **PipelineProcessor**: Orchestrates sequential execution using existing file-based model processing ([Issue 2](#issue-2-pipelineprocessor-implementation-with-file-based-processing))
@@ -103,7 +280,7 @@ Orthogonal, well-scoped GitHub issues for parallel development:
 
 **Title**: Implement PipelineProcessor with file-based sequential processing and metadata support
 
-**Description**: Implement the actual pipeline processing logic using existing file-based model processing infrastructure. This provides the ergonomic benefits without memory optimization complexity.
+**Description**: Implement the actual pipeline processing logic using existing file-based model processing infrastructure. This provides the ergonomic benefits without memory optimization complexity. **Initial scope focuses on pipelines where only the previous step of the pipeline is needed to feed the next step.**
 
 **Scope:**
 - Implement `PipelineProcessor::process_pipeline()` method
@@ -111,6 +288,8 @@ Orthogonal, well-scoped GitHub issues for parallel development:
 - Sequential execution of cutout followed by head detection using existing `process_single_image` methods
 - Generate comprehensive pipeline metadata in TOML format
 - Add metadata test validations
+
+**Limitations**: Does not handle situations in which intermediate outputs (besides just the prior step) are needed for later steps. Complex scenarios should use bash scripts until advanced pipeline features are implemented.
 
 **Acceptance Criteria:**
 - `beaker pipeline --steps cutout,head --output-dir results *.jpg` works correctly
