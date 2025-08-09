@@ -12,6 +12,7 @@ use crate::model_access::{get_model_source_with_env_override, ModelAccess};
 use crate::model_processing::{ModelProcessor, ModelResult};
 use crate::onnx_session::ModelSource;
 use crate::output_manager::OutputManager;
+use crate::shared_metadata::IoTiming;
 use crate::yolo_postprocessing::{
     create_square_crop, postprocess_output, save_bounding_box_image, Detection,
 };
@@ -57,6 +58,8 @@ pub struct HeadDetectionResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bounding_box_path: Option<String>,
     pub detections: Vec<DetectionWithPath>,
+    #[serde(skip_serializing)]
+    pub io_timing: IoTiming,
 }
 
 #[derive(Serialize, Clone)]
@@ -109,6 +112,10 @@ impl ModelResult for HeadDetectionResult {
             format!("→ {}", outputs.join(" + "))
         }
     }
+
+    fn get_io_timing(&self) -> crate::shared_metadata::IoTiming {
+        self.io_timing.clone()
+    }
 }
 
 /// Get the appropriate output extension based on input file
@@ -126,12 +133,13 @@ fn get_output_extension(input_path: &Path) -> &'static str {
     }
 }
 
-/// Handle outputs (crops, bounding boxes, metadata) for a single image
-fn handle_image_outputs(
+/// Handle outputs (crops, bounding boxes, metadata) for a single image with I/O timing
+fn handle_image_outputs_with_timing(
     img: &DynamicImage,
     detections: &[Detection],
     image_path: &Path,
     config: &HeadDetectionConfig,
+    io_timing: &mut IoTiming,
 ) -> Result<(Option<String>, Vec<DetectionWithPath>)> {
     let source_path = image_path;
     let output_ext = get_output_extension(source_path);
@@ -149,7 +157,10 @@ fn handle_image_outputs(
                 output_ext,
             )?;
 
-            create_square_crop(img, detection, &crop_filename, 0.1)?;
+            // Time the crop creation and save
+            io_timing
+                .time_save_operation(|| create_square_crop(img, detection, &crop_filename, 0.1))?;
+
             debug!(
                 "{} Crop saved to: {}",
                 symbols::completed_successfully(),
@@ -178,7 +189,11 @@ fn handle_image_outputs(
     let mut bounding_box_path = None;
     if config.bounding_box && !detections.is_empty() {
         let bbox_filename = output_manager.generate_auxiliary_output("bounding-box", output_ext)?;
-        save_bounding_box_image(img, detections, &bbox_filename)?;
+
+        // Time the bounding box image save
+        io_timing
+            .time_save_operation(|| save_bounding_box_image(img, detections, &bbox_filename))?;
+
         debug!(
             "{} Bounding box image saved to: {}",
             symbols::completed_successfully(),
@@ -209,9 +224,10 @@ impl ModelProcessor for HeadProcessor {
         config: &Self::Config,
     ) -> Result<Self::Result> {
         let processing_start = Instant::now();
+        let mut io_timing = IoTiming::new();
 
-        // Load the image
-        let img = image::open(image_path)?;
+        // Load the image with timing
+        let img = io_timing.time_image_read(image_path)?;
         let (orig_width, orig_height) = img.dimensions();
 
         debug!(
@@ -258,15 +274,21 @@ impl ModelProcessor for HeadProcessor {
 
         let total_processing_time = processing_start.elapsed().as_secs_f64() * 1000.0;
 
-        // Handle outputs for this specific image
-        let (bounding_box_path, detections_with_paths) =
-            handle_image_outputs(&img, &detections, image_path, config)?;
+        // Handle outputs for this specific image (includes file I/O)
+        let (bounding_box_path, detections_with_paths) = handle_image_outputs_with_timing(
+            &img,
+            &detections,
+            image_path,
+            config,
+            &mut io_timing,
+        )?;
 
         Ok(HeadDetectionResult {
             model_version: MODEL_VERSION.to_string(),
             processing_time_ms: total_processing_time,
             bounding_box_path,
             detections: detections_with_paths,
+            io_timing,
         })
     }
 
