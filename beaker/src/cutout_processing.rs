@@ -4,7 +4,7 @@ use crate::cutout_postprocessing::{
     apply_alpha_matting, create_cutout, create_cutout_with_background, postprocess_mask,
 };
 use crate::cutout_preprocessing::preprocess_image_for_isnet_v2;
-use crate::model_access::{get_model_source_with_env_override, ModelAccess, ModelInfo};
+use crate::model_access::{ModelAccess, ModelInfo};
 use crate::onnx_session::ModelSource;
 use crate::output_manager::OutputManager;
 use crate::shared_metadata::IoTiming;
@@ -31,10 +31,6 @@ pub fn get_default_cutout_model_info() -> ModelInfo {
 pub struct CutAccess;
 
 impl ModelAccess for CutAccess {
-    fn get_model_source<'a>() -> Result<ModelSource<'a>> {
-        get_model_source_with_env_override::<Self>()
-    }
-
     fn get_embedded_bytes() -> Option<&'static [u8]> {
         // Cutout models are not embedded, they are downloaded
         None

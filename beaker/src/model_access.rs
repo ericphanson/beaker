@@ -675,10 +675,6 @@ pub fn get_or_download_runtime_model(model_info: RuntimeModelInfo) -> Result<Pat
 /// Internal interface for accessing models at runtime.
 /// Provides unified access to embedded models and runtime model paths.
 pub trait ModelAccess {
-    /// Get the model source for this model type.
-    /// Returns either embedded bytes (default) or a file path (if overridden via env vars).
-    fn get_model_source<'a>() -> Result<ModelSource<'a>>;
-
     /// Get the model source with CLI arguments and environment variable overrides.
     /// CLI arguments take priority over environment variables.
     fn get_model_source_with_cli<'a>(cli_model_info: &CliModelInfo) -> Result<ModelSource<'a>>

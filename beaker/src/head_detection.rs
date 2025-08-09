@@ -8,7 +8,7 @@ use std::time::Instant;
 
 use crate::color_utils::symbols;
 use crate::config::HeadDetectionConfig;
-use crate::model_access::{get_model_source_with_env_override, ModelAccess, ModelInfo};
+use crate::model_access::{ModelAccess, ModelInfo};
 use crate::model_processing::{ModelProcessor, ModelResult};
 use crate::onnx_session::ModelSource;
 use crate::output_manager::OutputManager;
@@ -30,10 +30,6 @@ pub const MODEL_VERSION: &str =
 pub struct HeadAccess;
 
 impl ModelAccess for HeadAccess {
-    fn get_model_source<'a>() -> Result<ModelSource<'a>> {
-        get_model_source_with_env_override::<Self>()
-    }
-
     fn get_embedded_bytes() -> Option<&'static [u8]> {
         // Reference to the embedded model bytes
         Some(MODEL_BYTES)
