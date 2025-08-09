@@ -327,7 +327,7 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
 
     // Create the appropriate sections based on tool type
     match result.tool_name() {
-        "head" => {
+        "detect" => {
             let head_sections = HeadSections {
                 core: Some(core_results),
                 config: Some(config_value),

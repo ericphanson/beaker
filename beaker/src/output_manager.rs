@@ -187,11 +187,12 @@ pub fn make_path_relative_to_toml(file_path: &Path, toml_path: &Path) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{BaseModelConfig, HeadDetectionConfig};
+    use crate::config::{BaseModelConfig, DetectionConfig};
     use tempfile::TempDir;
+    use std::collections::HashSet;
 
-    fn create_test_config(output_dir: Option<String>) -> HeadDetectionConfig {
-        HeadDetectionConfig {
+    fn create_test_config(output_dir: Option<String>) -> DetectionConfig {
+        DetectionConfig {
             base: BaseModelConfig {
                 sources: vec!["test.jpg".to_string()],
                 device: "cpu".to_string(),
@@ -201,7 +202,7 @@ mod tests {
             },
             confidence: 0.25,
             iou_threshold: 0.45,
-            crop: true,
+            crop_classes: HashSet::new(), // Empty for this test
             bounding_box: false,
         }
     }

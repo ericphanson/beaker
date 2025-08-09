@@ -12,6 +12,8 @@ pub struct Detection {
     pub x2: f32,
     pub y2: f32,
     pub confidence: f32,
+    pub class_id: u32,
+    pub class_name: String,
 }
 
 impl Detection {
@@ -80,6 +82,7 @@ pub fn postprocess_output(
     img_width: u32,
     img_height: u32,
     model_size: u32,
+    is_legacy_head_model: bool,
 ) -> Result<Vec<Detection>> {
     let mut detections = Vec::new();
 
@@ -97,27 +100,76 @@ pub fn postprocess_output(
         let width = output[[0, 2, i]];
         let height = output[[0, 3, i]];
 
-        // Get confidence (5th value, index 4)
-        let confidence = output[[0, 4, i]];
+        if is_legacy_head_model {
+            // Legacy single-class head detection model (class 0 = head)
+            let confidence = output[[0, 4, i]];
+            
+            if confidence > confidence_threshold {
+                // Convert from center coordinates to corner coordinates
+                let x1 = x_center - width / 2.0;
+                let y1 = y_center - height / 2.0;
+                let x2 = x_center + width / 2.0;
+                let y2 = y_center + height / 2.0;
 
-        if confidence > confidence_threshold {
-            // Convert from center coordinates to corner coordinates
-            let x1 = x_center - width / 2.0;
-            let y1 = y_center - height / 2.0;
-            let x2 = x_center + width / 2.0;
-            let y2 = y_center + height / 2.0;
+                // Scale coordinates back to original image size
+                let scale_x = img_width as f32 / model_size as f32;
+                let scale_y = img_height as f32 / model_size as f32;
 
-            // Scale coordinates back to original image size
-            let scale_x = img_width as f32 / model_size as f32;
-            let scale_y = img_height as f32 / model_size as f32;
+                detections.push(Detection {
+                    x1: x1 * scale_x,
+                    y1: y1 * scale_y,
+                    x2: x2 * scale_x,
+                    y2: y2 * scale_y,
+                    confidence,
+                    class_id: 1, // Map old head detection to new class ID 1 (head)
+                    class_name: "head".to_string(),
+                });
+            }
+        } else {
+            // New multi-class model (class 0 = bird, 1 = head, 2 = eyes, 3 = beak)
+            // Find the class with highest confidence
+            let mut max_confidence = 0.0;
+            let mut best_class_id = 0;
+            
+            // Assume classes start at index 4
+            let num_classes = shape[1] - 4; // Subtract 4 for bbox coordinates
+            for class_idx in 0..num_classes {
+                let class_confidence = output[[0, 4 + class_idx, i]];
+                if class_confidence > max_confidence {
+                    max_confidence = class_confidence;
+                    best_class_id = class_idx as u32;
+                }
+            }
+            
+            if max_confidence > confidence_threshold {
+                // Convert from center coordinates to corner coordinates
+                let x1 = x_center - width / 2.0;
+                let y1 = y_center - height / 2.0;
+                let x2 = x_center + width / 2.0;
+                let y2 = y_center + height / 2.0;
 
-            detections.push(Detection {
-                x1: x1 * scale_x,
-                y1: y1 * scale_y,
-                x2: x2 * scale_x,
-                y2: y2 * scale_y,
-                confidence,
-            });
+                // Scale coordinates back to original image size
+                let scale_x = img_width as f32 / model_size as f32;
+                let scale_y = img_height as f32 / model_size as f32;
+
+                let class_name = match best_class_id {
+                    0 => "bird",
+                    1 => "head", 
+                    2 => "eyes",
+                    3 => "beak",
+                    _ => "unknown",
+                }.to_string();
+
+                detections.push(Detection {
+                    x1: x1 * scale_x,
+                    y1: y1 * scale_y,
+                    x2: x2 * scale_x,
+                    y2: y2 * scale_y,
+                    confidence: max_confidence,
+                    class_id: best_class_id,
+                    class_name,
+                });
+            }
         }
     }
 
