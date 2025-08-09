@@ -82,9 +82,9 @@ bash scripts/run_warloc.sh
 - **Debug build**: ~40 seconds
 - **Release build**: ~1 minute 40 seconds - NEVER CANCEL, set timeout to 180+ seconds
 - **Tests**: ~2 minutes 50 seconds - NEVER CANCEL, set timeout to 300+ seconds
-- **Pre-commit hooks**: ~4 seconds
-- **CLI head detection**: ~0.2 seconds (after initial model load)
-- **CLI cutout**: ~3 seconds (includes model download/loading)
+- **Pre-commit hooks**: ~10 seconds
+- **CLI head detection**: ~0.5 seconds (after initial model load)
+- **CLI cutout**: ~6 seconds (includes model download/loading)
 
 ### Model Download Behavior
 - Build script automatically downloads ONNX models from GitHub releases during `cargo build`
