@@ -172,37 +172,7 @@ pub struct SystemInfo {
     pub coreml_cache: Option<CoremlCacheStats>,
 }
 
-impl SystemInfo {
-    /// Create SystemInfo with cache statistics populated directly at construction time
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        device_requested: Option<String>,
-        device_selected: Option<String>,
-        device_selection_reason: Option<String>,
-        execution_providers: Vec<String>,
-        model_source: Option<String>,
-        model_path: Option<String>,
-        model_size_bytes: Option<u64>,
-        model_load_time_ms: Option<f64>,
-        model_checksum: Option<String>,
-        onnx_cache: Option<OnnxCacheStats>,
-        coreml_cache: Option<CoremlCacheStats>,
-    ) -> Self {
-        SystemInfo {
-            device_requested,
-            device_selected,
-            device_selection_reason,
-            execution_providers,
-            model_source,
-            model_path,
-            model_size_bytes,
-            model_load_time_ms,
-            model_checksum,
-            onnx_cache,
-            coreml_cache,
-        }
-    }
-}
+impl SystemInfo {}
 
 /// Input processing statistics for a tool invocation
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
