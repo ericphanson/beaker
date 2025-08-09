@@ -22,9 +22,10 @@ pub enum DetectionClass {
     Beak,
 }
 
-impl DetectionClass {
-    /// Convert string to DetectionClass
-    pub fn from_str(s: &str) -> Result<Self, String> {
+impl std::str::FromStr for DetectionClass {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "bird" => Ok(DetectionClass::Bird),
             "head" => Ok(DetectionClass::Head),
@@ -33,7 +34,9 @@ impl DetectionClass {
             _ => Err(format!("Unknown detection class: {s}")),
         }
     }
+}
 
+impl DetectionClass {
     /// Convert DetectionClass to string
     pub fn to_string(&self) -> &'static str {
         match self {
@@ -41,27 +44,6 @@ impl DetectionClass {
             DetectionClass::Head => "head",
             DetectionClass::Eyes => "eyes",
             DetectionClass::Beak => "beak",
-        }
-    }
-
-    /// Get class ID for the new multi-class model
-    pub fn class_id(&self) -> u32 {
-        match self {
-            DetectionClass::Bird => 0,
-            DetectionClass::Head => 1,
-            DetectionClass::Eyes => 2,
-            DetectionClass::Beak => 3,
-        }
-    }
-
-    /// Get DetectionClass from class ID
-    pub fn from_class_id(id: u32) -> Result<Self, String> {
-        match id {
-            0 => Ok(DetectionClass::Bird),
-            1 => Ok(DetectionClass::Head),
-            2 => Ok(DetectionClass::Eyes),
-            3 => Ok(DetectionClass::Beak),
-            _ => Err(format!("Unknown class ID: {id}")),
         }
     }
 
@@ -86,7 +68,7 @@ pub fn parse_crop_classes(crop_str: &str) -> Result<HashSet<DetectionClass>, Str
     for class_str in crop_str.split(',') {
         let class_str = class_str.trim();
         if !class_str.is_empty() {
-            classes.insert(DetectionClass::from_str(class_str)?);
+            classes.insert(class_str.parse()?);
         }
     }
 
