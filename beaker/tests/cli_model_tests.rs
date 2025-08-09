@@ -166,7 +166,7 @@ fn test_cli_model_url_without_checksum() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
-    
+
     // Print output for debugging
     println!("STDOUT: {}", stdout);
     println!("STDERR: {}", stderr);
@@ -176,12 +176,12 @@ fn test_cli_model_url_without_checksum() {
     if !output.status.success() {
         // If it fails, it should be due to network issues or model incompatibility, not CLI validation
         assert!(
-            stderr.contains("download") || 
-            stderr.contains("network") || 
-            stderr.contains("functionality test") ||
-            stderr.contains("Model failed") ||
-            stderr.contains("HTTP") ||
-            stderr.contains("Connection"),
+            stderr.contains("download")
+                || stderr.contains("network")
+                || stderr.contains("functionality test")
+                || stderr.contains("Model failed")
+                || stderr.contains("HTTP")
+                || stderr.contains("Connection"),
             "Should fail due to network/model issues, not CLI validation. Got: {stderr}"
         );
     } else {

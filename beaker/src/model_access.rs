@@ -43,7 +43,7 @@ fn get_file_info(path: &Path) -> Result<String> {
 fn validate_model_file_size(path: &Path) -> Result<()> {
     let metadata = fs::metadata(path)?;
     let file_size = metadata.len();
-    
+
     if file_size == 0 {
         return Err(anyhow!(
             "Model file is empty (0 bytes): {}\n\
@@ -53,8 +53,8 @@ fn validate_model_file_size(path: &Path) -> Result<()> {
     }
 
     let size_mb = file_size as f64 / (1024.0 * 1024.0);
-    log::debug!("✓ Model file size: {:.2} MB", size_mb);
-    
+    log::debug!("✓ Model file size: {size_mb:.2} MB");
+
     Ok(())
 }
 
@@ -69,9 +69,12 @@ fn test_model_basic_functionality(model_path: &Path) -> Result<()> {
     // Create a simple test to ensure the model loads without crashing
     // We'll use a minimal ONNX session creation test
     use crate::onnx_session::{create_onnx_session, ModelSource, SessionConfig};
-    
+
     let path_str = model_path.to_str().ok_or_else(|| {
-        anyhow!("Model path contains invalid UTF-8 characters: {}", model_path.display())
+        anyhow!(
+            "Model path contains invalid UTF-8 characters: {}",
+            model_path.display()
+        )
     })?;
 
     let model_source = ModelSource::FilePath(path_str.to_string());
@@ -83,14 +86,17 @@ fn test_model_basic_functionality(model_path: &Path) -> Result<()> {
                 "{} Model loaded successfully - basic functionality test passed",
                 symbols::completed_successfully()
             );
-            log::debug!("   Model size: {:.2} MB", model_info.model_size_bytes as f64 / (1024.0 * 1024.0));
+            log::debug!(
+                "   Model size: {:.2} MB",
+                model_info.model_size_bytes as f64 / (1024.0 * 1024.0)
+            );
             log::debug!("   Model checksum: {}", model_info.model_checksum);
             Ok(())
         }
         Err(e) => {
             let file_info = get_file_info(model_path)
                 .unwrap_or_else(|e| format!("Error getting file info: {e}"));
-            
+
             Err(anyhow!(
                 "Model failed basic functionality test: {}\n\
                  File details: {}\n\
@@ -329,7 +335,7 @@ fn download_with_concurrency_protection(
                         "{} Checking if concurrent download completed...",
                         symbols::checking()
                     );
-                    
+
                     if skip_verification {
                         // For no-verification downloads, just check if file exists and has size > 0
                         if let Ok(metadata) = fs::metadata(model_path) {
@@ -675,9 +681,9 @@ pub trait ModelAccess {
 
     /// Get the model source with CLI arguments and environment variable overrides.
     /// CLI arguments take priority over environment variables.
-    fn get_model_source_with_cli<'a>(cli_model_info: &CliModelInfo) -> Result<ModelSource<'a>> 
-    where 
-        Self: Sized 
+    fn get_model_source_with_cli<'a>(cli_model_info: &CliModelInfo) -> Result<ModelSource<'a>>
+    where
+        Self: Sized,
     {
         get_model_source_with_cli_and_env_override::<Self>(cli_model_info)
     }
@@ -792,10 +798,7 @@ pub fn get_model_source_with_cli_and_env_override<T: ModelAccess>(
 
     // Priority 1: CLI-provided model path
     if let Some(model_path) = &cli_model_info.model_path {
-        log::info!(
-            "🔧 Using CLI-provided model path: {}",
-            model_path
-        );
+        log::info!("🔧 Using CLI-provided model path: {model_path}");
 
         // Validate that the path exists
         let path = PathBuf::from(model_path);
@@ -817,10 +820,7 @@ pub fn get_model_source_with_cli_and_env_override<T: ModelAccess>(
 
     // Priority 2: CLI-provided model URL
     if let Some(model_url) = &cli_model_info.model_url {
-        log::info!(
-            "🔧 Using CLI-provided model URL: {}",
-            model_url
-        );
+        log::info!("🔧 Using CLI-provided model URL: {model_url}");
 
         // Create a temporary model info for downloading
         let default_model_info = T::get_default_model_info();
@@ -829,7 +829,9 @@ pub fn get_model_source_with_cli_and_env_override<T: ModelAccess>(
             info.filename.clone()
         } else {
             // Extract filename from URL or use a generic name
-            model_url.split('/').last()
+            model_url
+                .split('/')
+                .next_back()
                 .unwrap_or("custom_model.onnx")
                 .to_string()
         };
