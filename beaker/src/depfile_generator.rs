@@ -3,12 +3,37 @@
 //! This module generates dependency files (.d files) that can be included
 //! in Makefiles to enable accurate incremental builds. The depfiles list
 //! all inputs that affect the byte-level output as prerequisites.
+//!
+//! ## New Architecture (Recommended)
+//!
+//! The new approach uses OutputManager to track actual outputs produced:
+//! - `generate_depfile_from_output_manager()` uses OutputManager's tracked outputs
+//! - This eliminates synchronization issues between depfile generation and actual outputs
+//! - Single source of truth for what files are actually produced
+//!
+//! ## Legacy Functions (Deprecated)
+//!
+//! The functions `get_detection_output_files()` and `get_cutout_output_files()`
+//! manually duplicate OutputManager logic and should not be used for new code.
+//! They are kept for backwards compatibility and testing only.
 
 use anyhow::Result;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::output_manager::OutputManager;
 use crate::stamp_manager::StampInfo;
+
+/// Generate a Make-compatible dependency file using OutputManager's tracked outputs
+pub fn generate_depfile_from_output_manager(
+    depfile_path: &Path,
+    output_manager: &OutputManager,
+    input_files: &[PathBuf],
+    stamp_info: &StampInfo,
+) -> Result<()> {
+    let tracked_outputs = output_manager.get_produced_outputs();
+    generate_depfile(depfile_path, &tracked_outputs, input_files, stamp_info)
+}
 
 /// Generate a Make-compatible dependency file
 pub fn generate_depfile(
@@ -97,6 +122,12 @@ fn write_depfile_atomically(depfile_path: &Path, content: &String) -> Result<()>
 }
 
 /// Get the output files that will be created for detection
+///
+/// **DEPRECATED**: Use OutputManager::get_produced_outputs() instead.
+/// This function duplicates OutputManager logic and can get out of sync.
+#[deprecated(
+    note = "Use OutputManager::get_produced_outputs() instead to avoid synchronization issues"
+)]
 pub fn get_detection_output_files(
     input_path: &Path,
     crop_classes: &std::collections::HashSet<crate::config::DetectionClass>,
@@ -137,6 +168,12 @@ pub fn get_detection_output_files(
 }
 
 /// Get the output files that will be created for cutout processing
+///
+/// **DEPRECATED**: Use OutputManager::get_produced_outputs() instead.
+/// This function duplicates OutputManager logic and can get out of sync.
+#[deprecated(
+    note = "Use OutputManager::get_produced_outputs() instead to avoid synchronization issues"
+)]
 pub fn get_cutout_output_files(
     input_path: &Path,
     save_mask: bool,

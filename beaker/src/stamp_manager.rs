@@ -14,6 +14,15 @@ use crate::cache_common::{calculate_md5, get_cache_base_dir};
 use crate::config::{CutoutConfig, DetectionConfig};
 
 /// Generate a deterministic configuration hash for detection
+///
+/// **IMPORTANT**: This function must be kept in sync with DetectionConfig.
+/// When adding new fields to DetectionConfig that affect byte-level output:
+/// 1. Add the field to the hash computation below
+/// 2. Update tests in stamp_manager.rs
+/// 3. Consider if the field should be included in serialized config
+///
+/// Only include parameters that affect the actual image bytes produced,
+/// not metadata-only or performance-related settings.
 pub fn generate_detection_config_hash(config: &DetectionConfig) -> String {
     let mut hasher = Sha256::new();
 
@@ -52,6 +61,15 @@ pub fn generate_detection_config_hash(config: &DetectionConfig) -> String {
 }
 
 /// Generate a deterministic configuration hash for cutout processing
+///
+/// **IMPORTANT**: This function must be kept in sync with CutoutConfig.
+/// When adding new fields to CutoutConfig that affect byte-level output:
+/// 1. Add the field to the hash computation below
+/// 2. Update tests in stamp_manager.rs
+/// 3. Consider if the field should be included in serialized config
+///
+/// Only include parameters that affect the actual image bytes produced,
+/// not metadata-only or performance-related settings.
 pub fn generate_cutout_config_hash(config: &CutoutConfig) -> String {
     let mut hasher = Sha256::new();
 
@@ -236,6 +254,16 @@ impl StampInfo {
 
 #[cfg(test)]
 mod tests {
+    //! Tests for stamp generation and config hashing
+    //!
+    //! **MAINTENANCE REMINDER**: When adding new fields to DetectionConfig or CutoutConfig
+    //! that affect output file bytes, you MUST:
+    //! 1. Update the corresponding hash function (generate_*_config_hash)
+    //! 2. Add test cases here to verify the new field affects the hash
+    //! 3. Verify that changes to the field cause different stamp files to be generated
+    //!
+    //! This helps prevent dependency tracking issues where changes don't trigger rebuilds.
+
     use super::*;
     use crate::config::{DetectCommand, GlobalArgs};
     use clap_verbosity_flag::Verbosity;

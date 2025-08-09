@@ -44,6 +44,9 @@ pub trait ModelResult {
     /// Get file I/O timing information
     fn get_io_timing(&self) -> crate::shared_metadata::IoTiming;
 
+    /// Get list of files actually created (for depfile generation)
+    fn get_created_files(&self) -> Vec<std::path::PathBuf>;
+
     /// Get mask entry for cutout results (only applicable for cutout tools)
     fn get_mask_entry(&self) -> Option<crate::mask_encoding::MaskEntry> {
         None
@@ -368,7 +371,14 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
 
     // Generate depfile if requested and stamps are available
     if let (Some(depfile_path), Some(stamp_info)) = (&config.base().depfile, stamp_info) {
-        generate_depfile_for_image::<P>(result, config, image_path, depfile_path, stamp_info)?;
+        generate_depfile_for_image::<P>(
+            result,
+            config,
+            image_path,
+            depfile_path,
+            stamp_info,
+            &output_manager,
+        )?;
     }
 
     Ok(())
@@ -402,50 +412,22 @@ fn generate_stamps_for_tool<P: ModelProcessor>(
 
 /// Generate a depfile for a single processed image
 fn generate_depfile_for_image<P: ModelProcessor>(
-    _result: &P::Result,
-    config: &P::Config,
+    result: &P::Result,
+    _config: &P::Config,
     image_path: &Path,
     depfile_path: &str,
     stamp_info: &crate::stamp_manager::StampInfo,
+    output_manager: &crate::output_manager::OutputManager,
 ) -> Result<()> {
-    use crate::depfile_generator::{
-        generate_depfile, get_cutout_output_files, get_detection_output_files,
-    };
-
-    // Determine output files based on tool type
-    let outputs = match config.tool_name() {
-        "detect" => {
-            let detection_config = config as &dyn std::any::Any;
-            let detection_config = detection_config
-                .downcast_ref::<crate::config::DetectionConfig>()
-                .ok_or_else(|| anyhow::anyhow!("Failed to downcast to DetectionConfig"))?;
-
-            get_detection_output_files(
-                image_path,
-                &detection_config.crop_classes,
-                detection_config.bounding_box,
-                !config.base().skip_metadata,
-                config.base().output_dir.as_deref(),
-            )
-        }
-        "cutout" => {
-            let cutout_config = config as &dyn std::any::Any;
-            let cutout_config = cutout_config
-                .downcast_ref::<crate::config::CutoutConfig>()
-                .ok_or_else(|| anyhow::anyhow!("Failed to downcast to CutoutConfig"))?;
-
-            get_cutout_output_files(
-                image_path,
-                cutout_config.save_mask,
-                !config.base().skip_metadata,
-                config.base().output_dir.as_deref(),
-            )
-        }
-        tool_name => return Err(anyhow::anyhow!("Unknown tool name: {}", tool_name)),
-    };
+    use crate::depfile_generator::generate_depfile;
 
     // Input files are just the source image
     let inputs = vec![image_path.to_path_buf()];
+
+    // Combine result's created files with metadata files tracked by OutputManager
+    let mut outputs = result.get_created_files();
+    let metadata_files = output_manager.get_produced_outputs();
+    outputs.extend(metadata_files);
 
     // Generate the depfile
     generate_depfile(Path::new(depfile_path), &outputs, &inputs, stamp_info)?;
