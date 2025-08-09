@@ -78,6 +78,92 @@ pre-commit run fmt --all-files           # Rust formatting
 
 **Note**: If pre-commit is not available in your environment, you can run the individual tools manually as documented in the sections below.
 
+### Complete Pre-Commit Checklist
+
+Before committing, ensure all these pass:
+
+### Automated Checks
+- [ ] `cargo fmt --check` (in beaker/)
+- [ ] `cargo clippy -- -D warnings` (in beaker/)
+- [ ] `cargo build` (in beaker/)
+- [ ] `cargo build --release` (in beaker/)
+- [ ] `cargo test --release` (in beaker/)
+- [ ] `ruff check --fix` (Python files)
+- [ ] `ruff format` (Python files)
+- [ ] No trailing whitespace
+- [ ] Proper end-of-file handling
+- [ ] Valid YAML files
+- [ ] No large files
+- [ ] No merge conflicts
+- [ ] After staging files (`git add`) but before committing, run `pre-commit run` to auto-check the staged files. If there are errors, fix them and stage the files again before committing.
+- [ ] **Pre-commit integration**: Commits will automatically run pre-commit hooks. If hooks make changes or find issues, the commit will be blocked until you stage the changes and try again.
+- [ ] Then use your `report_progress` tool to push your changes to the PR branch. If it says "Error committing and pushing changes" then it did not work. Likely pre-commit blocked you. You need to resolve the pre-commit issues and try `report_progress` again.
+
+### Manual Verification
+- [ ] CLI help works: `./target/release/beaker --help`
+- [ ] Basic functionality: `./target/release/beaker head example.jpg --confidence 0.5`
+- [ ] Line counts updated: `bash scripts/run_warloc.sh`
+- [ ] **Check git status**: Verify no unintended files are staged (test artifacts, temporary files, etc.)
+
+### Final Check for rust changes
+
+```bash
+# If pre-commit is available, run everything at once
+pre-commit run --all-files
+
+# If pre-commit is not available, run individual checks:
+cd beaker
+cargo fmt --check
+cargo clippy -- -D warnings
+cargo build --release
+cargo test --release
+cd ..
+# Run Python checks if ruff is available
+ruff check --config=ruff.toml . || echo "Ruff not available, skipping Python checks"
+```
+
+### Quick Start Command Sequence (for rust / beaker changes)
+
+For a typical development session:
+
+```bash
+# 1. Navigate to beaker directory
+cd beaker
+
+# 2. Make your changes
+# ... edit files ...
+
+# 3. Format and fix issues
+cargo fmt
+cargo clippy --fix --allow-dirty -- -D warnings
+
+# 4. Build and test
+cargo build --release
+cargo test --release
+
+# 5. Test CLI
+cp ../example.jpg .
+./target/release/beaker head example.jpg --confidence 0.5
+
+# 6. Update line counts (from repo root)
+cd ..
+bash scripts/run_warloc.sh
+
+# 7. Run all pre-commit checks
+pre-commit run --all-files
+
+# 8. Check git status and clean up unintended files
+git status
+# Remove any test artifacts or temporary files before committing:
+# git rm *.beaker.toml *.beaker.json (if accidentally added)
+
+# 9. Commit your changes
+git add .
+git commit -m "Your commit message"
+
+# 10. Push your changes up with your `report_progress` tool! They must reach the PR. If it says there was an error, you  must fix it and try again.
+```
+
 ## Required Checks
 
 ### Rust Code (beaker/ directory)
@@ -208,89 +294,6 @@ cp ../example.jpg .
 ### Test Environment Variable Isolation
 Environment variable functionality is tested using integration tests with subprocess execution, which avoids race conditions by setting environment variables only on subprocesses rather than modifying the global process environment.
 
-## Complete Pre-Commit Checklist
-
-Before committing, ensure all these pass:
-
-### Automated Checks
-- [ ] `cargo fmt --check` (in beaker/)
-- [ ] `cargo clippy -- -D warnings` (in beaker/)
-- [ ] `cargo build` (in beaker/)
-- [ ] `cargo build --release` (in beaker/)
-- [ ] `cargo test --release` (in beaker/)
-- [ ] `ruff check --fix` (Python files)
-- [ ] `ruff format` (Python files)
-- [ ] No trailing whitespace
-- [ ] Proper end-of-file handling
-- [ ] Valid YAML files
-- [ ] No large files
-- [ ] No merge conflicts
-- [ ] After staging files (`git add`) but before committing, run `pre-commit run` to auto-check the staged files. If there are errors, fix them and stage the files again before committing.
-- [ ] **Pre-commit integration**: Commits will automatically run pre-commit hooks. If hooks make changes or find issues, the commit will be blocked until you stage the changes and try again.
-
-### Manual Verification
-- [ ] CLI help works: `./target/release/beaker --help`
-- [ ] Basic functionality: `./target/release/beaker head example.jpg --confidence 0.5`
-- [ ] Line counts updated: `bash scripts/run_warloc.sh`
-- [ ] **Check git status**: Verify no unintended files are staged (test artifacts, temporary files, etc.)
-
-### Final Check for rust changes
-
-```bash
-# If pre-commit is available, run everything at once
-pre-commit run --all-files
-
-# If pre-commit is not available, run individual checks:
-cd beaker
-cargo fmt --check
-cargo clippy -- -D warnings
-cargo build --release
-cargo test --release
-cd ..
-# Run Python checks if ruff is available
-ruff check --config=ruff.toml . || echo "Ruff not available, skipping Python checks"
-```
-
-## Quick Start Command Sequence (for rust / beaker changes)
-
-For a typical development session:
-
-```bash
-# 1. Navigate to beaker directory
-cd beaker
-
-# 2. Make your changes
-# ... edit files ...
-
-# 3. Format and fix issues
-cargo fmt
-cargo clippy --fix --allow-dirty -- -D warnings
-
-# 4. Build and test
-cargo build --release
-cargo test --release
-
-# 5. Test CLI
-cp ../example.jpg .
-./target/release/beaker head example.jpg --confidence 0.5
-
-# 6. Update line counts (from repo root)
-cd ..
-bash scripts/run_warloc.sh
-
-# 7. Run all pre-commit checks
-pre-commit run --all-files
-
-# 8. Check git status and clean up unintended files
-git status
-# Remove any test artifacts or temporary files before committing:
-# git rm *.beaker.toml *.beaker.json (if accidentally added)
-
-# 9. Commit your changes
-git add .
-git commit -m "Your commit message"
-```
-
 ## Troubleshooting
 
 ### Network and Firewall Issues
@@ -371,12 +374,12 @@ Then immediately follow up with a commit that fixes the pre-commit issues.
 - Check hook status: `pre-commit run --all-files` (shows which hooks pass/fail)
 
 ### PR Conflicts
-If your PR has conflicts with the main branch, merge the latest origin/main into the PR branch, resolving any conflicts. Then push to the PR branch.
+If your PR has conflicts with the main branch, merge the latest origin/main into the PR branch, resolving any conflicts. Then use your `report_progress` tool to push your changes to the PR branch. If it says "Error committing and pushing changes" then it did not work. Likely pre-commit blocked you. You need to resolve the pre-commit issues and try `report_progress` again.
 
 ### Pushing Changes
 **Agents must push their changes before finishing work.** After making commits locally:
 - Use `report_progress` to push changes to the remote PR branch
-- If you have conflicts or other issues, resolve them and push your work to the remote PR branch
+- If you have conflicts or other issues ("Error committing and pushing changes"), resolve them and then use `report_progress` again to push to the remote PR branch
 - Never leave unpushed local commits - they will be lost
 
 **If `git commit` fails due to pre-commit:**
