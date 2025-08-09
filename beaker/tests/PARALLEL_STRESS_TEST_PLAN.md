@@ -15,10 +15,10 @@ Both caches must handle concurrent access gracefully without corruption, race co
 ## Goals
 
 - **Reliability**: Ensure caches are robust to concurrent access patterns
-- **Failure Resilience**: Validate graceful handling of network failures, corruption, and timeouts
-- **Performance**: Verify cache performance under stress without blocking legitimate operations
-- **Fast Tests**: Keep stress tests fast enough for frequent CI execution
-- **Deterministic**: No flaky tests - only test conditions that are guaranteed to be true
+- **Failure Resilience**: Validate graceful handling of network failures, corruption, and connection issues
+- **Deterministic**: Event-based testing with eventual invariants - no timing dependencies
+- **Fast Tests**: Virtualized time and immediate failure injection for rapid CI execution
+- **No Flakiness**: Logic-based validation that always converges to correct state
 
 ## Framework Architecture
 
@@ -64,12 +64,11 @@ Both caches must handle concurrent access gracefully without corruption, race co
 **Selected Crate**: `httpmock = "0.7.0"`
 
 **Failure Injection Capabilities**:
-- **Network Timeouts**: Configurable delay before response
-- **Connection Failures**: Simulate network connectivity issues
-- **Partial Downloads**: Return incomplete responses
-- **Corrupted Data**: Serve models with incorrect checksums
-- **HTTP Errors**: Return 4xx/5xx status codes intermittently
-- **Flaky Responses**: Randomly succeed/fail to simulate unreliable networks
+- **Connection Failures**: Simulate network connectivity issues (immediate)
+- **Partial Downloads**: Return incomplete responses at specific byte counts
+- **Corrupted Data**: Serve models with incorrect checksums (deterministic corruption)
+- **HTTP Errors**: Return 4xx/5xx status codes at predetermined points
+- **Deterministic Patterns**: Predefined failure sequences for reproducible testing
 
 ### 3. Test Setup and Model Preparation
 
@@ -162,66 +161,130 @@ fn test_coreml_cache_concurrency() {
 }
 ```
 
-### 5. Failure Injection Strategies
+### 5. Deterministic Failure Injection
 
-**Gradual Failure Introduction**:
+**Event-Based Failure Controller**:
 ```rust
 struct FailureController {
-    failure_rate: Arc<AtomicU32>,        // 0-100% failure rate
-    timeout_ms: Arc<AtomicU64>,          // Response delay
-    corruption_rate: Arc<AtomicU32>,     // % of responses corrupted
+    failure_sequence: Vec<FailureEvent>,
+    current_request: AtomicUsize,
+}
+
+#[derive(Clone)]
+enum FailureEvent {
+    Success,
+    ConnectionRefused,
+    PartialResponse(usize), // Fail after N bytes
+    CorruptedChecksum,
+    Http500Error,
 }
 
 impl FailureController {
-    // Start with 0% failures, gradually increase during test
-    // Allows observing system behavior under increasing stress
-    // Can identify failure threshold where system breaks down
+    fn new(pattern: Vec<FailureEvent>) -> Self {
+        Self {
+            failure_sequence: pattern,
+            current_request: AtomicUsize::new(0),
+        }
+    }
+    
+    fn next_response(&self) -> FailureEvent {
+        let index = self.current_request.fetch_add(1, Ordering::SeqCst);
+        self.failure_sequence[index % self.failure_sequence.len()].clone()
+    }
 }
 ```
 
-**Targeted Failure Patterns**:
-- **Early Failures**: Fail immediately on connection
-- **Mid-Download Failures**: Start transfer, then disconnect
-- **Checksum Corruption**: Modify content to invalidate MD5
-- **Slow Networks**: Introduce realistic network delays
-- **Intermittent Connectivity**: Random success/failure patterns
+**Predefined Failure Patterns**:
+- **Progressive Degradation**: `[Success, Success, PartialResponse(1024), Success, ConnectionRefused]`
+- **Checksum Corruption**: `[Success, CorruptedChecksum, Success, Success]`
+- **Server Instability**: `[Http500Error, Http500Error, Success, Success]`
+- **Partial Download Recovery**: `[PartialResponse(512), PartialResponse(1024), Success]`
 
 ### 6. Process Management and Orchestration
 
-**Concurrent Process Execution**:
+**Event-Based Process Coordination**:
 ```rust
+use std::sync::{Arc, Barrier, Mutex};
+use std::sync::mpsc::{channel, Receiver, Sender};
+
 struct StressTestOrchestrator {
     max_concurrent_processes: usize,
-    test_duration_seconds: u64,
-    process_spawn_interval_ms: u64,
+    failure_patterns: Vec<Vec<FailureEvent>>,
+}
+
+#[derive(Debug)]
+struct ProcessResult {
+    process_id: usize,
+    exit_code: i32,
+    cache_state: CacheValidationResult,
+    error_output: String,
 }
 
 impl StressTestOrchestrator {
     fn run_stress_test(&self, scenario: TestScenario) -> StressTestResults {
-        // Spawn beaker processes with controlled timing using threads
-        // Monitor process lifecycle and results
-        // Collect exit codes, timing, and error messages
-        // Ensure proper cleanup of all processes
+        let start_barrier = Arc::new(Barrier::new(self.max_concurrent_processes + 1));
+        let (result_tx, result_rx): (Sender<ProcessResult>, Receiver<ProcessResult>) = channel();
+        
+        // Launch processes with deterministic failure patterns
+        let handles: Vec<_> = (0..self.max_concurrent_processes).map(|i| {
+            let barrier = Arc::clone(&start_barrier);
+            let tx = result_tx.clone();
+            let failure_pattern = self.failure_patterns[i % self.failure_patterns.len()].clone();
+            
+            std::thread::spawn(move || {
+                // Wait for all processes to be ready
+                barrier.wait();
+                
+                // Execute beaker with deterministic environment
+                let result = execute_beaker_process(i, &failure_pattern);
+                tx.send(result).unwrap();
+            })
+        }).collect();
+        
+        // Start all processes simultaneously
+        start_barrier.wait();
+        
+        // Collect results as they complete (no timeouts)
+        let mut results = Vec::new();
+        for _ in 0..self.max_concurrent_processes {
+            results.push(result_rx.recv().unwrap());
+        }
+        
+        // Wait for all threads to complete
+        for handle in handles {
+            handle.join().unwrap();
+        }
+        
+        StressTestResults::new(results)
     }
 }
 ```
 
 **Process Isolation**:
 - Each process gets its own temporary cache directory
-- Environment variables control model URLs to point to mock server
+- Environment variables control model URLs to point to mock server with specific failure pattern
 - Separate output directories to avoid conflicts
 - Independent metadata file generation
+- No timing dependencies - processes coordinate through barriers and channels
 
 ### 7. Validation and Metrics Collection
 
 **Cache State Validation**:
 ```rust
-struct CacheValidator {
+struct CacheValidator;
+
+impl CacheValidator {
     fn validate_cache_consistency(&self, cache_dir: &Path) -> ValidationResult {
         // Check no partial/corrupted files remain
         // Verify all cached models have correct checksums
         // Ensure proper file permissions and ownership
         // Check cache directory structure integrity
+        ValidationResult::from_invariants(&[
+            self.no_partial_files_remain(cache_dir),
+            self.all_cached_models_valid_checksum(cache_dir),
+            self.proper_permissions(cache_dir),
+            self.directory_structure_intact(cache_dir),
+        ])
     }
 
     fn validate_concurrent_safety(&self, cache_dirs: &[Path]) -> ValidationResult {
@@ -229,16 +292,34 @@ struct CacheValidator {
         // Verify identical models have identical cache entries
         // Check for race condition artifacts
         // Validate lock file cleanup
+        ValidationResult::from_invariants(&[
+            self.identical_models_have_same_cache(cache_dirs),
+            self.no_race_condition_artifacts(cache_dirs),
+            self.all_lock_files_cleaned_up(cache_dirs),
+        ])
+    }
+    
+    // Eventual invariants - these must eventually be true
+    fn no_partial_files_remain(&self, cache_dir: &Path) -> bool {
+        !cache_dir.read_dir().unwrap()
+            .any(|entry| entry.unwrap().file_name().to_string_lossy().contains(".tmp"))
+    }
+    
+    fn all_lock_files_cleaned_up(&self, cache_dirs: &[Path]) -> bool {
+        cache_dirs.iter().all(|dir| {
+            !dir.read_dir().unwrap()
+                .any(|entry| entry.unwrap().file_name().to_string_lossy().ends_with(".lock"))
+        })
     }
 }
 ```
 
-**Performance Metrics**:
-- Download completion rates under various failure scenarios
-- Cache hit/miss ratios during concurrent access
-- Lock contention duration and frequency
-- Process completion times and failure modes
-- Network bandwidth utilization efficiency
+**Logical Metrics Collection**:
+- Process completion states (success/failure with specific error types)
+- Cache consistency invariants (eventual properties that must hold)
+- Lock file lifecycle completeness (acquire -> release pattern validation)
+- Model integrity verification (checksum consistency across processes)
+- Error recovery patterns (how failures propagate and resolve)
 
 **Metadata Analysis**:
 - Leverage issue #35 cache metadata when available
@@ -287,9 +368,10 @@ Here's a concrete example of how the stress test framework would look:
 // tests/stress/mod.rs
 use httpmock::{MockServer, Mock, When, Then};
 use std::process::Command;
-use std::time::Duration;
 use std::thread;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Barrier, Mutex};
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tempfile::TempDir;
 
 #[test]
@@ -297,26 +379,48 @@ fn test_concurrent_model_download_stress() {
     // Setup: Download real model for serving
     let test_models = setup_test_models();
 
-    // Start mock server with failure injection
-    let mock_server = MockServer::start();
-    let failure_controller = Arc::new(FailureController::new());
+    // Create deterministic failure pattern
+    let failure_pattern = vec![
+        FailureEvent::Success,           // Process 0: succeeds
+        FailureEvent::ConnectionRefused, // Process 1: fails initially
+        FailureEvent::PartialResponse(1024), // Process 2: partial download
+        FailureEvent::Success,           // Process 3: succeeds
+        FailureEvent::CorruptedChecksum, // Process 4: gets corrupted data
+    ];
 
-    // Configure mock responses
+    // Start mock server with deterministic responses
+    let mock_server = MockServer::start();
+    let failure_controller = Arc::new(FailureController::new(failure_pattern));
+
+    // Configure mock responses - no delays, immediate responses
     let failure_controller_clone = Arc::clone(&failure_controller);
     Mock::new()
         .expect_request(When::path("/cutout-model.onnx"))
         .return_response_with(move |_| {
-            if failure_controller_clone.should_fail() {
-                Then::new().status(500) // Simulate server error
-            } else if failure_controller_clone.should_timeout() {
-                Then::new()
-                    .status(200)
-                    .delay(Duration::from_secs(30)) // Simulate slow network
-                    .body(test_models.cutout_model_bytes.clone())
-            } else {
-                Then::new()
-                    .status(200)
-                    .body(test_models.cutout_model_bytes.clone())
+            match failure_controller_clone.next_response() {
+                FailureEvent::Success => {
+                    Then::new()
+                        .status(200)
+                        .body(test_models.cutout_model_bytes.clone())
+                }
+                FailureEvent::ConnectionRefused => {
+                    Then::new().status(0) // Connection refused
+                }
+                FailureEvent::PartialResponse(bytes) => {
+                    Then::new()
+                        .status(200)
+                        .body(test_models.cutout_model_bytes[..bytes].to_vec())
+                }
+                FailureEvent::CorruptedChecksum => {
+                    let mut corrupted = test_models.cutout_model_bytes.clone();
+                    corrupted[0] = !corrupted[0]; // Flip first byte
+                    Then::new()
+                        .status(200)
+                        .body(corrupted)
+                }
+                FailureEvent::Http500Error => {
+                    Then::new().status(500)
+                }
             }
         })
         .create_on(&mock_server);
@@ -325,14 +429,25 @@ fn test_concurrent_model_download_stress() {
     let temp_cache = TempDir::new().unwrap();
     let mock_url = format!("{}/cutout-model.onnx", mock_server.base_url());
 
-    // Launch concurrent beaker processes using threads
-    let handles: Vec<_> = (0..10).map(|i| {
+    // Synchronization for simultaneous start
+    let process_count = 5;
+    let start_barrier = Arc::new(Barrier::new(process_count + 1));
+    let (result_tx, result_rx): (Sender<ProcessResult>, Receiver<ProcessResult>) = channel();
+
+    // Launch concurrent beaker processes
+    let handles: Vec<_> = (0..process_count).map(|i| {
+        let barrier = Arc::clone(&start_barrier);
         let cache_dir = temp_cache.path().join(format!("cache_{}", i));
         let output_dir = temp_cache.path().join(format!("output_{}", i));
         let mock_url = mock_url.clone();
+        let tx = result_tx.clone();
 
         thread::spawn(move || {
-            let exit_code = Command::new("./target/debug/beaker")
+            // Wait for all processes to be ready
+            barrier.wait();
+
+            // Execute beaker process
+            let result = Command::new("./target/debug/beaker")
                 .args(&[
                     "cutout",
                     "../example.jpg",
@@ -341,106 +456,127 @@ fn test_concurrent_model_download_stress() {
                 ])
                 .env("CUTOUT_MODEL_URL", mock_url)
                 .env("ONNX_MODEL_CACHE_DIR", cache_dir.to_str().unwrap())
-                .status()
-                .unwrap()
-                .code()
-                .unwrap_or(-1);
+                .output()
+                .unwrap();
 
-            (i, exit_code, cache_dir, output_dir)
+            let exit_code = result.status.code().unwrap_or(-1);
+            let stderr = String::from_utf8_lossy(&result.stderr).to_string();
+
+            tx.send(ProcessResult {
+                process_id: i,
+                exit_code,
+                cache_dir: cache_dir.clone(),
+                output_dir: output_dir.clone(),
+                error_output: stderr,
+            }).unwrap();
         })
     }).collect();
 
-    // Introduce failures during execution using a separate thread
-    let failure_controller_for_injection = Arc::clone(&failure_controller);
-    let _failure_thread = thread::spawn(move || {
-        thread::sleep(Duration::from_millis(500));
-        failure_controller_for_injection.set_failure_rate(20); // 20% failure rate
+    // Start all processes simultaneously
+    start_barrier.wait();
 
-        thread::sleep(Duration::from_secs(2));
-        failure_controller_for_injection.set_timeout_rate(30); // 30% timeout rate
-    });
+    // Collect results as they complete (no timeouts)
+    let mut results = Vec::new();
+    for _ in 0..process_count {
+        results.push(result_rx.recv().unwrap());
+    }
 
-    // Collect results
-    let results: Vec<_> = handles.into_iter()
-        .map(|h| h.join().unwrap())
-        .collect();
+    // Wait for all threads to complete
+    for handle in handles {
+        handle.join().unwrap();
+    }
 
-    // Validation
+    // Validation: Eventual invariants that must hold
+    
+    // At least some processes should succeed despite deterministic failures
     let success_count = results.iter()
-        .filter(|r| r.1 == 0)
+        .filter(|r| r.exit_code == 0)
         .count();
+    assert!(success_count >= 2, "Expected at least 2 successes, got {}", success_count);
 
-    // At least some processes should succeed despite failures
-    assert!(success_count >= 5, "Expected at least 5 successes, got {}", success_count);
-
-    // Validate cache consistency across successful processes
+    // All successful processes must have consistent cache state
     for result in &results {
-        let (process_id, exit_code, cache_dir, output_dir) = result;
-        if *exit_code == 0 {
+        if result.exit_code == 0 {
             // Check cache has valid model
-            let cached_model = cache_dir.join("cutout-model.onnx");
-            assert!(cached_model.exists(), "Process {} should have cached model", process_id);
+            let cached_model = result.cache_dir.join("cutout-model.onnx");
+            assert!(cached_model.exists(), "Process {} should have cached model", result.process_id);
 
             // Verify checksum
             let checksum = calculate_md5(&cached_model).unwrap();
             assert_eq!(checksum, test_models.cutout_model_checksum);
 
             // Check metadata was generated
-            let metadata_file = output_dir.join("example.beaker.toml");
-            assert!(metadata_file.exists(), "Process {} should have metadata", process_id);
+            let metadata_file = result.output_dir.join("example.beaker.toml");
+            assert!(metadata_file.exists(), "Process {} should have metadata", result.process_id);
         }
     }
 
-    // Verify no partial downloads remain
+    // Eventual invariant: No partial downloads or lock files remain
     for result in &results {
-        let (_, _, cache_dir, _) = result;
-        let lock_file = cache_dir.join("cutout-model.onnx.lock");
-        assert!(!lock_file.exists(), "No lock files should remain");
+        let lock_file = result.cache_dir.join("cutout-model.onnx.lock");
+        assert!(!lock_file.exists(), "No lock files should remain for process {}", result.process_id);
 
         // Check for partial/temporary files
-        let cache_entries: Vec<_> = std::fs::read_dir(cache_dir)
-            .unwrap()
-            .collect();
-        for entry in cache_entries {
-            let entry = entry.unwrap();
-            let filename = entry.file_name();
-            assert!(!filename.to_string_lossy().contains(".tmp"),
-                   "No temporary files should remain: {:?}", filename);
+        if result.cache_dir.exists() {
+            let cache_entries: Vec<_> = std::fs::read_dir(&result.cache_dir)
+                .unwrap()
+                .collect();
+            for entry in cache_entries {
+                let entry = entry.unwrap();
+                let filename = entry.file_name();
+                assert!(!filename.to_string_lossy().contains(".tmp"),
+                       "No temporary files should remain: {:?}", filename);
+            }
         }
     }
+
+    // Validate error patterns match expected failures
+    let connection_failures = results.iter()
+        .filter(|r| r.exit_code != 0 && r.error_output.contains("connection"))
+        .count();
+    let checksum_failures = results.iter()
+        .filter(|r| r.exit_code != 0 && r.error_output.contains("checksum"))
+        .count();
+    
+    // Expect specific failure types based on our deterministic pattern
+    assert!(connection_failures >= 1, "Expected at least 1 connection failure");
+    assert!(checksum_failures >= 1, "Expected at least 1 checksum failure");
+}
+
+#[derive(Debug)]
+struct ProcessResult {
+    process_id: usize,
+    exit_code: i32,
+    cache_dir: PathBuf,
+    output_dir: PathBuf,
+    error_output: String,
+}
+
+#[derive(Clone, Debug)]
+enum FailureEvent {
+    Success,
+    ConnectionRefused,
+    PartialResponse(usize),
+    CorruptedChecksum,
+    Http500Error,
 }
 
 struct FailureController {
-    failure_rate: Arc<AtomicU32>,
-    timeout_rate: Arc<AtomicU32>,
+    failure_sequence: Vec<FailureEvent>,
+    current_request: AtomicUsize,
 }
 
 impl FailureController {
-    fn new() -> Self {
+    fn new(pattern: Vec<FailureEvent>) -> Self {
         Self {
-            failure_rate: Arc::new(AtomicU32::new(0)),
-            timeout_rate: Arc::new(AtomicU32::new(0)),
+            failure_sequence: pattern,
+            current_request: AtomicUsize::new(0),
         }
     }
 
-    fn should_fail(&self) -> bool {
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
-        rng.gen_range(0..100) < self.failure_rate.load(Ordering::Relaxed)
-    }
-
-    fn should_timeout(&self) -> bool {
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
-        rng.gen_range(0..100) < self.timeout_rate.load(Ordering::Relaxed)
-    }
-
-    fn set_failure_rate(&self, rate: u32) {
-        self.failure_rate.store(rate, Ordering::Relaxed);
-    }
-
-    fn set_timeout_rate(&self, rate: u32) {
-        self.timeout_rate.store(rate, Ordering::Relaxed);
+    fn next_response(&self) -> FailureEvent {
+        let index = self.current_request.fetch_add(1, Ordering::SeqCst);
+        self.failure_sequence[index % self.failure_sequence.len()].clone()
     }
 }
 ```
@@ -456,16 +592,16 @@ tempfile = "3.8"
 paste = "1.0"
 
 # New dependencies for stress testing
-httpmock = "0.7.0"              # HTTP mocking with failure injection
-rand = "0.8"                    # For probabilistic failure injection
+httpmock = "0.7.0"              # HTTP mocking with deterministic failure injection
 serde_json = "1.0"              # For test result serialization
 ```
 
 These dependencies are:
-- **Minimal**: Only 3 additional crates for comprehensive stress testing
+- **Minimal**: Only 2 additional crates for comprehensive stress testing (removed rand dependency)
 - **Well-maintained**: All are industry standard with active development
 - **Zero runtime impact**: Only in dev-dependencies, no production overhead
 - **Compatible**: Work well with beaker's existing blocking/synchronous model
+- **No timing dependencies**: Deterministic behavior without sleep or delays
 - **No async complexity**: Avoids tokio/futures dependencies that would complicate the codebase
 
 ### 11. Test Configuration and Controls
@@ -473,9 +609,8 @@ These dependencies are:
 **Environment Variables**:
 ```rust
 // Control test execution behavior
-BEAKER_STRESS_TEST_DURATION=60        // Test duration in seconds
 BEAKER_STRESS_MAX_PROCESSES=20        // Max concurrent processes
-BEAKER_STRESS_FAILURE_RATE=10         // Initial failure rate %
+BEAKER_STRESS_FAILURE_PATTERN=deterministic  // Use predefined failure sequences
 BEAKER_STRESS_ENABLE_COREML=true      // Test CoreML on macOS
 BEAKER_STRESS_CACHE_SIZE_LIMIT=1GB    // Cache size constraints
 ```
@@ -498,17 +633,17 @@ cargo test stress --release -- --test-threads=1  // For deterministic results
 - ✅ Failed downloads don't leave partial files in cache
 - ✅ Concurrent processes don't deadlock or hang indefinitely
 
-**Performance Requirements**:
-- ✅ Cache hit performance doesn't degrade with concurrency
-- ✅ Lock contention doesn't exceed 5 seconds under normal load
-- ✅ Download failures don't prevent cache access for other models
-- ✅ Memory usage remains bounded during stress testing
-- ✅ Network failure recovery completes within reasonable time
+**Logical Invariants**:
+- ✅ Cache consistency across all successful processes (eventual property)
+- ✅ Deterministic failure handling matches expected patterns
+- ✅ All processes eventually complete (no infinite hanging)
+- ✅ Error recovery follows expected paths for each failure type
+- ✅ Resource cleanup completes for all process termination scenarios
 
 **Reliability Requirements**:
-- ✅ Tests complete successfully in under 5 minutes
-- ✅ No flaky test behavior across multiple runs
-- ✅ Deterministic results for given failure injection patterns
+- ✅ Tests complete rapidly with immediate failure injection (under 30 seconds)
+- ✅ No flaky test behavior - deterministic failure patterns
+- ✅ Reproducible results for given failure injection sequences
 - ✅ Clean process termination without resource leaks
 - ✅ Comprehensive error reporting for debugging failures
 
@@ -521,21 +656,21 @@ cargo test stress --release -- --test-threads=1  // For deterministic results
 - Can be disabled for faster development builds
 - Uses simple thread-based concurrency matching beaker's blocking model
 
-**Instrumentation Strategy**:
-- Leverage existing metadata output system
-- Add cache-specific metrics when issue #35 is implemented
-- Use debug logging for detailed concurrency analysis
-- Export test results in machine-readable format
+**Deterministic Testing Strategy**:
+- Event-based coordination with barriers and channels instead of timing
+- Predefined failure sequences ensure reproducible test outcomes
+- Logical invariants validation rather than time-based assertions
+- Immediate failure injection eliminates flaky timing dependencies
 
 **CI Integration**:
-- Run basic concurrency tests on every PR
-- Extended stress tests on nightly builds
+- Run basic concurrency tests on every PR (fast execution under 30 seconds)
+- Extended deterministic stress patterns on nightly builds
 - Platform-specific tests (CoreML on macOS runners)
-- Performance regression alerts for significant degradation
+- Logical invariant validation for reliable regression detection
 
 **Maintenance and Evolution**:
 - Framework designed to accommodate new models (issue #22)
-- Extensible failure injection for new failure modes
+- Extensible failure patterns for new failure modes
 - Modular test scenarios for incremental development
 - Documentation for adding new concurrency test cases
 
@@ -557,6 +692,8 @@ The framework is designed to evolve with these features, providing immediate tes
 
 ## Conclusion
 
-This stress testing framework will provide comprehensive validation of beaker's caching mechanisms under realistic concurrent usage patterns. By using established testing libraries and focusing on deterministic, fast-running tests, it will enhance confidence in cache robustness without impeding development velocity.
+This stress testing framework will provide comprehensive validation of beaker's caching mechanisms under realistic concurrent usage patterns. By using deterministic failure injection and event-based coordination, it eliminates timing dependencies while ensuring fast execution and reliable results.
 
-The framework is designed to evolve alongside beaker's caching implementation, supporting future enhancements like CLI model selection (#22) and cache metadata improvements (#35), while maintaining fast test execution and reliable results for continuous integration.
+The framework focuses on logical invariants and eventual properties that must hold, making tests both robust and maintainable. With immediate failure injection and barrier-based process coordination, tests complete rapidly without the flakiness inherent in time-based testing approaches.
+
+The framework is designed to evolve alongside beaker's caching implementation, supporting future enhancements like CLI model selection (#22) and cache metadata improvements (#35), while maintaining deterministic test execution and comprehensive failure mode coverage for continuous integration.
