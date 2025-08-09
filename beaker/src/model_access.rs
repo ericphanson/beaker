@@ -444,7 +444,7 @@ pub fn download_model_without_verification(model_info: &ModelInfo) -> Result<Pat
     log::debug!("🗂️  Cache directory: {}", cache_dir.display());
     log::debug!("📄 Model path: {}", model_path.display());
     log::warn!(
-        "{}Downloading model without checksum verification. This is less secure.",
+        "{}Downloading model without checksum verification. This is less secure. Use --model-checksum <CHECKSUM> to verify the downloaded model.",
         symbols::warning()
     );
 
@@ -837,7 +837,7 @@ pub fn get_model_source_with_cli_and_env_override<T: ModelAccess>(
             checksum.clone()
         } else {
             log::warn!(
-                "{}No checksum provided for CLI model URL. Download will proceed but verification will be skipped.",
+                "{}No checksum provided for CLI model URL. Download will proceed but verification will be skipped. Use --model-checksum <CHECKSUM> for secure verification.",
                 symbols::warning()
             );
             "skip_verification".to_string() // Special marker to skip verification
