@@ -162,18 +162,18 @@ fn parse_crop_classes(input: &str) -> Result<Vec<String>, String> {
     if input == "all" {
         return Ok(vec!["bird".to_string(), "head".to_string(), "eyes".to_string(), "beak".to_string()]);
     }
-    
+
     let classes: Vec<String> = input
         .split(',')
         .map(|s| s.trim().to_lowercase())
         .collect();
-    
+
     for class in &classes {
         if !["bird", "head", "eyes", "beak"].contains(&class.as_str()) {
             return Err(format!("Unknown class: {}. Valid classes: bird, head, eyes, beak", class));
         }
     }
-    
+
     Ok(classes)
 }
 ```
@@ -184,7 +184,7 @@ fn parse_crop_classes(input: &str) -> Result<Vec<String>, String> {
 fn class_id_to_name(class_id: u32) -> String {
     match class_id {
         0 => "bird".to_string(),
-        1 => "head".to_string(), 
+        1 => "head".to_string(),
         2 => "eyes".to_string(),
         3 => "beak".to_string(),
         _ => format!("unknown_{}", class_id),
@@ -210,7 +210,7 @@ processing_time_ms = 245.7
 
 [[tool_results.detect.detections]]
 x = 100
-y = 150  
+y = 150
 width = 200
 height = 180
 confidence = 0.87
@@ -224,7 +224,7 @@ y = 120
 width = 250
 height = 220
 confidence = 0.92
-class_id = 0  
+class_id = 0
 class_name = "bird"
 crop_path = "bird_crop_bird.jpg"
 ```
@@ -243,7 +243,7 @@ crop_path = "bird_crop_bird.jpg"
 - CLI command structure (well-defined changes)
 - Output naming (additive changes)
 
-### Medium Risk Changes  
+### Medium Risk Changes
 - Detection struct modifications (affects serialization)
 - Multi-class postprocessing (logic complexity)
 - Test updates (many files to change)
