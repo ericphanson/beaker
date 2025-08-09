@@ -46,6 +46,10 @@ pub enum MetadataCheck {
     MaskEncodingPresent,
     /// Verify ASCII preview is present and contains expected characters
     AsciiPreviewValid,
+    /// Verify cache statistics are present (checking field exists)
+    CacheStatsPresent(&'static str, &'static str), // tool, field_name (e.g., "cached_models_count")
+    /// Verify cache statistics are non-negative numbers
+    CacheStatsNonNegative(&'static str, &'static str), // tool, field_name
 }
 
 /// Copy test files to temp directory and return their paths
@@ -503,6 +507,73 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
                     row.len()
                 );
             }
+        }
+
+        MetadataCheck::CacheStatsPresent(tool, field_name) => {
+            let system = match *tool {
+                "head" => metadata.head.as_ref().and_then(|h| h.system.as_ref()),
+                "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
+                _ => panic!("Unknown tool: {tool}"),
+            };
+
+            assert!(
+                system.is_some(),
+                "System info should exist for {tool} in test {test_name}"
+            );
+
+            let system = system.unwrap();
+            let field_exists = match *field_name {
+                "cached_models_count" => system.cached_models_count.is_some(),
+                "cached_models_size_mb" => system.cached_models_size_mb.is_some(),
+                "coreml_cache_count" => system.coreml_cache_count.is_some(),
+                "coreml_cache_size_mb" => system.coreml_cache_size_mb.is_some(),
+                "model_cache_hit" => system.model_cache_hit.is_some(),
+                "model_download_time_ms" => system.model_download_time_ms.is_some(),
+                "coreml_cache_hit" => system.coreml_cache_hit.is_some(),
+                _ => panic!("Unknown cache stats field: {field_name}"),
+            };
+
+            assert!(
+                field_exists,
+                "Cache stats field {field_name} should be present for {tool} in test {test_name}"
+            );
+        }
+
+        MetadataCheck::CacheStatsNonNegative(tool, field_name) => {
+            let system = match *tool {
+                "head" => metadata.head.as_ref().and_then(|h| h.system.as_ref()),
+                "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
+                _ => panic!("Unknown tool: {tool}"),
+            };
+
+            assert!(
+                system.is_some(),
+                "System info should exist for {tool} in test {test_name}"
+            );
+
+            let system = system.unwrap();
+            let is_non_negative = match *field_name {
+                "cached_models_count" => system.cached_models_count.is_some(), // usize is always non-negative
+                "cached_models_size_mb" => system
+                    .cached_models_size_mb
+                    .map(|v| v >= 0.0)
+                    .unwrap_or(true),
+                "coreml_cache_count" => system.coreml_cache_count.is_some(), // usize is always non-negative
+                "coreml_cache_size_mb" => system
+                    .coreml_cache_size_mb
+                    .map(|v| v >= 0.0)
+                    .unwrap_or(true),
+                "model_download_time_ms" => system
+                    .model_download_time_ms
+                    .map(|v| v >= 0.0)
+                    .unwrap_or(true),
+                _ => panic!("Unknown cache stats field for non-negative check: {field_name}"),
+            };
+
+            assert!(
+                is_non_negative,
+                "Cache stats field {field_name} should be non-negative for {tool} in test {test_name}"
+            );
         }
     }
 }

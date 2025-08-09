@@ -35,11 +35,42 @@ impl ModelAccess for CutAccess {
     }
 
     fn get_cache_stats() -> Result<Option<crate::model_access::CacheStats>> {
-        use crate::model_access::get_last_cache_stats;
-        
-        // Return the last cache stats from thread-local storage
-        // This will be populated after get_model_source is called
-        Ok(get_last_cache_stats())
+        // For cutout models that are downloaded, we need to check if there's a cached model
+        // and collect cache statistics
+        if let Some(default_model_info) = Self::get_default_model_info() {
+            // Create RuntimeModelInfo with potential URL/checksum overrides
+            let runtime_model_info =
+                crate::model_access::RuntimeModelInfo::from_model_info_with_overrides(
+                    &default_model_info,
+                    Self::get_url_env_var_name(),
+                    Self::get_checksum_env_var_name(),
+                );
+
+            // Check if we have an actual model path from environment
+            if std::env::var(Self::get_env_var_name()).is_ok() {
+                // Using custom model path, collect general cache stats
+                return Ok(Some(crate::model_access::get_model_cache_stats(
+                    runtime_model_info,
+                )?));
+            }
+
+            // For downloadable models, try to get or download and capture cache stats
+            if let Ok((_path, cache_stats)) =
+                crate::model_access::get_or_download_runtime_model(runtime_model_info)
+            {
+                return Ok(Some(cache_stats));
+            }
+        }
+
+        // Fallback to general cache stats
+        Ok(Some(crate::model_access::CacheStats {
+            cache_hit: false,
+            download_time_ms: None,
+            cached_models_count: Some(crate::model_access::count_cached_models()),
+            cached_models_size_mb: Some(crate::model_access::calculate_cached_models_size_mb()),
+            coreml_cache_count: Some(crate::model_access::count_coreml_cached_models()),
+            coreml_cache_size_mb: Some(crate::model_access::calculate_coreml_cache_size_mb()),
+        }))
     }
 
     fn get_embedded_bytes() -> Option<&'static [u8]> {

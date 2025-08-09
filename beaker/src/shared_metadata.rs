@@ -109,6 +109,12 @@ pub struct SystemInfo {
     pub coreml_cache_hit: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cached_models_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cached_models_size_mb: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_cache_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_cache_size_mb: Option<f64>,
 }
 
 /// Input processing statistics for a tool invocation
@@ -264,6 +270,13 @@ mod tests {
                     model_size_bytes: Some(12345678),
                     model_load_time_ms: Some(25.3),
                     model_checksum: Some("abc123def456".to_string()),
+                    model_cache_hit: None,
+                    model_download_time_ms: None,
+                    coreml_cache_hit: None,
+                    cached_models_count: Some(0),
+                    cached_models_size_mb: Some(0.0),
+                    coreml_cache_count: Some(0),
+                    coreml_cache_size_mb: Some(0.0),
                 }),
                 ..Default::default()
             }),

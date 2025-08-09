@@ -181,7 +181,7 @@ pub fn create_onnx_session(
     if config.device == "coreml" {
         let coreml_cache_hit = check_coreml_cache_hit(&bytes);
         model_info_base.coreml_cache_hit = Some(coreml_cache_hit);
-        
+
         if coreml_cache_hit {
             log::debug!("♻️  CoreML cache hit detected");
         } else {
