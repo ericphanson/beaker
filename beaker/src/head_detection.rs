@@ -42,15 +42,13 @@ impl ModelAccess for HeadAccess {
         "BEAKER_HEAD_MODEL_PATH"
     }
 
-    // Currently, head models don't support remote download (embedded only)
-    // But this could be added in the future by uncommenting the following:
+    // Head models support remote download for CLI --model-url usage
+    // but prefer embedded bytes by default
     fn get_default_model_info() -> Option<ModelInfo> {
-        Some(ModelInfo {
-            name: "bird-head-detector-default".to_string(),
-            url: "https://github.com/ericphanson/beaker/releases/download/bird-head-detector-v0.1.1/best.onnx".to_string(),
-            md5_checksum: "".to_string(), // Will need to be filled in for real use
-            filename: "bird-head-detector-v0.1.1.onnx".to_string(),
-        })
+        // Only provide this for CLI usage when --model-url is specified
+        // The get_model_source_with_cli_and_env_override will use embedded bytes
+        // unless CLI args or env vars override it
+        None
     }
 }
 
