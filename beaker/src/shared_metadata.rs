@@ -31,11 +31,11 @@ pub struct CoremlCacheStats {
     pub cache_size_mb: Option<f64>,
 }
 
-/// Cache statistics collected from cache operations (instrumentation only)
+/// Temporary compatibility struct for functions that return cache stats
+/// TODO: Remove this once all functions are updated to return cache objects separately
 #[derive(Debug, Default, Clone)]
 pub struct CacheStats {
     pub onnx: Option<OnnxCacheStats>,
-    pub coreml: Option<CoremlCacheStats>,
 }
 
 impl CacheStats {
@@ -47,23 +47,6 @@ impl CacheStats {
     /// Set ONNX cache stats (when download cache is used)
     pub fn with_onnx_cache(mut self, onnx_stats: OnnxCacheStats) -> Self {
         self.onnx = Some(onnx_stats);
-        self
-    }
-
-    /// Set CoreML cache stats (when CoreML device is used)
-    pub fn with_coreml_cache(mut self, coreml_stats: CoremlCacheStats) -> Self {
-        self.coreml = Some(coreml_stats);
-        self
-    }
-
-    /// Merge two CacheStats, keeping non-None values from both
-    pub fn merge(mut self, other: CacheStats) -> Self {
-        if other.onnx.is_some() {
-            self.onnx = other.onnx;
-        }
-        if other.coreml.is_some() {
-            self.coreml = other.coreml;
-        }
         self
     }
 }
