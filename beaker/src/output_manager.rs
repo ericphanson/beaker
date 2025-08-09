@@ -15,7 +15,6 @@ use std::path::{Path, PathBuf};
 use crate::model_processing::ModelConfig;
 use crate::shared_metadata::{
     get_metadata_path, load_or_create_metadata, save_metadata, CutoutSections, DetectSections,
-    HeadSections,
 };
 
 /// Unified output path management for all models
@@ -142,7 +141,6 @@ impl<'a> OutputManager<'a> {
     /// Save complete metadata sections (core + enhanced sections)
     pub fn save_complete_metadata(
         &self,
-        head_sections: Option<HeadSections>,
         detect_sections: Option<DetectSections>,
         cutout_sections: Option<CutoutSections>,
     ) -> Result<()> {
@@ -156,9 +154,6 @@ impl<'a> OutputManager<'a> {
         let mut metadata = load_or_create_metadata(&metadata_path)?;
 
         // Update the sections that were provided
-        if let Some(head) = head_sections {
-            metadata.head = Some(head);
-        }
         if let Some(detect) = detect_sections {
             metadata.detect = Some(detect);
         }

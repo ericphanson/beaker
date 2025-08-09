@@ -335,7 +335,7 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
                 system: Some(system),
                 input: Some(input),
             };
-            output_manager.save_complete_metadata(None, Some(detect_sections), None)?;
+            output_manager.save_complete_metadata(Some(detect_sections), None)?;
         }
         "cutout" => {
             let cutout_sections = CutoutSections {
@@ -346,7 +346,7 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
                 input: Some(input),
                 mask: result.get_mask_entry(),
             };
-            output_manager.save_complete_metadata(None, None, Some(cutout_sections))?;
+            output_manager.save_complete_metadata(None, Some(cutout_sections))?;
         }
         _ => {
             return Err(anyhow::anyhow!("Unknown tool name: {}", result.tool_name()));
