@@ -7,6 +7,7 @@ use crate::cutout_preprocessing::preprocess_image_for_isnet_v2;
 use crate::model_access::{get_model_source_with_env_override, ModelAccess, ModelInfo};
 use crate::onnx_session::ModelSource;
 use crate::output_manager::OutputManager;
+use crate::shared_metadata::IoTiming;
 use anyhow::Result;
 use image::GenericImageView;
 use log::debug;
@@ -65,6 +66,8 @@ pub struct CutoutResult {
     pub output_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mask_path: Option<String>,
+    #[serde(skip_serializing)]
+    pub io_timing: IoTiming,
     // Store raw mask data for metadata encoding
     #[serde(skip)]
     pub raw_mask_data: Option<(Vec<u8>, u32, u32)>, // (mask_data, width, height)
@@ -118,6 +121,10 @@ impl ModelResult for CutoutResult {
         }
     }
 
+    fn get_io_timing(&self) -> crate::shared_metadata::IoTiming {
+        self.io_timing.clone()
+    }
+
     fn get_mask_entry(&self) -> Option<crate::mask_encoding::MaskEntry> {
         if let Some((mask_data, width, height)) = &self.raw_mask_data {
             match crate::mask_encoding::encode_mask_to_entry(mask_data, *width, *height, 0) {
@@ -151,11 +158,12 @@ impl ModelProcessor for CutoutProcessor {
         config: &Self::Config,
     ) -> Result<Self::Result> {
         let start_time = Instant::now();
+        let mut io_timing = IoTiming::new();
 
         debug!("🖼️  Processing: {}", image_path.display());
 
-        // Load and preprocess the image
-        let img = image::open(image_path)?;
+        // Load and preprocess the image with timing
+        let img = io_timing.time_image_read(image_path)?;
         let original_size = img.dimensions();
 
         let input_array = preprocess_image_for_isnet_v2(&img)?;
@@ -209,22 +217,22 @@ impl ModelProcessor for CutoutProcessor {
             create_cutout(&img, &mask)?
         };
 
-        // Save the cutout (always PNG for transparency)
+        // Save the cutout (always PNG for transparency) with timing
         if let Some(parent) = output_path.parent() {
             fs::create_dir_all(parent)?;
         }
-        cutout_result.save(&output_path)?;
+        io_timing.time_save_operation(|| Ok(cutout_result.save(&output_path)?))?;
         debug!(
             "{} Cutout saved to: {}",
             symbols::completed_successfully(),
             output_path.display()
         );
-        // Save mask if requested
+        // Save mask if requested with timing
         if let Some(mask_path_val) = &mask_path {
             if let Some(parent) = Path::new(mask_path_val).parent() {
                 fs::create_dir_all(parent)?;
             }
-            mask.save(mask_path_val)?;
+            io_timing.time_save_operation(|| Ok(mask.save(mask_path_val)?))?;
             debug!(
                 "{} Mask saved to: {}",
                 symbols::completed_successfully(),
@@ -240,6 +248,7 @@ impl ModelProcessor for CutoutProcessor {
             model_version: get_default_cutout_model_info().name,
             processing_time_ms: processing_time,
             mask_path: mask_path.map(|p| p.to_string_lossy().to_string()),
+            io_timing,
             raw_mask_data: Some(raw_mask_data),
         };
 
