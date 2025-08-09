@@ -129,12 +129,16 @@ pub fn determine_optimal_device(requested_device: &str) -> DeviceSelection {
 }
 
 /// Create an ONNX Runtime session with the specified configuration
-/// Returns (Session, ModelInfo, CacheStats) where CacheStats contain CoreML cache information
+/// Returns (Session, ModelInfo, CoremlCacheStats) where CoremlCacheStats contain CoreML cache information when CoreML is used
 pub fn create_onnx_session(
     model_source: ModelSource,
     config: &SessionConfig,
-) -> Result<(Session, ModelInfo, crate::shared_metadata::CacheStats)> {
-    let mut cache_stats = crate::shared_metadata::CacheStats::new();
+) -> Result<(
+    Session,
+    ModelInfo,
+    Option<crate::shared_metadata::CoremlCacheStats>,
+)> {
+    let mut coreml_cache_stats: Option<crate::shared_metadata::CoremlCacheStats> = None;
 
     // Get model bytes for cache key generation and session creation
     let (bytes, model_info_base) = match model_source {
@@ -190,7 +194,7 @@ pub fn create_onnx_session(
                     }
 
                     // Collect CoreML cache statistics (single traversal) - only when CoreML is used
-                    let mut coreml_cache_stats = crate::shared_metadata::CoremlCacheStats {
+                    let mut coreml_stats = crate::shared_metadata::CoremlCacheStats {
                         cache_hit: Some(cache_hit),
                         ..Default::default()
                     };
@@ -199,13 +203,13 @@ pub fn create_onnx_session(
                         if let Ok((count, size_mb)) =
                             crate::shared_metadata::get_cache_info(&base_coreml_cache)
                         {
-                            coreml_cache_stats.cache_count = Some(count);
-                            coreml_cache_stats.cache_size_mb = Some(size_mb);
+                            coreml_stats.cache_count = Some(count);
+                            coreml_stats.cache_size_mb = Some(size_mb);
                         }
                     }
 
-                    // Set CoreML cache stats in overall cache stats
-                    cache_stats = cache_stats.with_coreml_cache(coreml_cache_stats);
+                    // Set CoreML cache stats
+                    coreml_cache_stats = Some(coreml_stats);
 
                     Some(cache_dir)
                 }
@@ -397,5 +401,5 @@ pub fn create_onnx_session(
         model_info.execution_providers.join(" -> ")
     );
 
-    Ok((session, model_info, cache_stats))
+    Ok((session, model_info, coreml_cache_stats))
 }

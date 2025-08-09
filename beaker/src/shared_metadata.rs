@@ -210,16 +210,33 @@ pub struct SystemInfo {
 }
 
 impl SystemInfo {
-    /// Update SystemInfo with cache statistics
-    pub fn with_cache_stats(mut self, cache_stats: CacheStats) -> Self {
-        // Embed cache statistics directly as nested objects
-        if let Some(onnx_cache) = cache_stats.onnx {
-            self.onnx_cache = Some(onnx_cache);
+    /// Create SystemInfo with cache statistics populated directly at construction time
+    pub fn new(
+        device_requested: Option<String>,
+        device_selected: Option<String>,
+        device_selection_reason: Option<String>,
+        execution_providers: Vec<String>,
+        model_source: Option<String>,
+        model_path: Option<String>,
+        model_size_bytes: Option<u64>,
+        model_load_time_ms: Option<f64>,
+        model_checksum: Option<String>,
+        onnx_cache: Option<OnnxCacheStats>,
+        coreml_cache: Option<CoremlCacheStats>,
+    ) -> Self {
+        Self {
+            device_requested,
+            device_selected,
+            device_selection_reason,
+            execution_providers,
+            model_source,
+            model_path,
+            model_size_bytes,
+            model_load_time_ms,
+            model_checksum,
+            onnx_cache,
+            coreml_cache,
         }
-        if let Some(coreml_cache) = cache_stats.coreml {
-            self.coreml_cache = Some(coreml_cache);
-        }
-        self
     }
 }
 

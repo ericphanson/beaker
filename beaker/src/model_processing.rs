@@ -147,21 +147,19 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
         timing_str
     );
 
-    let system = SystemInfo {
-        device_requested: Some(config.base().device.clone()),
-        device_selected: Some(device_selected.to_string()),
-        device_selection_reason: Some(device_selection_reason.to_string()),
-        execution_providers: model_info.execution_providers,
-        model_source: Some(model_info.model_source),
-        model_path: model_info.model_path,
-        model_size_bytes: Some(model_info.model_size_bytes.try_into().unwrap()),
-        model_load_time_ms: Some(model_load_time_ms),
-        model_checksum: Some(model_info.model_checksum),
-        // Cache statistics - will be populated by with_cache_stats()
-        onnx_cache: None,
-        coreml_cache: None,
-    }
-    .with_cache_stats(onnx_cache_stats.merge(coreml_cache_stats));
+    let system = SystemInfo::new(
+        Some(config.base().device.clone()),
+        Some(device_selected.to_string()),
+        Some(device_selection_reason.to_string()),
+        model_info.execution_providers,
+        Some(model_info.model_source),
+        model_info.model_path,
+        Some(model_info.model_size_bytes.try_into().unwrap()),
+        Some(model_load_time_ms),
+        Some(model_info.model_checksum),
+        onnx_cache_stats.onnx,
+        coreml_cache_stats,
+    );
 
     // Process each image and collect results
     let mut successful_count = 0;
