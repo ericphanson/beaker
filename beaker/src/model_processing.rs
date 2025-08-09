@@ -56,7 +56,13 @@ pub trait ModelProcessor {
     type Result: ModelResult;
 
     /// Get the model source for loading the ONNX model
-    fn get_model_source<'a>() -> Result<ModelSource<'a>>;
+    /// Returns (ModelSource, OnnxCacheStats) where OnnxCacheStats emerge from cache operations
+    fn get_model_source<'a>(
+        config: &Self::Config,
+    ) -> Result<(
+        ModelSource<'a>,
+        Option<crate::shared_metadata::OnnxCacheStats>,
+    )>;
 
     /// Process a single image through the complete pipeline
     fn process_single_image(
@@ -114,12 +120,13 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
     spinner.set_message(" Loading model...");
     spinner.enable_steady_tick(Duration::from_millis(100));
 
-    let model_source = P::get_model_source()?;
+    let (model_source, onnx_cache_stats) = P::get_model_source(&config)?;
 
     let session_config = SessionConfig {
         device: &device_selected,
     };
-    let (mut session, model_info) = create_onnx_session(model_source, &session_config)?;
+    let (mut session, model_info, coreml_cache_stats) =
+        create_onnx_session(model_source, &session_config)?;
 
     spinner.finish_and_clear();
     remove_progress_bar(&spinner);
@@ -153,6 +160,8 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
         model_size_bytes: Some(model_info.model_size_bytes.try_into().unwrap()),
         model_load_time_ms: Some(model_load_time_ms),
         model_checksum: Some(model_info.model_checksum),
+        onnx_cache: onnx_cache_stats,
+        coreml_cache: coreml_cache_stats,
     };
 
     // Process each image and collect results
@@ -306,7 +315,7 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
     start_timestamp: chrono::DateTime<chrono::Utc>,
 ) -> Result<()> {
     use crate::output_manager::OutputManager;
-    use crate::shared_metadata::{CutoutSections, ExecutionContext, HeadSections};
+    use crate::shared_metadata::{CutoutSections, DetectSections, ExecutionContext};
 
     let output_manager = OutputManager::new(config, image_path);
 
@@ -327,15 +336,15 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
 
     // Create the appropriate sections based on tool type
     match result.tool_name() {
-        "head" => {
-            let head_sections = HeadSections {
+        "detect" => {
+            let detect_sections = DetectSections {
                 core: Some(core_results),
                 config: Some(config_value),
                 execution: Some(execution),
                 system: Some(system),
                 input: Some(input),
             };
-            output_manager.save_complete_metadata(Some(head_sections), None)?;
+            output_manager.save_complete_metadata(Some(detect_sections), None)?;
         }
         "cutout" => {
             let cutout_sections = CutoutSections {

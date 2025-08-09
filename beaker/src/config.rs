@@ -11,6 +11,73 @@
 use clap::Parser;
 use clap_verbosity_flag::Verbosity;
 use serde::Serialize;
+use std::collections::HashSet;
+
+/// Supported detection classes for multi-class detection
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+pub enum DetectionClass {
+    Bird,
+    Head,
+    Eyes,
+    Beak,
+}
+
+impl std::str::FromStr for DetectionClass {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "bird" => Ok(DetectionClass::Bird),
+            "head" => Ok(DetectionClass::Head),
+            "eyes" => Ok(DetectionClass::Eyes),
+            "beak" => Ok(DetectionClass::Beak),
+            _ => Err(format!("Unknown detection class: {s}")),
+        }
+    }
+}
+
+impl DetectionClass {
+    /// Convert DetectionClass to string
+    pub fn to_string(&self) -> &'static str {
+        match self {
+            DetectionClass::Bird => "bird",
+            DetectionClass::Head => "head",
+            DetectionClass::Eyes => "eyes",
+            DetectionClass::Beak => "beak",
+        }
+    }
+
+    /// Get all available classes
+    pub fn all_classes() -> Vec<DetectionClass> {
+        vec![
+            DetectionClass::Bird,
+            DetectionClass::Head,
+            DetectionClass::Eyes,
+            DetectionClass::Beak,
+        ]
+    }
+}
+
+/// Parse crop classes from comma-separated string
+pub fn parse_crop_classes(crop_str: &str) -> Result<HashSet<DetectionClass>, String> {
+    if crop_str.trim().to_lowercase() == "all" {
+        return Ok(DetectionClass::all_classes().into_iter().collect());
+    }
+
+    let mut classes = HashSet::new();
+    for class_str in crop_str.split(',') {
+        let class_str = class_str.trim();
+        if !class_str.is_empty() {
+            classes.insert(class_str.parse()?);
+        }
+    }
+
+    if classes.is_empty() {
+        return Err("No valid classes specified".to_string());
+    }
+
+    Ok(classes)
+}
 
 /// Parse RGBA color from string like "255,255,255,255"
 pub fn parse_rgba_color(s: &str) -> Result<[u8; 4], String> {
@@ -74,9 +141,9 @@ pub struct BaseModelConfig {
     pub strict: bool,
 }
 
-/// CLI command for head detection (only command-specific arguments)
+/// CLI command for object detection (only command-specific arguments)
 #[derive(Parser, Debug, Clone)]
-pub struct HeadCommand {
+pub struct DetectCommand {
     /// Path(s) to input images or directories. Supports glob patterns like *.jpg
     #[arg(value_name = "IMAGES_OR_DIRS", required = true)]
     pub sources: Vec<String>,
@@ -89,24 +156,46 @@ pub struct HeadCommand {
     #[arg(long, default_value = "0.45")]
     pub iou_threshold: f32,
 
-    /// Create a square crop of the detected head
-    #[arg(long)]
-    pub crop: bool,
+    /// Classes to crop as comma-separated list (bird,head,eyes,beak) or 'all' for all classes.
+    /// Leave empty to disable cropping.
+    #[arg(long, value_name = "CLASSES")]
+    pub crop: Option<String>,
 
     /// Save an image with bounding boxes drawn
     #[arg(long)]
     pub bounding_box: bool,
+
+    /// Path to custom head detection model file
+    #[arg(long)]
+    pub model_path: Option<String>,
+
+    /// URL to download custom head detection model from
+    #[arg(long)]
+    pub model_url: Option<String>,
+
+    /// MD5 checksum for model verification (used with --model-url)
+    #[arg(long)]
+    pub model_checksum: Option<String>,
 }
 
-/// Internal configuration for head detection processing
+/// Internal configuration for detection processing
 #[derive(Debug, Clone, Serialize)]
-pub struct HeadDetectionConfig {
+pub struct DetectionConfig {
     #[serde(skip)]
     pub base: BaseModelConfig,
     pub confidence: f32,
     pub iou_threshold: f32,
-    pub crop: bool,
+    pub crop_classes: HashSet<DetectionClass>,
     pub bounding_box: bool,
+    /// CLI-provided model path override
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_path: Option<String>,
+    /// CLI-provided model URL override
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_url: Option<String>,
+    /// CLI-provided model checksum override
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_checksum: Option<String>,
 }
 
 /// CLI command for cutout processing (only command-specific arguments)
@@ -143,6 +232,18 @@ pub struct CutoutCommand {
     /// Save the segmentation mask as a separate image
     #[arg(long)]
     pub save_mask: bool,
+
+    /// Path to custom cutout model file
+    #[arg(long)]
+    pub model_path: Option<String>,
+
+    /// URL to download custom cutout model from
+    #[arg(long)]
+    pub model_url: Option<String>,
+
+    /// MD5 checksum for model verification (used with --model-url)
+    #[arg(long)]
+    pub model_checksum: Option<String>,
 }
 
 /// Internal configuration for cutout processing
@@ -158,6 +259,15 @@ pub struct CutoutConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub background_color: Option<[u8; 4]>,
     pub save_mask: bool,
+    /// CLI-provided model path override
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_path: Option<String>,
+    /// CLI-provided model URL override
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_url: Option<String>,
+    /// CLI-provided model checksum override
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_checksum: Option<String>,
 }
 
 // Conversion traits from CLI commands to internal configurations
@@ -174,19 +284,27 @@ impl From<GlobalArgs> for BaseModelConfig {
     }
 }
 
-impl HeadDetectionConfig {
+impl DetectionConfig {
     /// Create configuration from global args and command-specific args
-    pub fn from_args(global: GlobalArgs, cmd: HeadCommand) -> Self {
+    pub fn from_args(global: GlobalArgs, cmd: DetectCommand) -> Result<Self, String> {
         let mut base: BaseModelConfig = global.into();
         base.sources = cmd.sources; // Add sources from command
 
-        Self {
+        let crop_classes = match cmd.crop {
+            Some(crop_str) => parse_crop_classes(&crop_str)?,
+            None => HashSet::new(), // No cropping if not specified
+        };
+
+        Ok(Self {
             base,
             confidence: cmd.confidence,
             iou_threshold: cmd.iou_threshold,
-            crop: cmd.crop,
+            crop_classes,
             bounding_box: cmd.bounding_box,
-        }
+            model_path: cmd.model_path,
+            model_url: cmd.model_url,
+            model_checksum: cmd.model_checksum,
+        })
     }
 }
 
@@ -205,6 +323,9 @@ impl CutoutConfig {
             alpha_matting_erode_size: cmd.alpha_matting_erode_size,
             background_color: cmd.background_color,
             save_mask: cmd.save_mask,
+            model_path: cmd.model_path,
+            model_url: cmd.model_url,
+            model_checksum: cmd.model_checksum,
         }
     }
 }
@@ -212,7 +333,7 @@ impl CutoutConfig {
 // ModelConfig trait implementations for model_processing integration
 use crate::model_processing::ModelConfig;
 
-impl ModelConfig for HeadDetectionConfig {
+impl ModelConfig for DetectionConfig {
     fn base(&self) -> &BaseModelConfig {
         &self.base
     }
@@ -250,7 +371,7 @@ mod tests {
     }
 
     #[test]
-    fn test_head_command_conversion() {
+    fn test_detect_command_conversion() {
         let global_args = GlobalArgs {
             device: "auto".to_string(),
             output_dir: None,
@@ -260,22 +381,33 @@ mod tests {
             no_color: false,
         };
 
-        let head_cmd = HeadCommand {
+        let detect_cmd = DetectCommand {
             sources: vec!["bird.jpg".to_string()],
             confidence: 0.8,
             iou_threshold: 0.5,
-            crop: true,
+            crop: Some("head,bird".to_string()),
             bounding_box: false,
+            model_path: None,
+            model_url: None,
+            model_checksum: None,
         };
 
-        let config = HeadDetectionConfig::from_args(global_args, head_cmd);
+        let config = DetectionConfig::from_args(global_args, detect_cmd).unwrap();
 
         assert_eq!(config.base.sources, vec!["bird.jpg"]);
         assert_eq!(config.confidence, 0.8);
         assert_eq!(config.iou_threshold, 0.5);
-        assert!(config.crop);
+        assert!(config
+            .crop_classes
+            .contains(&crate::config::DetectionClass::Head));
+        assert!(config
+            .crop_classes
+            .contains(&crate::config::DetectionClass::Bird));
         assert!(!config.bounding_box);
         assert!(config.base.strict); // permissive=false -> strict=true
+        assert_eq!(config.model_path, None);
+        assert_eq!(config.model_url, None);
+        assert_eq!(config.model_checksum, None);
     }
 
     #[test]
@@ -298,6 +430,9 @@ mod tests {
             alpha_matting_erode_size: 10,
             background_color: Some([255, 255, 255, 255]),
             save_mask: true,
+            model_path: None,
+            model_url: None,
+            model_checksum: None,
         };
 
         let config = CutoutConfig::from_args(global_args, cutout_cmd);
@@ -308,11 +443,14 @@ mod tests {
         assert!(!config.alpha_matting);
         assert_eq!(config.background_color, Some([255, 255, 255, 255]));
         assert!(config.save_mask);
+        assert_eq!(config.model_path, None);
+        assert_eq!(config.model_url, None);
+        assert_eq!(config.model_checksum, None);
     }
 
     #[test]
     fn test_backward_compatibility_methods() {
-        let config = HeadDetectionConfig {
+        let config = DetectionConfig {
             base: BaseModelConfig {
                 sources: vec!["test.jpg".to_string()],
                 device: "cpu".to_string(),
@@ -322,8 +460,11 @@ mod tests {
             },
             confidence: 0.25,
             iou_threshold: 0.45,
-            crop: false,
+            crop_classes: HashSet::new(),
             bounding_box: false,
+            model_path: None,
+            model_url: None,
+            model_checksum: None,
         };
 
         // Test field access through base config

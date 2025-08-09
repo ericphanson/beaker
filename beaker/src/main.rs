@@ -10,7 +10,7 @@ mod config;
 mod cutout_postprocessing;
 mod cutout_preprocessing;
 mod cutout_processing;
-mod head_detection;
+mod detection;
 mod image_input;
 mod mask_encoding;
 mod model_access;
@@ -23,17 +23,17 @@ mod yolo_postprocessing;
 mod yolo_preprocessing;
 
 use color_utils::{colors, symbols};
-use config::{CutoutCommand, CutoutConfig, GlobalArgs, HeadCommand, HeadDetectionConfig};
+use config::{CutoutCommand, CutoutConfig, DetectCommand, DetectionConfig, GlobalArgs};
 use cutout_processing::{get_default_cutout_model_info, run_cutout_processing};
-use head_detection::{run_head_detection, MODEL_VERSION};
+use detection::{run_detection, MODEL_VERSION};
 use progress::global_mp;
 use shared_metadata::RELEVANT_ENV_VARS;
 use std::io::Write;
 
 #[derive(clap::Subcommand)]
 pub enum Commands {
-    /// Detect & crop bird heads in bird images
-    Head(HeadCommand),
+    /// Detect and crop objects (bird, head, eyes, beak) in bird images
+    Detect(DetectCommand),
 
     /// Remove backgrounds from images
     Cutout(CutoutCommand),
@@ -124,13 +124,13 @@ fn main() {
     // }
 
     match &cli.command {
-        Some(Commands::Head(head_cmd)) => {
+        Some(Commands::Detect(detect_cmd)) => {
             // Build outputs list
             let mut outputs = Vec::new();
-            if head_cmd.crop {
+            if detect_cmd.crop.is_some() {
                 outputs.push("crops");
             }
-            if head_cmd.bounding_box {
+            if detect_cmd.bounding_box {
                 outputs.push("bounding-boxes");
             }
             if cli.global.metadata {
@@ -144,10 +144,10 @@ fn main() {
             };
 
             info!(
-                "{} Head detection | conf: {} | IoU: {} | device: {}{}",
-                symbols::head_detection_start(),
-                head_cmd.confidence,
-                head_cmd.iou_threshold,
+                "{} Detection | conf: {} | IoU: {} | device: {}{}",
+                symbols::detection_start(),
+                detect_cmd.confidence,
+                detect_cmd.iou_threshold,
                 cli.global.device,
                 output_str
             );
@@ -157,8 +157,14 @@ fn main() {
                 std::process::exit(1);
             } else {
                 let internal_config =
-                    HeadDetectionConfig::from_args(cli.global.clone(), head_cmd.clone());
-                match run_head_detection(internal_config) {
+                    match DetectionConfig::from_args(cli.global.clone(), detect_cmd.clone()) {
+                        Ok(config) => config,
+                        Err(e) => {
+                            error!("{} Configuration error: {e}", symbols::operation_failed());
+                            std::process::exit(1);
+                        }
+                    };
+                match run_detection(internal_config) {
                     Ok(_) => {}
                     Err(e) => {
                         error!("{} Detection failed: {e}", symbols::operation_failed());
@@ -221,7 +227,7 @@ fn main() {
         Some(Commands::Version) => {
             // Print version information
             println!("beaker v{}", env!("CARGO_PKG_VERSION"));
-            println!("Head model version: {}", MODEL_VERSION.trim());
+            println!("Detection model version: {}", MODEL_VERSION.trim());
             println!(
                 "Cutout model version: {}",
                 get_default_cutout_model_info().name.trim()

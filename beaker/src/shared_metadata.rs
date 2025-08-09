@@ -7,6 +7,30 @@ use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
+/// ONNX download cache statistics
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct OnnxCacheStats {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_cache_hit: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub download_time_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cached_models_count: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cached_models_size_mb: Option<f64>,
+}
+
+/// CoreML cache statistics
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct CoremlCacheStats {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_hit: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_count: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_size_mb: Option<f64>,
+}
+
 /// Generic utility to track file I/O timing for any model
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct IoTiming {
@@ -54,23 +78,23 @@ pub const RELEVANT_ENV_VARS: &[&str] = &[
     "RUST_LOG",
 ];
 
-/// Shared metadata structure that can contain both head and cutout results
+/// Shared metadata structure that can contain detect and cutout results
 #[derive(Serialize, Deserialize, Default, Debug)]
 pub struct BeakerMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub head: Option<HeadSections>,
+    pub detect: Option<DetectSections>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cutout: Option<CutoutSections>,
 }
 
-/// All sections for head detection tool
+/// All sections for detect command tool
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
-pub struct HeadSections {
-    // Core results (backwards compatibility - flatten the existing head results)
+pub struct DetectSections {
+    // Core results (flattened detection results)
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     pub core: Option<toml::Value>,
 
-    // New subsections
+    // Subsections
     #[serde(skip_serializing_if = "Option::is_none")]
     pub config: Option<toml::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -140,7 +164,15 @@ pub struct SystemInfo {
     pub model_load_time_ms: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_checksum: Option<String>,
+
+    // Cache Statistics (only present when respective caches are accessed)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub onnx_cache: Option<OnnxCacheStats>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_cache: Option<CoremlCacheStats>,
 }
+
+impl SystemInfo {}
 
 /// Input processing statistics for a tool invocation
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -186,10 +218,10 @@ pub fn save_metadata(metadata: &BeakerMetadata, path: &Path) -> Result<()> {
         Err(e) => {
             log::debug!("About to serialize metadata: {metadata:#?}");
             // Try to serialize each section individually to isolate the problem
-            if let Some(ref head) = metadata.head {
-                log::error!("Head section: {head:#?}");
-                if let Err(head_err) = toml::to_string_pretty(head) {
-                    log::error!("Head section serialization failed: {head_err}");
+            if let Some(ref detect) = metadata.detect {
+                log::error!("Detect section: {detect:#?}");
+                if let Err(detect_err) = toml::to_string_pretty(detect) {
+                    log::error!("Detect section serialization failed: {detect_err}");
                 }
             }
             if let Some(ref cutout) = metadata.cutout {
@@ -252,6 +284,58 @@ pub fn collect_beaker_env_vars() -> Option<std::collections::BTreeMap<String, St
     }
 }
 
+/// Get cache information from a directory (single traversal)
+/// Returns (count, total_size_mb) for the cache directory
+pub fn get_cache_info(cache_dir: &Path) -> Result<(u32, f64)> {
+    if !cache_dir.exists() {
+        log::debug!("Cache directory does not exist: {}", cache_dir.display());
+        return Ok((0, 0.0));
+    }
+
+    let mut count = 0u32;
+    let mut total_size = 0u64;
+
+    log::debug!("Collecting cache info from: {}", cache_dir.display());
+
+    // Read directory entries
+    let entries = fs::read_dir(cache_dir)?;
+
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+
+        // Skip directories, lock files, and hidden files
+        if path.is_dir()
+            || path.extension().and_then(|s| s.to_str()) == Some("lock")
+            || path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .is_some_and(|s| s.starts_with('.'))
+        {
+            continue;
+        }
+
+        // Count regular files and accumulate their sizes
+        if let Ok(metadata) = fs::metadata(&path) {
+            if metadata.is_file() {
+                count += 1;
+                total_size += metadata.len();
+                log::debug!(
+                    "  Found cached file: {} ({} bytes)",
+                    path.file_name().unwrap_or_default().to_string_lossy(),
+                    metadata.len()
+                );
+            }
+        }
+    }
+
+    let total_size_mb = total_size as f64 / (1024.0 * 1024.0);
+
+    log::debug!("Cache summary: {count} files, {total_size_mb:.2} MB total");
+
+    Ok((count, total_size_mb))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,7 +344,7 @@ mod tests {
     fn test_toml_structure() {
         // Create test metadata with tool sections
         let metadata = BeakerMetadata {
-            head: Some(HeadSections {
+            detect: Some(DetectSections {
                 core: Some(
                     toml::toml! {
                         model_version = "test-v1.0.0"
@@ -273,14 +357,14 @@ mod tests {
                     toml::toml! {
                         confidence = 0.25
                         iou_threshold = 0.45
-                        crop = true
+                        crop = ["head"]
                     }
                     .into(),
                 ),
                 execution: Some(ExecutionContext {
                     timestamp: Some(chrono::Utc::now()),
                     beaker_version: Some("0.1.1".to_string()),
-                    command_line: Some(vec!["head".to_string(), "test.jpg".to_string()]),
+                    command_line: Some(vec!["detect".to_string(), "test.jpg".to_string()]),
                     exit_code: Some(0),
                     model_processing_time_ms: Some(150.5),
                     file_io: Some(IoTiming {
@@ -299,6 +383,9 @@ mod tests {
                     model_size_bytes: Some(12345678),
                     model_load_time_ms: Some(25.3),
                     model_checksum: Some("abc123def456".to_string()),
+                    // Cache statistics should be None for embedded models in this test
+                    onnx_cache: None,
+                    coreml_cache: None,
                 }),
                 ..Default::default()
             }),
@@ -311,10 +398,10 @@ mod tests {
 
         // Verify it can be parsed back
         let parsed: BeakerMetadata = toml::from_str(&toml_output).unwrap();
-        assert!(parsed.head.is_some());
-        assert!(parsed.head.as_ref().unwrap().config.is_some());
-        assert!(parsed.head.as_ref().unwrap().execution.is_some());
-        assert!(parsed.head.as_ref().unwrap().system.is_some());
+        assert!(parsed.detect.is_some());
+        assert!(parsed.detect.as_ref().unwrap().config.is_some());
+        assert!(parsed.detect.as_ref().unwrap().execution.is_some());
+        assert!(parsed.detect.as_ref().unwrap().system.is_some());
     }
 
     #[test]
