@@ -38,18 +38,18 @@ cargo run --release -- --help
 # Copy test image for validation
 cp ../example.jpg .
 
-# Test basic head detection (requires --crop, --bounding-box, or --metadata)
-cargo run --release -- head example.jpg --confidence 0.5 --crop
+# Test basic detect command (requires --crop, --bounding-box, or --metadata)
+cargo run --release -- detect example.jpg --confidence 0.5 --crop
 
 # Test metadata generation
-cargo run --release -- head example.jpg --confidence 0.5 --metadata
+cargo run --release -- detect example.jpg --confidence 0.5 --metadata
 
 # Test cutout functionality (takes ~6 seconds for model loading)
 cargo run --release -- cutout example.jpg
 
 # Test with two birds image
 cp ../example-2-birds.jpg .
-cargo run --release -- head example-2-birds.jpg --confidence 0.5 --crop
+cargo run --release -- detect example-2-birds.jpg --confidence 0.5 --crop
 
 # Verify output files are created
 ls -la example_crop.jpg example_cutout.png *.beaker.toml
@@ -83,7 +83,7 @@ bash scripts/run_warloc.sh
 - **Release build**: ~1 minute 40 seconds - NEVER CANCEL, set timeout to 180+ seconds
 - **Tests**: ~2 minutes 50 seconds - NEVER CANCEL, set timeout to 300+ seconds
 - **Pre-commit hooks**: ~10 seconds
-- **CLI head detection**: ~0.5 seconds (after initial model load)
+- **CLI detection**: ~0.5 seconds (after initial model load)
 - **CLI cutout**: ~6 seconds (includes model download/loading)
 
 ### Model Download Behavior
@@ -111,22 +111,22 @@ Always test these scenarios after making changes:
    cargo run --release -- version
    ```
 
-2. **Head Detection Workflow**:
+2. **Detection Workflow**:
    ```bash
    # Basic crop output
-   cargo run --release -- head example.jpg --confidence 0.5 --crop
+   cargo run --release -- detect example.jpg --confidence 0.5 --crop
 
    # Bounding box output
-   cargo run --release -- head example.jpg --confidence 0.5 --bounding-box
+   cargo run --release -- detect example.jpg --confidence 0.5 --bounding-box
 
    # Metadata generation
-   cargo run --release -- head example.jpg --confidence 0.5 --metadata
+   cargo run --release -- detect example.jpg --confidence 0.5 --metadata
 
    # Multiple outputs
-   cargo run --release -- head example.jpg --confidence 0.5 --crop --bounding-box --metadata
+   cargo run --release -- detect example.jpg --confidence 0.5 --crop --bounding-box --metadata
 
    # Test with two birds
-   cargo run --release -- head example-2-birds.jpg --confidence 0.5 --crop
+   cargo run --release -- detect example-2-birds.jpg --confidence 0.5 --crop
    ```
 
 3. **Cutout Workflow**:
@@ -172,7 +172,7 @@ cargo build --release --target <platform>
 
 # CLI testing
 ./target/<platform>/release/beaker --help
-./target/<platform>/release/beaker head example.jpg --confidence 0.5 --device auto --metadata
+./target/<platform>/release/beaker detect example.jpg --confidence 0.5 --device auto --metadata
 ./target/<platform>/release/beaker cutout example.jpg --device auto
 
 # Integration tests
@@ -274,7 +274,7 @@ cargo test --release    # ~2m 50s
 
 # 5. Manual CLI validation
 cp ../example.jpg .
-cargo run --release -- head example.jpg --confidence 0.5 --crop
+cargo run --release -- detect example.jpg --confidence 0.5 --crop
 cargo run --release -- cutout example.jpg
 
 # 6. Update line counts and run pre-commit (from repo root)

@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 /// Test performance tracking
 #[derive(Debug)]
 pub struct TestPerformanceTracker {
-    head_invocations: u32,
+    detect_invocations: u32,
     cutout_invocations: u32,
     total_test_time: Duration,
     slowest_tests: Vec<(String, Duration)>,
@@ -24,7 +24,7 @@ impl TestPerformanceTracker {
         }
 
         Self {
-            head_invocations: 0,
+            detect_invocations: 0,
             cutout_invocations: 0,
             total_test_time: Duration::ZERO,
             slowest_tests: Vec::new(),
@@ -43,10 +43,10 @@ impl TestPerformanceTracker {
 
         // Track per-tool invocations
         match tool {
-            "head" => self.head_invocations += 1,
+            "detect" => self.detect_invocations += 1,
             "cutout" => self.cutout_invocations += 1,
             "both" => {
-                self.head_invocations += 1;
+                self.detect_invocations += 1;
                 self.cutout_invocations += 1;
             }
             _ => {}
@@ -99,7 +99,7 @@ impl TestPerformanceTracker {
             "  Total CPU time: {:.2}s (cumulative across all tests)",
             self.total_test_time.as_secs_f64()
         );
-        println!("  Head model invocations: {}", self.head_invocations);
+        println!("  Detect model invocations: {}", self.detect_invocations);
         println!("  Cutout model invocations: {}", self.cutout_invocations);
 
         if !self.slowest_tests.is_empty() {
