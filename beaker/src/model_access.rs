@@ -593,11 +593,6 @@ pub struct CliModelInfo {
 }
 
 impl CliModelInfo {
-    /// Check if any CLI model arguments were provided
-    pub fn has_any(&self) -> bool {
-        self.model_path.is_some() || self.model_url.is_some() || self.model_checksum.is_some()
-    }
-
     /// Validate CLI model arguments for consistency
     pub fn validate(&self) -> Result<()> {
         // Can't specify both path and URL
