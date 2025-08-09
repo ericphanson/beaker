@@ -174,6 +174,7 @@ pub struct SystemInfo {
 
 impl SystemInfo {
     /// Create SystemInfo with cache statistics populated directly at construction time
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         device_requested: Option<String>,
         device_selected: Option<String>,
@@ -187,7 +188,7 @@ impl SystemInfo {
         onnx_cache: Option<OnnxCacheStats>,
         coreml_cache: Option<CoremlCacheStats>,
     ) -> Self {
-        Self {
+        SystemInfo {
             device_requested,
             device_selected,
             device_selection_reason,
