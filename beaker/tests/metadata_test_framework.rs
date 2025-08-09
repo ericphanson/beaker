@@ -262,22 +262,6 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
                         _ => panic!("Unknown timing field: {field}"),
                     }
                 }
-                "detect" => {
-                    let detect_sections = metadata.detect.as_ref().unwrap_or_else(|| {
-                        panic!("Detect sections should exist for test {test_name}")
-                    });
-                    match *field {
-                        "execution.model_processing_time_ms" => detect_sections
-                            .execution
-                            .as_ref()
-                            .and_then(|e| e.model_processing_time_ms),
-                        "system.model_load_time_ms" => detect_sections
-                            .system
-                            .as_ref()
-                            .and_then(|s| s.model_load_time_ms),
-                        _ => panic!("Unknown timing field: {field}"),
-                    }
-                }
                 "cutout" => {
                     let cutout_sections = metadata.cutout.as_ref().unwrap_or_else(|| {
                         panic!("Cutout sections should exist for test {test_name}")
