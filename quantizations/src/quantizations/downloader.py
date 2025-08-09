@@ -82,7 +82,14 @@ def download_head_model(output_dir: Path) -> Path | None:
         logger.error("No download URL found for ONNX asset")
         return None
 
-    model_name = onnx_asset.get("name", "bird-head-detector.onnx")
+    # Use a more specific filename to avoid clashes
+    original_name = onnx_asset.get("name", "bird-head-detector.onnx")
+    # Ensure the filename includes "head" to avoid confusion with "best.onnx"
+    if "head" not in original_name.lower() and "best" in original_name.lower():
+        model_name = f"head-{original_name}"
+    else:
+        model_name = original_name
+
     output_path = output_dir / model_name
 
     if download_file(download_url, output_path):
@@ -115,7 +122,13 @@ def download_cutout_model(output_dir: Path) -> Path | None:
         logger.error("No download URL found for ONNX asset")
         return None
 
-    model_name = onnx_asset.get("name", "cutout-model.onnx")
+    # Ensure the filename includes "cutout" to avoid clashes
+    original_name = onnx_asset.get("name", "cutout-model.onnx")
+    if "cutout" not in original_name.lower():
+        model_name = f"cutout-{original_name}"
+    else:
+        model_name = original_name
+
     output_path = output_dir / model_name
 
     if download_file(download_url, output_path):
