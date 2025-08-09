@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use crate::config::BaseModelConfig;
 use crate::image_input::{collect_images_from_sources, ImageInputConfig};
-use crate::onnx_session::{create_onnx_session, ModelSource, SessionConfig};
+use crate::onnx_session::{create_onnx_session, SessionConfig};
 
 use crate::color_utils::maybe_dim_stderr;
 use crate::shared_metadata::{InputProcessing, SystemInfo};
@@ -55,13 +55,11 @@ pub trait ModelProcessor {
     /// Result type returned by this model
     type Result: ModelResult;
 
-    /// Get the model source for loading the ONNX model
-    fn get_model_source<'a>(config: &Self::Config) -> Result<ModelSource<'a>>;
-
-    /// Get cache statistics for this model type
-    fn get_cache_stats() -> Result<Option<crate::model_access::CacheStats>> {
-        Ok(None)
-    }
+    /// Get the model source and cache statistics for loading the ONNX model
+    /// Cache stats flow naturally from model access
+    fn get_model_source_and_stats<'a>(
+        config: &Self::Config,
+    ) -> Result<crate::model_access::ModelSourceWithStats<'a>>;
 
     /// Process a single image through the complete pipeline
     fn process_single_image(
@@ -119,7 +117,8 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
     spinner.set_message(" Loading model...");
     spinner.enable_steady_tick(Duration::from_millis(100));
 
-    let model_source = P::get_model_source(&config)?;
+    let model_source_with_stats = P::get_model_source_and_stats(&config)?;
+    let model_source = model_source_with_stats.source;
 
     let session_config = SessionConfig {
         device: &device_selected,
@@ -148,8 +147,8 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
         timing_str
     );
 
-    // Get cache statistics for this model type
-    let cache_stats = P::get_cache_stats().unwrap_or_default();
+    // Cache statistics come naturally from the model access above
+    let cache_stats = model_source_with_stats.cache_stats;
 
     let system = SystemInfo {
         device_requested: Some(config.base().device.clone()),

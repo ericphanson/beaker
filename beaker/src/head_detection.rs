@@ -10,7 +10,6 @@ use crate::color_utils::symbols;
 use crate::config::HeadDetectionConfig;
 use crate::model_access::{ModelAccess, ModelInfo};
 use crate::model_processing::{ModelProcessor, ModelResult};
-use crate::onnx_session::ModelSource;
 use crate::output_manager::OutputManager;
 use crate::shared_metadata::IoTiming;
 use crate::yolo_postprocessing::{
@@ -213,7 +212,9 @@ impl ModelProcessor for HeadProcessor {
     type Config = HeadDetectionConfig;
     type Result = HeadDetectionResult;
 
-    fn get_model_source<'a>(config: &Self::Config) -> Result<ModelSource<'a>> {
+    fn get_model_source_and_stats<'a>(
+        config: &Self::Config,
+    ) -> Result<crate::model_access::ModelSourceWithStats<'a>> {
         // Create CLI model info from config
         let cli_model_info = crate::model_access::CliModelInfo {
             model_path: config.model_path.clone(),
@@ -221,12 +222,8 @@ impl ModelProcessor for HeadProcessor {
             model_checksum: config.model_checksum.clone(),
         };
 
-        // Use CLI-aware model access
-        HeadAccess::get_model_source_with_cli(&cli_model_info)
-    }
-
-    fn get_cache_stats() -> Result<Option<crate::model_access::CacheStats>> {
-        HeadAccess::get_cache_stats()
+        // Use CLI-aware model access that returns both source and stats
+        HeadAccess::get_model_source_with_cli_and_stats(&cli_model_info)
     }
 
     fn process_single_image(

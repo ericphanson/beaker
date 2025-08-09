@@ -5,7 +5,6 @@ use crate::cutout_postprocessing::{
 };
 use crate::cutout_preprocessing::preprocess_image_for_isnet_v2;
 use crate::model_access::{ModelAccess, ModelInfo};
-use crate::onnx_session::ModelSource;
 use crate::output_manager::OutputManager;
 use crate::shared_metadata::IoTiming;
 use anyhow::Result;
@@ -143,7 +142,9 @@ impl ModelProcessor for CutoutProcessor {
     type Config = CutoutConfig;
     type Result = CutoutResult;
 
-    fn get_model_source<'a>(config: &Self::Config) -> Result<ModelSource<'a>> {
+    fn get_model_source_and_stats<'a>(
+        config: &Self::Config,
+    ) -> Result<crate::model_access::ModelSourceWithStats<'a>> {
         // Create CLI model info from config
         let cli_model_info = crate::model_access::CliModelInfo {
             model_path: config.model_path.clone(),
@@ -151,12 +152,8 @@ impl ModelProcessor for CutoutProcessor {
             model_checksum: config.model_checksum.clone(),
         };
 
-        // Use CLI-aware model access
-        CutAccess::get_model_source_with_cli(&cli_model_info)
-    }
-
-    fn get_cache_stats() -> Result<Option<crate::model_access::CacheStats>> {
-        CutAccess::get_cache_stats()
+        // Use CLI-aware model access that returns both source and stats
+        CutAccess::get_model_source_with_cli_and_stats(&cli_model_info)
     }
 
     fn process_single_image(
