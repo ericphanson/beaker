@@ -7,7 +7,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use crate::color_utils::symbols;
-use crate::config::HeadDetectionConfig;
+use crate::config::DetectionConfig;
 use crate::model_access::{ModelAccess, ModelInfo};
 use crate::model_processing::{ModelProcessor, ModelResult};
 use crate::onnx_session::ModelSource;
@@ -50,7 +50,7 @@ impl ModelAccess for HeadAccess {
 }
 
 #[derive(Serialize)]
-pub struct HeadDetectionResult {
+pub struct DetectionResult {
     pub model_version: String,
     #[serde(skip_serializing)]
     pub processing_time_ms: f64,
@@ -70,18 +70,18 @@ pub struct DetectionWithPath {
 }
 
 /// Process multiple images sequentially
-pub fn run_head_detection(config: HeadDetectionConfig) -> Result<usize> {
+pub fn run_detection(config: DetectionConfig) -> Result<usize> {
     // Use the new generic processing framework
-    crate::model_processing::run_model_processing::<HeadProcessor>(config)
+    crate::model_processing::run_model_processing::<DetectionProcessor>(config)
 }
 
-impl ModelResult for HeadDetectionResult {
+impl ModelResult for DetectionResult {
     fn processing_time_ms(&self) -> f64 {
         self.processing_time_ms
     }
 
     fn tool_name(&self) -> &'static str {
-        "head"
+        "detect"
     }
 
     fn core_results(&self) -> Result<toml::Value> {
@@ -137,7 +137,7 @@ fn handle_image_outputs_with_timing(
     img: &DynamicImage,
     detections: &[Detection],
     image_path: &Path,
-    config: &HeadDetectionConfig,
+    config: &DetectionConfig,
     io_timing: &mut IoTiming,
 ) -> Result<(Option<String>, Vec<DetectionWithPath>)> {
     let source_path = image_path;
@@ -147,8 +147,18 @@ fn handle_image_outputs_with_timing(
     let mut detections_with_paths = Vec::new();
 
     // Create crops if requested
-    if config.crop && !detections.is_empty() {
+    if !config.crop_classes.is_empty() && !detections.is_empty() {
         for (i, detection) in detections.iter().enumerate() {
+            // Check if this detection's class should be cropped
+            let should_crop = config
+                .crop_classes
+                .iter()
+                .any(|class| class.to_string() == detection.class_name);
+
+            if !should_crop {
+                continue; // Skip this detection if its class is not in crop_classes
+            }
+
             let crop_filename = output_manager.generate_numbered_output(
                 "crop",
                 i + 1,
@@ -206,12 +216,12 @@ fn handle_image_outputs_with_timing(
     Ok((bounding_box_path, detections_with_paths))
 }
 
-/// Head detection processor implementing the generic ModelProcessor trait
-pub struct HeadProcessor;
+/// Detection processor implementing the generic ModelProcessor trait
+pub struct DetectionProcessor;
 
-impl ModelProcessor for HeadProcessor {
-    type Config = HeadDetectionConfig;
-    type Result = HeadDetectionResult;
+impl ModelProcessor for DetectionProcessor {
+    type Config = DetectionConfig;
+    type Result = DetectionResult;
 
     fn get_model_source<'a>(config: &Self::Config) -> Result<ModelSource<'a>> {
         // Create CLI model info from config
@@ -265,6 +275,7 @@ impl ModelProcessor for HeadProcessor {
             Array::from_shape_vec(output_view.shape(), output_view.iter().cloned().collect())?;
 
         // Postprocess to get detections
+        // For now, assume legacy head model until we have multi-class model support
         let detections = postprocess_output(
             &output_array,
             config.confidence,
@@ -272,6 +283,7 @@ impl ModelProcessor for HeadProcessor {
             orig_width,
             orig_height,
             model_size,
+            true, // is_legacy_head_model = true for backward compatibility
         )?;
 
         debug!(
@@ -290,7 +302,7 @@ impl ModelProcessor for HeadProcessor {
             &mut io_timing,
         )?;
 
-        Ok(HeadDetectionResult {
+        Ok(DetectionResult {
             model_version: MODEL_VERSION.to_string(),
             processing_time_ms: total_processing_time,
             bounding_box_path,

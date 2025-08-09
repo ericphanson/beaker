@@ -20,7 +20,7 @@ impl Default for ImageInputConfig {
 }
 
 impl ImageInputConfig {
-    /// Create a configuration for strict mode (like head_detection.rs)
+    /// Create a configuration for strict mode (like detection.rs)
     pub fn strict() -> Self {
         Self {
             strict_mode: true,
