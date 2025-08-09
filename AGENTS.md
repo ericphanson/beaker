@@ -78,8 +78,6 @@ pre-commit run fmt --all-files           # Rust formatting
 
 **Note**: If pre-commit is not available in your environment, you can run the individual tools manually as documented in the sections below.
 
-**Important**: Pre-commit hooks are configured to match CI exactly. This ensures that code passing pre-commit will also pass CI, preventing build failures.
-
 ## Required Checks
 
 ### Rust Code (beaker/ directory)
@@ -99,7 +97,7 @@ cargo fmt
 #### 2. Linting (Clippy)
 ```bash
 cd beaker
-cargo clippy -- -D warnings
+cargo clippy -- -D warnings -D clippy::uninlined_format_args
 ```
 This treats all warnings as errors. Fix all clippy warnings before committing.
 
@@ -265,7 +263,7 @@ cd beaker
 
 # 3. Format and fix issues
 cargo fmt
-cargo clippy -- -D warnings
+cargo clippy --fix --allow-dirty -- -D warnings
 
 # 4. Build and test
 cargo build --release
