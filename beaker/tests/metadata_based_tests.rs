@@ -28,14 +28,19 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 MetadataCheck::ExitCode("head", 0),
                 MetadataCheck::BeakerVersion("head"),
                 MetadataCheck::CoreResultsField("head", "model_version"),
+                MetadataCheck::IoTimingExists("head"),
                 // Cache statistics checks
                 MetadataCheck::CacheStatsPresent("head", "cached_models_count"),
                 MetadataCheck::CacheStatsPresent("head", "cached_models_size_mb"),
+                #[cfg(target_arch = "aarch64")]
                 MetadataCheck::CacheStatsPresent("head", "coreml_cache_count"),
+                #[cfg(target_arch = "aarch64")]
                 MetadataCheck::CacheStatsPresent("head", "coreml_cache_size_mb"),
                 MetadataCheck::CacheStatsNonNegative("head", "cached_models_count"),
                 MetadataCheck::CacheStatsNonNegative("head", "cached_models_size_mb"),
+                #[cfg(target_arch = "aarch64")]
                 MetadataCheck::CacheStatsNonNegative("head", "coreml_cache_count"),
+                #[cfg(target_arch = "aarch64")]
                 MetadataCheck::CacheStatsNonNegative("head", "coreml_cache_size_mb"),
             ],
             env_vars: vec![],
@@ -157,14 +162,19 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 ),
                 MetadataCheck::ExitCode("cutout", 0),
                 MetadataCheck::CoreResultsField("cutout", "model_version"),
+                MetadataCheck::IoTimingExists("cutout"),
                 // Cache statistics checks
                 MetadataCheck::CacheStatsPresent("cutout", "cached_models_count"),
                 MetadataCheck::CacheStatsPresent("cutout", "cached_models_size_mb"),
+                #[cfg(target_arch = "aarch64")]
                 MetadataCheck::CacheStatsPresent("cutout", "coreml_cache_count"),
+                #[cfg(target_arch = "aarch64")]
                 MetadataCheck::CacheStatsPresent("cutout", "coreml_cache_size_mb"),
                 MetadataCheck::CacheStatsNonNegative("cutout", "cached_models_count"),
                 MetadataCheck::CacheStatsNonNegative("cutout", "cached_models_size_mb"),
+                #[cfg(target_arch = "aarch64")]
                 MetadataCheck::CacheStatsNonNegative("cutout", "coreml_cache_count"),
+                #[cfg(target_arch = "aarch64")]
                 MetadataCheck::CacheStatsNonNegative("cutout", "coreml_cache_size_mb"),
             ],
             env_vars: vec![],
