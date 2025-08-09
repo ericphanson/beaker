@@ -165,8 +165,8 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
         coreml_cache_hit: model_info.coreml_cache_hit,
         cached_models_count: cache_stats.as_ref().and_then(|s| s.cached_models_count),
         cached_models_size_mb: cache_stats.as_ref().and_then(|s| s.cached_models_size_mb),
-        coreml_cache_count: cache_stats.as_ref().and_then(|s| s.coreml_cache_count),
-        coreml_cache_size_mb: cache_stats.as_ref().and_then(|s| s.coreml_cache_size_mb),
+        coreml_cache_count: model_info.coreml_cache_count,
+        coreml_cache_size_mb: model_info.coreml_cache_size_mb,
     };
 
     // Process each image and collect results

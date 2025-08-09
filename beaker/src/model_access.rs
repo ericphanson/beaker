@@ -62,15 +62,13 @@ impl CliModelInfo {
     }
 }
 
-/// Cache statistics for tracking model access patterns
+/// Cache statistics for tracking ONNX model download cache access patterns
 #[derive(Debug, Clone, Default)]
 pub struct CacheStats {
     pub cache_hit: bool,
     pub download_time_ms: Option<f64>,
     pub cached_models_count: Option<usize>,
     pub cached_models_size_mb: Option<f64>,
-    pub coreml_cache_count: Option<usize>,
-    pub coreml_cache_size_mb: Option<f64>,
 }
 
 /// Model source with associated cache statistics
@@ -630,10 +628,9 @@ pub fn get_or_download_model(model_info: &ModelInfo) -> Result<(PathBuf, CacheSt
     log::debug!("🗂️  Cache directory: {}", cache_dir.display());
     log::debug!("📄 Model path: {}", model_path.display());
 
-    // Collect cache stats ONCE when we first access the cache directory
+    // Collect ONNX cache stats ONCE when we first access the cache directory
     // This represents the natural flow of cache statistics from actual cache usage
     let onnx_cache_info = get_onnx_cache_info();
-    let coreml_cache_info = get_coreml_cache_info();
 
     // Check if model already exists and has correct checksum
     if model_path.exists() {
@@ -669,8 +666,6 @@ pub fn get_or_download_model(model_info: &ModelInfo) -> Result<(PathBuf, CacheSt
                             download_time_ms: None,
                             cached_models_count: Some(onnx_cache_info.count),
                             cached_models_size_mb: Some(onnx_cache_info.size_mb()),
-                            coreml_cache_count: Some(coreml_cache_info.count),
-                            coreml_cache_size_mb: Some(coreml_cache_info.size_mb()),
                         };
 
                         return Ok((model_path, cache_stats));
@@ -769,8 +764,6 @@ pub fn get_or_download_model(model_info: &ModelInfo) -> Result<(PathBuf, CacheSt
         download_time_ms,
         cached_models_count: Some(onnx_cache_info.count),
         cached_models_size_mb: Some(onnx_cache_info.size_mb()),
-        coreml_cache_count: Some(coreml_cache_info.count),
-        coreml_cache_size_mb: Some(coreml_cache_info.size_mb()),
     };
 
     Ok((model_path, cache_stats))
@@ -884,9 +877,8 @@ pub fn get_model_source_with_cli_and_env_override<T: ModelAccess>(
     // First, validate CLI arguments
     cli_model_info.validate()?;
 
-    // Collect general cache system stats that are always available for "free"
+    // Collect general ONNX cache system stats that are always available for "free"
     let onnx_cache_info = get_onnx_cache_info();
-    let coreml_cache_info = get_coreml_cache_info();
 
     // Priority 1: CLI-provided model path
     if let Some(model_path) = &cli_model_info.model_path {
@@ -913,8 +905,6 @@ pub fn get_model_source_with_cli_and_env_override<T: ModelAccess>(
             download_time_ms: None, // No download occurred
             cached_models_count: Some(onnx_cache_info.count),
             cached_models_size_mb: Some(onnx_cache_info.size_mb()),
-            coreml_cache_count: Some(coreml_cache_info.count),
-            coreml_cache_size_mb: Some(coreml_cache_info.size_mb()),
         };
 
         return Ok(ModelSourceWithStats {
@@ -1039,8 +1029,6 @@ pub fn get_model_source_with_cli_and_env_override<T: ModelAccess>(
             download_time_ms: None, // No download occurred
             cached_models_count: Some(onnx_cache_info.count),
             cached_models_size_mb: Some(onnx_cache_info.size_mb()),
-            coreml_cache_count: Some(coreml_cache_info.count),
-            coreml_cache_size_mb: Some(coreml_cache_info.size_mb()),
         };
 
         return Ok(ModelSourceWithStats {
@@ -1059,8 +1047,6 @@ pub fn get_model_source_with_cli_and_env_override<T: ModelAccess>(
             download_time_ms: None,
             cached_models_count: Some(onnx_cache_info.count),
             cached_models_size_mb: Some(onnx_cache_info.size_mb()),
-            coreml_cache_count: Some(coreml_cache_info.count),
-            coreml_cache_size_mb: Some(coreml_cache_info.size_mb()),
         };
 
         return Ok(ModelSourceWithStats {
@@ -1093,9 +1079,8 @@ pub fn get_model_source_with_cli_and_env_override<T: ModelAccess>(
 /// Returns both the model source and cache statistics.
 pub fn get_model_source_with_env_override_and_stats<T: ModelAccess>(
 ) -> Result<ModelSourceWithStats<'static>> {
-    // Collect general cache system stats that are always available
+    // Collect general ONNX cache system stats that are always available
     let onnx_cache_info = get_onnx_cache_info();
-    let coreml_cache_info = get_coreml_cache_info();
 
     // Check if user has specified a runtime model path via environment variable
     if let Ok(model_path) = std::env::var(T::get_env_var_name()) {
@@ -1121,8 +1106,6 @@ pub fn get_model_source_with_env_override_and_stats<T: ModelAccess>(
             download_time_ms: None,
             cached_models_count: Some(onnx_cache_info.count),
             cached_models_size_mb: Some(onnx_cache_info.size_mb()),
-            coreml_cache_count: Some(coreml_cache_info.count),
-            coreml_cache_size_mb: Some(coreml_cache_info.size_mb()),
         };
 
         return Ok(ModelSourceWithStats {
@@ -1184,8 +1167,6 @@ pub fn get_model_source_with_env_override_and_stats<T: ModelAccess>(
             download_time_ms: None,
             cached_models_count: Some(onnx_cache_info.count),
             cached_models_size_mb: Some(onnx_cache_info.size_mb()),
-            coreml_cache_count: Some(coreml_cache_info.count),
-            coreml_cache_size_mb: Some(coreml_cache_info.size_mb()),
         };
 
         return Ok(ModelSourceWithStats {

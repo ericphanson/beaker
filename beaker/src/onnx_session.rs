@@ -108,6 +108,10 @@ pub struct ModelInfo {
     pub model_checksum: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub coreml_cache_hit: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_cache_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_cache_size_mb: Option<f64>,
 }
 
 /// Device selection result
@@ -159,6 +163,8 @@ pub fn create_onnx_session(
                 execution_providers: vec![], // Will be populated later
                 model_checksum,
                 coreml_cache_hit: None, // Will be populated later if CoreML is used
+                coreml_cache_count: None, // Will be populated later if CoreML is used
+                coreml_cache_size_mb: None, // Will be populated later if CoreML is used
             };
             (bytes.to_vec(), model_info)
         }
@@ -173,15 +179,22 @@ pub fn create_onnx_session(
                 execution_providers: vec![], // Will be populated later
                 model_checksum,
                 coreml_cache_hit: None, // Will be populated later if CoreML is used
+                coreml_cache_count: None, // Will be populated later if CoreML is used
+                coreml_cache_size_mb: None, // Will be populated later if CoreML is used
             };
             (bytes, model_info)
         }
     };
 
-    // Check CoreML cache hit if using CoreML
+    // Check CoreML cache hit if using CoreML and collect cache info
     if config.device == "coreml" {
         let coreml_cache_hit = check_coreml_cache_hit(&bytes);
         model_info_base.coreml_cache_hit = Some(coreml_cache_hit);
+
+        // Collect CoreML cache statistics naturally when CoreML is used
+        let coreml_cache_info = crate::model_access::get_coreml_cache_info();
+        model_info_base.coreml_cache_count = Some(coreml_cache_info.count);
+        model_info_base.coreml_cache_size_mb = Some(coreml_cache_info.size_mb());
 
         if coreml_cache_hit {
             log::debug!("♻️  CoreML cache hit detected");
