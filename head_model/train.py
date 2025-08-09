@@ -396,6 +396,51 @@ def create_debug_dataset():
     return str(yaml_path)
 
 
+def get_trained_epochs(run_dir: str) -> Optional[int]:
+    """Return number of completed epochs inferred from results.csv (last epoch + 1)."""
+    import csv
+
+    path = os.path.join(run_dir, "results.csv")
+    if not os.path.exists(path):
+        return None
+    try:
+        last_epoch = None
+        with open(path, "r") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if "epoch" in row and row["epoch"] != "":
+                    try:
+                        last_epoch = int(float(row["epoch"]))
+                    except Exception:
+                        pass
+        if last_epoch is not None:
+            return last_epoch + 1
+    except Exception as _e:
+        print(f"⚠️ Could not read trained epochs from {path}: {_e}")
+    return None
+
+
+def get_planned_epochs(run_dir: str) -> Optional[int]:
+    """Return the planned epochs recorded in args.yaml for a run directory."""
+    try:
+        import yaml  # local import to avoid top-of-file import rules
+
+        path = os.path.join(run_dir, "args.yaml")
+        if not os.path.exists(path):
+            return None
+        with open(path, "r") as f:
+            data = yaml.safe_load(f) or {}
+        ep = data.get("epochs")
+        return (
+            int(ep)
+            if isinstance(ep, (int, float, str)) and str(ep).strip().isdigit()
+            else None
+        )
+    except Exception as _e:
+        print(f"⚠️ Could not read planned epochs from args.yaml: {_e}")
+        return None
+
+
 def main():
     # Check if MPS is available
     if torch.backends.mps.is_available():
@@ -432,6 +477,10 @@ def main():
     resume_flag = bool(TRAINING_CONFIG.get("resume", False))
     last_ckpt = None
     experiment_key_for_resume = None
+    init_from_ckpt = False
+    base_name = (
+        f"{TRAINING_CONFIG['name']}_debug" if is_debug else TRAINING_CONFIG["name"]
+    )
     if resume_flag:
         resolved, last = find_last_run_with_checkpoint(project_dir, run_name)
         if resolved and last:
@@ -439,15 +488,31 @@ def main():
             last_ckpt = last
             run_dir = os.path.join(project_dir, run_name)
             experiment_key_for_resume = read_comet_key(run_dir)
-            print(f"🔁 Resuming training from checkpoint: {last_ckpt}")
-            if experiment_key_for_resume:
-                print(
-                    f"🔗 Found Comet experiment key in run dir: {experiment_key_for_resume}"
-                )
+            trained_eps = get_trained_epochs(run_dir) or 0
+            planned_eps = get_planned_epochs(run_dir)
+            # If checkpoint run is finished to its planned epochs, or planned epochs < requested, start a new run from weights
+            if (planned_eps is not None and trained_eps >= planned_eps) or (
+                planned_eps is not None and epochs > planned_eps
+            ):
+                # Adjust epochs to train only the remaining to reach requested total
+                if epochs > trained_eps:
+                    print(
+                        f"ℹ️ Checkpoint finished to {trained_eps} epochs (planned={planned_eps}). "
+                        f"Starting a NEW run from weights to reach requested {epochs} total (training {epochs - trained_eps} more)."
+                    )
+                    epochs = max(1, epochs - trained_eps)
+                else:
+                    print(
+                        f"ℹ️ Checkpoint already trained {trained_eps} epochs which >= requested {epochs}. Starting new run from weights for 1 epoch."
+                    )
+                    epochs = 1
+                resume_flag = False
+                init_from_ckpt = True
+                run_name = next_run_name(project_dir, base_name)
             else:
-                print(
-                    "ℹ️  No Comet experiment key found; a new experiment will be created."
-                )
+                # Safe to actually resume optimizer/scheduler state
+                print(f"🔁 Resuming training from checkpoint: {last_ckpt}")
+                init_from_ckpt = True
         else:
             print(
                 f"ℹ️  Resume requested but no checkpoint found under '{project_dir}' for base '{TRAINING_CONFIG['name']}'. Starting fresh."
@@ -479,9 +544,13 @@ def main():
             )
 
     # Load a pretrained YOLO model
-    if resume_flag and last_ckpt:
-        print(f"📦 Loading checkpoint for resume: {last_ckpt}")
-        model = YOLO(last_ckpt)
+    if init_from_ckpt and last_ckpt:
+        if resume_flag:
+            print(f"📦 Loading checkpoint for resume: {last_ckpt}")
+            model = YOLO(last_ckpt)
+        else:
+            print(f"📦 Initializing new run from checkpoint weights: {last_ckpt}")
+            model = YOLO(last_ckpt)
     else:
         print(f"📦 Loading {TRAINING_CONFIG['model']} pretrained model...")
         model = YOLO(TRAINING_CONFIG["model_yaml"]).load(TRAINING_CONFIG["model_file"])
