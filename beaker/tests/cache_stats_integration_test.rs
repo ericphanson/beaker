@@ -13,16 +13,16 @@ fn test_cache_stats_integration() {
 
     println!("Testing cache statistics with embedded model (head detection)...");
 
-    // Test 1: Embedded model (head detection) - should have general cache stats but no download stats
+    // Test 1: Embedded model (head detection) - should NOT have cache stats since cache is not used
     let embedded_model_scenario = TestScenario {
         name: "cache_stats_embedded_model",
         tool: "head",
         args: vec!["../example.jpg", "--confidence", "0.5"],
         expected_files: vec!["example.beaker.toml"],
         metadata_checks: vec![
-            MetadataCheck::OnnxCacheStatsPresent("head"), // General cache stats should be present
+            MetadataCheck::OnnxCacheStatsAbsent("head"), // No cache stats for embedded models
             MetadataCheck::DownloadCacheHitAbsent("head"), // No cache hit/miss for embedded models
-            MetadataCheck::DownloadTimingAbsent("head"),  // No download timing for embedded models
+            MetadataCheck::DownloadTimingAbsent("head"), // No download timing for embedded models
             MetadataCheck::CoremlCacheStatsAbsent("head"), // No CoreML stats when using CPU
         ],
         env_vars: vec![],

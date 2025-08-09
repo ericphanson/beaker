@@ -50,7 +50,7 @@ pub enum MetadataCheck {
     AsciiPreviewValid,
 
     // Cache Statistics Checks
-    /// Verify ONNX cache statistics are present (cached_onnx_models_count, cached_onnx_models_size_mb)
+    /// Verify ONNX cache statistics are present (count and size)
     OnnxCacheStatsPresent(&'static str), // tool
     /// Verify ONNX cache statistics are absent (for models that don't access cache)
     OnnxCacheStatsAbsent(&'static str), // tool
@@ -569,12 +569,17 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
 
             let system = system.unwrap();
             assert!(
-                system.cached_onnx_models_count.is_some(),
-                "cached_onnx_models_count should be present for {tool} in test {test_name}"
+                system.onnx_cache.is_some(),
+                "onnx_cache should be present for {tool} in test {test_name}"
+            );
+            let onnx_cache = system.onnx_cache.as_ref().unwrap();
+            assert!(
+                onnx_cache.cached_models_count.is_some(),
+                "onnx_cache.cached_models_count should be present for {tool} in test {test_name}"
             );
             assert!(
-                system.cached_onnx_models_size_mb.is_some(),
-                "cached_onnx_models_size_mb should be present for {tool} in test {test_name}"
+                onnx_cache.cached_models_size_mb.is_some(),
+                "onnx_cache.cached_models_size_mb should be present for {tool} in test {test_name}"
             );
         }
 
@@ -587,12 +592,8 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
 
             if let Some(system) = system {
                 assert!(
-                    system.cached_onnx_models_count.is_none(),
-                    "cached_onnx_models_count should be absent for {tool} in test {test_name}"
-                );
-                assert!(
-                    system.cached_onnx_models_size_mb.is_none(),
-                    "cached_onnx_models_size_mb should be absent for {tool} in test {test_name}"
+                    system.onnx_cache.is_none(),
+                    "onnx_cache should be absent for {tool} in test {test_name}"
                 );
             }
         }
@@ -611,8 +612,13 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
 
             let system = system.unwrap();
             assert!(
-                system.model_cache_hit.is_some(),
-                "model_cache_hit should be present for {tool} in test {test_name}"
+                system.onnx_cache.is_some(),
+                "onnx_cache should be present for {tool} in test {test_name}"
+            );
+            let onnx_cache = system.onnx_cache.as_ref().unwrap();
+            assert!(
+                onnx_cache.model_cache_hit.is_some(),
+                "onnx_cache.model_cache_hit should be present for {tool} in test {test_name}"
             );
         }
 
@@ -624,10 +630,13 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
             };
 
             if let Some(system) = system {
-                assert!(
-                    system.model_cache_hit.is_none(),
-                    "model_cache_hit should be absent for {tool} in test {test_name}"
-                );
+                if let Some(onnx_cache) = &system.onnx_cache {
+                    assert!(
+                        onnx_cache.model_cache_hit.is_none(),
+                        "onnx_cache.model_cache_hit should be absent for {tool} in test {test_name}"
+                    );
+                }
+                // If onnx_cache itself is None, that's also considered absent
             }
         }
 
@@ -645,8 +654,13 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
 
             let system = system.unwrap();
             assert!(
-                system.download_time_ms.is_some(),
-                "download_time_ms should be present for {tool} in test {test_name}"
+                system.onnx_cache.is_some(),
+                "onnx_cache should be present for {tool} in test {test_name}"
+            );
+            let onnx_cache = system.onnx_cache.as_ref().unwrap();
+            assert!(
+                onnx_cache.download_time_ms.is_some(),
+                "onnx_cache.download_time_ms should be present for {tool} in test {test_name}"
             );
         }
 
@@ -658,10 +672,13 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
             };
 
             if let Some(system) = system {
-                assert!(
-                    system.download_time_ms.is_none(),
-                    "download_time_ms should be absent for {tool} in test {test_name}"
-                );
+                if let Some(onnx_cache) = &system.onnx_cache {
+                    assert!(
+                        onnx_cache.download_time_ms.is_none(),
+                        "onnx_cache.download_time_ms should be absent for {tool} in test {test_name}"
+                    );
+                }
+                // If onnx_cache itself is None, that's also considered absent
             }
         }
 
@@ -679,16 +696,21 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
 
             let system = system.unwrap();
             assert!(
-                system.coreml_cache_hit.is_some(),
-                "coreml_cache_hit should be present for {tool} in test {test_name}"
+                system.coreml_cache.is_some(),
+                "coreml_cache should be present for {tool} in test {test_name}"
+            );
+            let coreml_cache = system.coreml_cache.as_ref().unwrap();
+            assert!(
+                coreml_cache.cache_hit.is_some(),
+                "coreml_cache.cache_hit should be present for {tool} in test {test_name}"
             );
             assert!(
-                system.coreml_cache_count.is_some(),
-                "coreml_cache_count should be present for {tool} in test {test_name}"
+                coreml_cache.cache_count.is_some(),
+                "coreml_cache.cache_count should be present for {tool} in test {test_name}"
             );
             assert!(
-                system.coreml_cache_size_mb.is_some(),
-                "coreml_cache_size_mb should be present for {tool} in test {test_name}"
+                coreml_cache.cache_size_mb.is_some(),
+                "coreml_cache.cache_size_mb should be present for {tool} in test {test_name}"
             );
         }
 
@@ -701,16 +723,8 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
 
             if let Some(system) = system {
                 assert!(
-                    system.coreml_cache_hit.is_none(),
-                    "coreml_cache_hit should be absent for {tool} in test {test_name}"
-                );
-                assert!(
-                    system.coreml_cache_count.is_none(),
-                    "coreml_cache_count should be absent for {tool} in test {test_name}"
-                );
-                assert!(
-                    system.coreml_cache_size_mb.is_none(),
-                    "coreml_cache_size_mb should be absent for {tool} in test {test_name}"
+                    system.coreml_cache.is_none(),
+                    "coreml_cache should be absent for {tool} in test {test_name}"
                 );
             }
         }

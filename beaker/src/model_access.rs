@@ -454,10 +454,11 @@ pub fn download_model_without_verification(
 
     let mut cache_stats = crate::shared_metadata::CacheStats::new();
 
-    // Collect general ONNX cache info (single traversal)
+    // Collect general ONNX cache info (single traversal) - we're using download cache here
+    let mut onnx_cache_stats = crate::shared_metadata::OnnxCacheStats::default();
     if let Ok((count, size_mb)) = crate::shared_metadata::get_cache_info(&cache_dir) {
-        cache_stats.cached_onnx_models_count = Some(count);
-        cache_stats.cached_onnx_models_size_mb = Some(size_mb);
+        onnx_cache_stats.cached_models_count = Some(count);
+        onnx_cache_stats.cached_models_size_mb = Some(size_mb);
     }
 
     let download_start_time = Instant::now();
@@ -467,8 +468,11 @@ pub fn download_model_without_verification(
 
     // Record download timing and cache miss
     let download_time_ms = download_start_time.elapsed().as_secs_f64() * 1000.0;
-    cache_stats.onnx_cache_hit = Some(false);
-    cache_stats.download_time_ms = Some(download_time_ms);
+    onnx_cache_stats.model_cache_hit = Some(false);
+    onnx_cache_stats.download_time_ms = Some(download_time_ms);
+
+    // Set the ONNX cache stats in the overall cache stats
+    cache_stats = cache_stats.with_onnx_cache(onnx_cache_stats);
 
     // Validate model file size (but skip checksum verification)
     validate_model_file_size(&model_path)?;
@@ -497,10 +501,11 @@ pub fn get_or_download_model(
 
     let mut cache_stats = crate::shared_metadata::CacheStats::new();
 
-    // Collect general ONNX cache info (single traversal)
+    // Collect general ONNX cache info (single traversal) - we're using download cache here
+    let mut onnx_cache_stats = crate::shared_metadata::OnnxCacheStats::default();
     if let Ok((count, size_mb)) = crate::shared_metadata::get_cache_info(&cache_dir) {
-        cache_stats.cached_onnx_models_count = Some(count);
-        cache_stats.cached_onnx_models_size_mb = Some(size_mb);
+        onnx_cache_stats.cached_models_count = Some(count);
+        onnx_cache_stats.cached_models_size_mb = Some(size_mb);
     }
 
     let download_start_time = Instant::now();
@@ -532,7 +537,8 @@ pub fn get_or_download_model(
                             crate::color_utils::symbols::completed_successfully(),
                             model_info.filename
                         );
-                        cache_stats.onnx_cache_hit = Some(true);
+                        onnx_cache_stats.model_cache_hit = Some(true);
+                        cache_stats = cache_stats.with_onnx_cache(onnx_cache_stats);
                         return Ok((model_path, cache_stats));
                     }
                     Ok(false) => {
@@ -577,8 +583,11 @@ pub fn get_or_download_model(
 
     // Record download timing and cache miss
     let download_time_ms = download_start_time.elapsed().as_secs_f64() * 1000.0;
-    cache_stats.onnx_cache_hit = Some(false);
-    cache_stats.download_time_ms = Some(download_time_ms);
+    onnx_cache_stats.model_cache_hit = Some(false);
+    onnx_cache_stats.download_time_ms = Some(download_time_ms);
+
+    // Set the ONNX cache stats in the overall cache stats
+    cache_stats = cache_stats.with_onnx_cache(onnx_cache_stats);
 
     // Verify the downloaded model
     log::debug!(
@@ -758,7 +767,7 @@ pub trait ModelAccess {
 /// Generic implementation of model access that handles env var checking and fallbacks.
 pub fn get_model_source_with_env_override<T: ModelAccess>(
 ) -> Result<(ModelSource<'static>, crate::shared_metadata::CacheStats)> {
-    let mut cache_stats = crate::shared_metadata::CacheStats::new();
+    let cache_stats = crate::shared_metadata::CacheStats::new();
 
     // Check if user has specified a runtime model path via environment variable
     if let Ok(model_path) = std::env::var(T::get_env_var_name()) {
@@ -778,15 +787,8 @@ pub fn get_model_source_with_env_override<T: ModelAccess>(
             ));
         }
 
-        // For custom model paths: Get general cache system stats
-        if let Ok(cache_dir) = get_cache_dir() {
-            if let Ok((count, size_mb)) = crate::shared_metadata::get_cache_info(&cache_dir) {
-                cache_stats.cached_onnx_models_count = Some(count);
-                cache_stats.cached_onnx_models_size_mb = Some(size_mb);
-            }
-        }
-
-        return Ok((ModelSource::FilePath(model_path), cache_stats));
+        // For custom model paths: no cache traversal needed since we don't use download cache
+        return Ok((ModelSource::FilePath(model_path.clone()), cache_stats));
     }
 
     // Check if we should download from a remote source
@@ -837,14 +839,7 @@ pub fn get_model_source_with_env_override<T: ModelAccess>(
     if let Some(embedded_bytes) = T::get_embedded_bytes() {
         log::debug!("📦 Using embedded model bytes");
 
-        // For embedded models: Get general cache system stats
-        if let Ok(cache_dir) = get_cache_dir() {
-            if let Ok((count, size_mb)) = crate::shared_metadata::get_cache_info(&cache_dir) {
-                cache_stats.cached_onnx_models_count = Some(count);
-                cache_stats.cached_onnx_models_size_mb = Some(size_mb);
-            }
-        }
-
+        // For embedded models: no cache traversal needed since we don't use download cache
         return Ok((ModelSource::EmbeddedBytes(embedded_bytes), cache_stats));
     }
 
@@ -859,7 +854,7 @@ pub fn get_model_source_with_env_override<T: ModelAccess>(
 pub fn get_model_source_with_cli_and_env_override<T: ModelAccess>(
     cli_model_info: &CliModelInfo,
 ) -> Result<(ModelSource<'static>, crate::shared_metadata::CacheStats)> {
-    let mut cache_stats = crate::shared_metadata::CacheStats::new();
+    let cache_stats = crate::shared_metadata::CacheStats::new();
 
     // First, validate CLI arguments
     cli_model_info.validate()?;
@@ -883,14 +878,7 @@ pub fn get_model_source_with_cli_and_env_override<T: ModelAccess>(
         // Test model functionality for new models
         test_model_basic_functionality(&path)?;
 
-        // For custom model paths: Get general cache system stats
-        if let Ok(cache_dir) = get_cache_dir() {
-            if let Ok((count, size_mb)) = crate::shared_metadata::get_cache_info(&cache_dir) {
-                cache_stats.cached_onnx_models_count = Some(count);
-                cache_stats.cached_onnx_models_size_mb = Some(size_mb);
-            }
-        }
-
+        // For custom model paths: no cache traversal needed since we don't use download cache
         return Ok((ModelSource::FilePath(model_path.clone()), cache_stats));
     }
 

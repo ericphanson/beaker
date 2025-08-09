@@ -157,14 +157,9 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
         model_size_bytes: Some(model_info.model_size_bytes.try_into().unwrap()),
         model_load_time_ms: Some(model_load_time_ms),
         model_checksum: Some(model_info.model_checksum),
-        // Cache statistics - will be populated later based on model access patterns
-        model_cache_hit: None,
-        download_time_ms: None,
-        cached_onnx_models_count: None,
-        cached_onnx_models_size_mb: None,
-        coreml_cache_hit: None,
-        coreml_cache_count: None,
-        coreml_cache_size_mb: None,
+        // Cache statistics - will be populated by with_cache_stats()
+        onnx_cache: None,
+        coreml_cache: None,
     }
     .with_cache_stats(onnx_cache_stats.merge(coreml_cache_stats));
 

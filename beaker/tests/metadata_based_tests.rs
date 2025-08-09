@@ -30,7 +30,7 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 MetadataCheck::CoreResultsField("head", "model_version"),
                 MetadataCheck::IoTimingExists("head"),
                 // Cache statistics checks for embedded models
-                MetadataCheck::OnnxCacheStatsPresent("head"), // General cache stats should be present
+                MetadataCheck::OnnxCacheStatsAbsent("head"), // No cache stats for embedded models
                 MetadataCheck::DownloadCacheHitAbsent("head"), // No cache hit/miss for embedded models
                 MetadataCheck::DownloadTimingAbsent("head"), // No download timing for embedded models
                 MetadataCheck::CoremlCacheStatsAbsent("head"), // No CoreML stats when using CPU

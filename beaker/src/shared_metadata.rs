@@ -7,19 +7,35 @@ use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
-/// Cache statistics collected from cache operations
+/// ONNX download cache statistics
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct OnnxCacheStats {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_cache_hit: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub download_time_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cached_models_count: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cached_models_size_mb: Option<f64>,
+}
+
+/// CoreML cache statistics
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct CoremlCacheStats {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_hit: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_count: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_size_mb: Option<f64>,
+}
+
+/// Cache statistics collected from cache operations (instrumentation only)
 #[derive(Debug, Default, Clone)]
 pub struct CacheStats {
-    // ONNX cache statistics
-    pub onnx_cache_hit: Option<bool>,
-    pub download_time_ms: Option<f64>,
-    pub cached_onnx_models_count: Option<u32>,
-    pub cached_onnx_models_size_mb: Option<f64>,
-
-    // CoreML cache statistics
-    pub coreml_cache_hit: Option<bool>,
-    pub coreml_cache_count: Option<u32>,
-    pub coreml_cache_size_mb: Option<f64>,
+    pub onnx: Option<OnnxCacheStats>,
+    pub coreml: Option<CoremlCacheStats>,
 }
 
 impl CacheStats {
@@ -28,28 +44,25 @@ impl CacheStats {
         Self::default()
     }
 
+    /// Set ONNX cache stats (when download cache is used)
+    pub fn with_onnx_cache(mut self, onnx_stats: OnnxCacheStats) -> Self {
+        self.onnx = Some(onnx_stats);
+        self
+    }
+
+    /// Set CoreML cache stats (when CoreML device is used)
+    pub fn with_coreml_cache(mut self, coreml_stats: CoremlCacheStats) -> Self {
+        self.coreml = Some(coreml_stats);
+        self
+    }
+
     /// Merge two CacheStats, keeping non-None values from both
     pub fn merge(mut self, other: CacheStats) -> Self {
-        if other.onnx_cache_hit.is_some() {
-            self.onnx_cache_hit = other.onnx_cache_hit;
+        if other.onnx.is_some() {
+            self.onnx = other.onnx;
         }
-        if other.download_time_ms.is_some() {
-            self.download_time_ms = other.download_time_ms;
-        }
-        if other.cached_onnx_models_count.is_some() {
-            self.cached_onnx_models_count = other.cached_onnx_models_count;
-        }
-        if other.cached_onnx_models_size_mb.is_some() {
-            self.cached_onnx_models_size_mb = other.cached_onnx_models_size_mb;
-        }
-        if other.coreml_cache_hit.is_some() {
-            self.coreml_cache_hit = other.coreml_cache_hit;
-        }
-        if other.coreml_cache_count.is_some() {
-            self.coreml_cache_count = other.coreml_cache_count;
-        }
-        if other.coreml_cache_size_mb.is_some() {
-            self.coreml_cache_size_mb = other.coreml_cache_size_mb;
+        if other.coreml.is_some() {
+            self.coreml = other.coreml;
         }
         self
     }
@@ -189,53 +202,23 @@ pub struct SystemInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_checksum: Option<String>,
 
-    // ONNX Cache Statistics (only present when download cache was accessed)
+    // Cache Statistics (only present when respective caches are accessed)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub model_cache_hit: Option<bool>,
+    pub onnx_cache: Option<OnnxCacheStats>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub download_time_ms: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cached_onnx_models_count: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cached_onnx_models_size_mb: Option<f64>,
-
-    // CoreML Cache Statistics (only present on Apple Silicon when CoreML device is used)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub coreml_cache_hit: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub coreml_cache_count: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub coreml_cache_size_mb: Option<f64>,
+    pub coreml_cache: Option<CoremlCacheStats>,
 }
 
 impl SystemInfo {
     /// Update SystemInfo with cache statistics
     pub fn with_cache_stats(mut self, cache_stats: CacheStats) -> Self {
-        // ONNX cache statistics
-        if cache_stats.onnx_cache_hit.is_some() {
-            self.model_cache_hit = cache_stats.onnx_cache_hit;
+        // Embed cache statistics directly as nested objects
+        if let Some(onnx_cache) = cache_stats.onnx {
+            self.onnx_cache = Some(onnx_cache);
         }
-        if cache_stats.download_time_ms.is_some() {
-            self.download_time_ms = cache_stats.download_time_ms;
+        if let Some(coreml_cache) = cache_stats.coreml {
+            self.coreml_cache = Some(coreml_cache);
         }
-        if cache_stats.cached_onnx_models_count.is_some() {
-            self.cached_onnx_models_count = cache_stats.cached_onnx_models_count;
-        }
-        if cache_stats.cached_onnx_models_size_mb.is_some() {
-            self.cached_onnx_models_size_mb = cache_stats.cached_onnx_models_size_mb;
-        }
-
-        // CoreML cache statistics
-        if cache_stats.coreml_cache_hit.is_some() {
-            self.coreml_cache_hit = cache_stats.coreml_cache_hit;
-        }
-        if cache_stats.coreml_cache_count.is_some() {
-            self.coreml_cache_count = cache_stats.coreml_cache_count;
-        }
-        if cache_stats.coreml_cache_size_mb.is_some() {
-            self.coreml_cache_size_mb = cache_stats.coreml_cache_size_mb;
-        }
-
         self
     }
 }
@@ -450,13 +433,8 @@ mod tests {
                     model_load_time_ms: Some(25.3),
                     model_checksum: Some("abc123def456".to_string()),
                     // Cache statistics should be None for embedded models in this test
-                    model_cache_hit: None,
-                    download_time_ms: None,
-                    cached_onnx_models_count: None,
-                    cached_onnx_models_size_mb: None,
-                    coreml_cache_hit: None,
-                    coreml_cache_count: None,
-                    coreml_cache_size_mb: None,
+                    onnx_cache: None,
+                    coreml_cache: None,
                 }),
                 ..Default::default()
             }),
