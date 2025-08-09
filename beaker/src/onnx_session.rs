@@ -91,6 +91,7 @@ pub struct SessionConfig<'a> {
 }
 
 /// Model source for loading ONNX models
+#[derive(Debug)]
 pub enum ModelSource<'a> {
     EmbeddedBytes(&'a [u8]),
     FilePath(String),

@@ -34,19 +34,6 @@ impl ModelAccess for HeadAccess {
         get_model_source_with_env_override::<Self>()
     }
 
-    fn get_cache_stats() -> Result<Option<crate::model_access::CacheStats>> {
-        // Head models are typically embedded, but we can still provide general cache stats
-        // for situational awareness when using the cache infrastructure
-        Ok(Some(crate::model_access::CacheStats {
-            cache_hit: false,       // Not applicable for embedded models
-            download_time_ms: None, // Not applicable for embedded models
-            cached_models_count: Some(crate::model_access::count_cached_models()),
-            cached_models_size_mb: Some(crate::model_access::calculate_cached_models_size_mb()),
-            coreml_cache_count: Some(crate::model_access::count_coreml_cached_models()),
-            coreml_cache_size_mb: Some(crate::model_access::calculate_coreml_cache_size_mb()),
-        }))
-    }
-
     fn get_embedded_bytes() -> Option<&'static [u8]> {
         // Reference to the embedded model bytes
         Some(MODEL_BYTES)

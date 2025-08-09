@@ -35,6 +35,13 @@ pub struct CacheStats {
     pub coreml_cache_size_mb: Option<f64>,
 }
 
+/// Model source with associated cache statistics
+#[derive(Debug)]
+pub struct ModelSourceWithStats<'a> {
+    pub source: ModelSource<'a>,
+    pub cache_stats: Option<CacheStats>,
+}
+
 /// Get the cache directory for storing downloaded models
 pub fn get_cache_dir() -> Result<PathBuf> {
     cache_common::get_cache_dir_with_env_override("ONNX_MODEL_CACHE_DIR", "onnx-models")
@@ -50,82 +57,94 @@ fn get_file_info(path: &Path) -> Result<String> {
     cache_common::get_file_info(path)
 }
 
-/// Count the number of cached models in the cache directory
-pub fn count_cached_models() -> usize {
-    let Ok(cache_dir) = get_cache_dir() else {
-        return 0;
+/// Helper structure to hold cache statistics for a directory
+#[derive(Debug, Default)]
+pub struct CacheInfo {
+    pub count: usize,
+    pub size_bytes: u64,
+}
+
+impl CacheInfo {
+    pub fn size_mb(&self) -> f64 {
+        self.size_bytes as f64 / (1024.0 * 1024.0)
+    }
+}
+
+/// Count files and calculate total size in a single directory traversal
+/// For ONNX models: counts .onnx files
+/// For CoreML models: counts .mlmodelc directories (does not recurse into them)
+fn calculate_cache_info<F>(cache_dir: &Path, filter_fn: F) -> CacheInfo
+where
+    F: Fn(&std::fs::DirEntry) -> bool,
+{
+    let Ok(entries) = fs::read_dir(cache_dir) else {
+        return CacheInfo::default();
     };
 
-    fs::read_dir(&cache_dir)
-        .map(|entries| {
-            entries
-                .filter_map(|entry| entry.ok())
-                .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "onnx"))
-                .count()
-        })
-        .unwrap_or(0)
+    let mut info = CacheInfo::default();
+
+    for entry in entries.filter_map(|e| e.ok()) {
+        if filter_fn(&entry) {
+            info.count += 1;
+
+            let path = entry.path();
+            if path.is_dir() {
+                // For CoreML .mlmodelc directories, calculate their size recursively
+                // but don't recurse into subdirectories of the model
+                info.size_bytes += calculate_directory_size(&path).unwrap_or(0);
+            } else {
+                // For regular files like .onnx
+                info.size_bytes += fs::metadata(&path)
+                    .map(|metadata| metadata.len())
+                    .unwrap_or(0);
+            }
+        }
+    }
+
+    info
+}
+
+/// Count the number of cached models and calculate their total size
+pub fn get_onnx_cache_info() -> CacheInfo {
+    let Ok(cache_dir) = get_cache_dir() else {
+        return CacheInfo::default();
+    };
+
+    calculate_cache_info(&cache_dir, |entry| {
+        entry.path().extension().is_some_and(|ext| ext == "onnx")
+    })
+}
+
+/// Count the number of cached models in the cache directory
+pub fn count_cached_models() -> usize {
+    get_onnx_cache_info().count
 }
 
 /// Calculate the total size of cached models in MB
 pub fn calculate_cached_models_size_mb() -> f64 {
-    let Ok(cache_dir) = get_cache_dir() else {
-        return 0.0;
+    get_onnx_cache_info().size_mb()
+}
+
+/// Count the number of compiled CoreML models and calculate their total size
+pub fn get_coreml_cache_info() -> CacheInfo {
+    let Ok(cache_dir) = get_coreml_cache_dir() else {
+        return CacheInfo::default();
     };
 
-    fs::read_dir(&cache_dir)
-        .map(|entries| {
-            entries
-                .filter_map(|entry| entry.ok())
-                .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "onnx"))
-                .map(|entry| {
-                    fs::metadata(entry.path())
-                        .map(|metadata| metadata.len() as f64)
-                        .unwrap_or(0.0)
-                })
-                .sum::<f64>()
-                / (1024.0 * 1024.0) // Convert to MB
-        })
-        .unwrap_or(0.0)
+    calculate_cache_info(&cache_dir, |entry| {
+        let path = entry.path();
+        path.is_dir() && path.extension().is_some_and(|ext| ext == "mlmodelc")
+    })
 }
 
 /// Count the number of compiled CoreML models in the CoreML cache directory
 pub fn count_coreml_cached_models() -> usize {
-    let Ok(cache_dir) = get_coreml_cache_dir() else {
-        return 0;
-    };
-
-    fs::read_dir(&cache_dir)
-        .map(|entries| {
-            entries
-                .filter_map(|entry| entry.ok())
-                .filter(|entry| {
-                    let path = entry.path();
-                    path.is_dir() && path.extension().is_some_and(|ext| ext == "mlmodelc")
-                })
-                .count()
-        })
-        .unwrap_or(0)
+    get_coreml_cache_info().count
 }
 
 /// Calculate the total size of CoreML cached models in MB
 pub fn calculate_coreml_cache_size_mb() -> f64 {
-    let Ok(cache_dir) = get_coreml_cache_dir() else {
-        return 0.0;
-    };
-
-    fs::read_dir(&cache_dir)
-        .map(|entries| {
-            entries
-                .filter_map(|entry| entry.ok())
-                .filter(|entry| {
-                    let path = entry.path();
-                    path.is_dir() && path.extension().is_some_and(|ext| ext == "mlmodelc")
-                })
-                .map(|entry| calculate_directory_size(&entry.path()).unwrap_or(0))
-                .sum::<u64>() as f64
-                / (1024.0 * 1024.0) // Convert to MB
-        })
-        .unwrap_or(0.0)
+    get_coreml_cache_info().size_mb()
 }
 
 /// Calculate the total size of a directory recursively
@@ -310,12 +329,12 @@ fn download_model(url: &str, output_path: &Path) -> Result<f64> {
 }
 
 /// Download model with concurrency protection using lock files
-/// Returns the download time in milliseconds
+/// Returns the download time in milliseconds, or None if another process downloaded it
 fn download_with_concurrency_protection(
     model_path: &Path,
     lock_path: &Path,
     model_info: &ModelInfo,
-) -> Result<f64> {
+) -> Result<Option<f64>> {
     const MAX_WAIT_TIME: Duration = Duration::from_secs(300); // 5 minutes max wait
     const INITIAL_WAIT: Duration = Duration::from_millis(50);
     const MAX_WAIT_INTERVAL: Duration = Duration::from_millis(1000);
@@ -365,7 +384,7 @@ fn download_with_concurrency_protection(
                     model_info.filename
                 );
 
-                return result;
+                return result.map(Some);
             }
             Err(file_error) => {
                 log::debug!(
@@ -385,7 +404,7 @@ fn download_with_concurrency_protection(
                                 "{} Model downloaded by another process, using cached version",
                                 symbols::resources_found()
                             );
-                            return Ok(0.0); // No download time since it was concurrent
+                            return Ok(None); // No download time since it was concurrent
                         }
                         Ok(false) => {
                             log::debug!(
@@ -425,7 +444,7 @@ fn download_with_concurrency_protection(
                     }
 
                     let _ = fs::remove_file(lock_path);
-                    return download_model(&model_info.url, model_path);
+                    return download_model(&model_info.url, model_path).map(Some);
                 }
 
                 // Wait with exponential backoff before retry
@@ -613,7 +632,7 @@ pub fn get_or_download_model(model_info: &ModelInfo) -> Result<(PathBuf, CacheSt
     // Return cache miss stats
     let cache_stats = CacheStats {
         cache_hit: false,
-        download_time_ms: Some(download_time_ms),
+        download_time_ms,
         cached_models_count: Some(final_cached_models_count),
         cached_models_size_mb: Some(final_cached_models_size_mb),
         coreml_cache_count: Some(coreml_cache_count),
@@ -681,25 +700,6 @@ pub fn get_or_download_runtime_model(
     get_or_download_model(&model_info)
 }
 
-/// Get cache statistics for a model download (separate from the path)
-/// This function collects cache statistics without downloading a model
-pub fn get_model_cache_stats(_model_info: RuntimeModelInfo) -> Result<CacheStats> {
-    // Collect current cache statistics without downloading
-    let cached_models_count = count_cached_models();
-    let cached_models_size_mb = calculate_cached_models_size_mb();
-    let coreml_cache_count = count_coreml_cached_models();
-    let coreml_cache_size_mb = calculate_coreml_cache_size_mb();
-
-    Ok(CacheStats {
-        cache_hit: false, // This is just a snapshot, not an actual cache operation
-        download_time_ms: None,
-        cached_models_count: Some(cached_models_count),
-        cached_models_size_mb: Some(cached_models_size_mb),
-        coreml_cache_count: Some(coreml_cache_count),
-        coreml_cache_size_mb: Some(coreml_cache_size_mb),
-    })
-}
-
 /// Internal interface for accessing models at runtime.
 /// Provides unified access to embedded models and runtime model paths.
 pub trait ModelAccess {
@@ -708,11 +708,13 @@ pub trait ModelAccess {
     fn get_model_source<'a>() -> Result<ModelSource<'a>>;
 
     /// Get cache statistics for this model type.
-    /// Returns None for embedded models, Some(CacheStats) for downloadable models.
-    /// This method should collect and return comprehensive cache statistics.
-    fn get_cache_stats() -> Result<Option<CacheStats>> {
-        // Default implementation for models that don't support caching
-        Ok(None)
+    /// This method automatically collects cache statistics as part of model access.
+    fn get_cache_stats() -> Result<Option<CacheStats>>
+    where
+        Self: Sized,
+    {
+        // Use the unified infrastructure to get cache stats
+        Ok(get_model_source_with_env_override_and_stats::<Self>()?.cache_stats)
     }
 
     /// Get the embedded model bytes (fallback), if any.
@@ -742,7 +744,13 @@ pub trait ModelAccess {
 }
 
 /// Generic implementation of model access that handles env var checking and fallbacks.
-pub fn get_model_source_with_env_override<T: ModelAccess>() -> Result<ModelSource<'static>> {
+/// Returns both the model source and cache statistics.
+pub fn get_model_source_with_env_override_and_stats<T: ModelAccess>(
+) -> Result<ModelSourceWithStats<'static>> {
+    // First, get cache info for current state
+    let onnx_cache_info = get_onnx_cache_info();
+    let coreml_cache_info = get_coreml_cache_info();
+
     // Check if user has specified a runtime model path via environment variable
     if let Ok(model_path) = std::env::var(T::get_env_var_name()) {
         log::debug!(
@@ -761,7 +769,20 @@ pub fn get_model_source_with_env_override<T: ModelAccess>() -> Result<ModelSourc
             ));
         }
 
-        return Ok(ModelSource::FilePath(model_path));
+        // Return with general cache stats (no specific cache hit info for custom paths)
+        let cache_stats = CacheStats {
+            cache_hit: false, // Not applicable for custom paths
+            download_time_ms: None,
+            cached_models_count: Some(onnx_cache_info.count),
+            cached_models_size_mb: Some(onnx_cache_info.size_mb()),
+            coreml_cache_count: Some(coreml_cache_info.count),
+            coreml_cache_size_mb: Some(coreml_cache_info.size_mb()),
+        };
+
+        return Ok(ModelSourceWithStats {
+            source: ModelSource::FilePath(model_path),
+            cache_stats: Some(cache_stats),
+        });
     }
 
     // Check if we should download from a remote source
@@ -793,21 +814,38 @@ pub fn get_model_source_with_env_override<T: ModelAccess>() -> Result<ModelSourc
             }
         }
 
-        if let Ok((download_path, _cache_stats)) = get_or_download_runtime_model(runtime_model_info)
+        if let Ok((download_path, cache_stats)) = get_or_download_runtime_model(runtime_model_info)
         {
             let path_str = download_path
                 .to_str()
                 .ok_or_else(|| anyhow::anyhow!("Downloaded model path is not valid UTF-8"))?;
 
             log::debug!("📥 Using downloaded model: {path_str}");
-            return Ok(ModelSource::FilePath(path_str.to_string()));
+            return Ok(ModelSourceWithStats {
+                source: ModelSource::FilePath(path_str.to_string()),
+                cache_stats: Some(cache_stats),
+            });
         }
     }
 
     // Default: use embedded bytes if available
     if let Some(embedded_bytes) = T::get_embedded_bytes() {
         log::debug!("📦 Using embedded model bytes");
-        return Ok(ModelSource::EmbeddedBytes(embedded_bytes));
+
+        // For embedded models, provide general cache stats
+        let cache_stats = CacheStats {
+            cache_hit: false, // Not applicable for embedded models
+            download_time_ms: None,
+            cached_models_count: Some(onnx_cache_info.count),
+            cached_models_size_mb: Some(onnx_cache_info.size_mb()),
+            coreml_cache_count: Some(coreml_cache_info.count),
+            coreml_cache_size_mb: Some(coreml_cache_info.size_mb()),
+        };
+
+        return Ok(ModelSourceWithStats {
+            source: ModelSource::EmbeddedBytes(embedded_bytes),
+            cache_stats: Some(cache_stats),
+        });
     }
 
     // If no embedded bytes and no download info, we can't provide a model
@@ -815,6 +853,11 @@ pub fn get_model_source_with_env_override<T: ModelAccess>() -> Result<ModelSourc
         "No model source available: no embedded bytes and no download info for {}",
         T::get_env_var_name()
     ))
+}
+
+/// Generic implementation of model access that handles env var checking and fallbacks.
+pub fn get_model_source_with_env_override<T: ModelAccess>() -> Result<ModelSource<'static>> {
+    Ok(get_model_source_with_env_override_and_stats::<T>()?.source)
 }
 
 #[cfg(test)]

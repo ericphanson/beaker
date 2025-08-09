@@ -7,6 +7,29 @@ mod test_performance_tracker;
 
 /// Define comprehensive test scenarios based on the metadata testing strategy
 fn get_test_scenarios() -> Vec<TestScenario> {
+    // Helper function to create cache statistics checks
+    fn cache_checks(tool: &'static str) -> Vec<MetadataCheck> {
+        let mut checks = vec![
+            MetadataCheck::CacheStatsPresent(tool, "cached_models_count"),
+            MetadataCheck::CacheStatsPresent(tool, "cached_models_size_mb"),
+            MetadataCheck::CacheStatsNonNegative(tool, "cached_models_count"),
+            MetadataCheck::CacheStatsNonNegative(tool, "cached_models_size_mb"),
+        ];
+
+        // Only add CoreML checks on Apple Silicon
+        #[cfg(target_arch = "aarch64")]
+        {
+            checks.extend_from_slice(&[
+                MetadataCheck::CacheStatsPresent(tool, "coreml_cache_count"),
+                MetadataCheck::CacheStatsPresent(tool, "coreml_cache_size_mb"),
+                MetadataCheck::CacheStatsNonNegative(tool, "coreml_cache_count"),
+                MetadataCheck::CacheStatsNonNegative(tool, "coreml_cache_size_mb"),
+            ]);
+        }
+
+        checks
+    }
+
     vec![
         // Head Detection Tests - Comprehensive (fast model enables this)
         TestScenario {
@@ -14,35 +37,26 @@ fn get_test_scenarios() -> Vec<TestScenario> {
             tool: "head",
             args: vec!["../example.jpg", "--device", "cpu", "--confidence", "0.25"],
             expected_files: vec!["example.beaker.toml"],
-            metadata_checks: vec![
-                MetadataCheck::DeviceUsed("head", "cpu"),
-                MetadataCheck::ConfigValue("head", "confidence", toml::Value::from(0.25)),
-                MetadataCheck::ConfigValue("head", "device", toml::Value::from("cpu")),
-                MetadataCheck::TimingBound(
-                    "head",
-                    "execution.model_processing_time_ms",
-                    10.0,
-                    300000.0,
-                ),
-                MetadataCheck::ExecutionProvider("head", "CPUExecutionProvider"),
-                MetadataCheck::ExitCode("head", 0),
-                MetadataCheck::BeakerVersion("head"),
-                MetadataCheck::CoreResultsField("head", "model_version"),
-                MetadataCheck::IoTimingExists("head"),
-                // Cache statistics checks
-                MetadataCheck::CacheStatsPresent("head", "cached_models_count"),
-                MetadataCheck::CacheStatsPresent("head", "cached_models_size_mb"),
-                #[cfg(target_arch = "aarch64")]
-                MetadataCheck::CacheStatsPresent("head", "coreml_cache_count"),
-                #[cfg(target_arch = "aarch64")]
-                MetadataCheck::CacheStatsPresent("head", "coreml_cache_size_mb"),
-                MetadataCheck::CacheStatsNonNegative("head", "cached_models_count"),
-                MetadataCheck::CacheStatsNonNegative("head", "cached_models_size_mb"),
-                #[cfg(target_arch = "aarch64")]
-                MetadataCheck::CacheStatsNonNegative("head", "coreml_cache_count"),
-                #[cfg(target_arch = "aarch64")]
-                MetadataCheck::CacheStatsNonNegative("head", "coreml_cache_size_mb"),
-            ],
+            metadata_checks: {
+                let mut checks = vec![
+                    MetadataCheck::DeviceUsed("head", "cpu"),
+                    MetadataCheck::ConfigValue("head", "confidence", toml::Value::from(0.25)),
+                    MetadataCheck::ConfigValue("head", "device", toml::Value::from("cpu")),
+                    MetadataCheck::TimingBound(
+                        "head",
+                        "execution.model_processing_time_ms",
+                        10.0,
+                        300000.0,
+                    ),
+                    MetadataCheck::ExecutionProvider("head", "CPUExecutionProvider"),
+                    MetadataCheck::ExitCode("head", 0),
+                    MetadataCheck::BeakerVersion("head"),
+                    MetadataCheck::CoreResultsField("head", "model_version"),
+                    MetadataCheck::IoTimingExists("head"),
+                ];
+                checks.extend(cache_checks("head"));
+                checks
+            },
             env_vars: vec![],
         },
         TestScenario {
@@ -150,33 +164,24 @@ fn get_test_scenarios() -> Vec<TestScenario> {
             tool: "cutout",
             args: vec!["../example.jpg"],
             expected_files: vec!["example.beaker.toml", "example_cutout.png"],
-            metadata_checks: vec![
-                MetadataCheck::ConfigValue("cutout", "alpha_matting", toml::Value::from(false)),
-                MetadataCheck::ConfigValue("cutout", "save_mask", toml::Value::from(false)),
-                MetadataCheck::OutputCreated("example_cutout.png"),
-                MetadataCheck::TimingBound(
-                    "cutout",
-                    "execution.model_processing_time_ms",
-                    1000.0,
-                    300000.0,
-                ),
-                MetadataCheck::ExitCode("cutout", 0),
-                MetadataCheck::CoreResultsField("cutout", "model_version"),
-                MetadataCheck::IoTimingExists("cutout"),
-                // Cache statistics checks
-                MetadataCheck::CacheStatsPresent("cutout", "cached_models_count"),
-                MetadataCheck::CacheStatsPresent("cutout", "cached_models_size_mb"),
-                #[cfg(target_arch = "aarch64")]
-                MetadataCheck::CacheStatsPresent("cutout", "coreml_cache_count"),
-                #[cfg(target_arch = "aarch64")]
-                MetadataCheck::CacheStatsPresent("cutout", "coreml_cache_size_mb"),
-                MetadataCheck::CacheStatsNonNegative("cutout", "cached_models_count"),
-                MetadataCheck::CacheStatsNonNegative("cutout", "cached_models_size_mb"),
-                #[cfg(target_arch = "aarch64")]
-                MetadataCheck::CacheStatsNonNegative("cutout", "coreml_cache_count"),
-                #[cfg(target_arch = "aarch64")]
-                MetadataCheck::CacheStatsNonNegative("cutout", "coreml_cache_size_mb"),
-            ],
+            metadata_checks: {
+                let mut checks = vec![
+                    MetadataCheck::ConfigValue("cutout", "alpha_matting", toml::Value::from(false)),
+                    MetadataCheck::ConfigValue("cutout", "save_mask", toml::Value::from(false)),
+                    MetadataCheck::OutputCreated("example_cutout.png"),
+                    MetadataCheck::TimingBound(
+                        "cutout",
+                        "execution.model_processing_time_ms",
+                        1000.0,
+                        300000.0,
+                    ),
+                    MetadataCheck::ExitCode("cutout", 0),
+                    MetadataCheck::CoreResultsField("cutout", "model_version"),
+                    MetadataCheck::IoTimingExists("cutout"),
+                ];
+                checks.extend(cache_checks("cutout"));
+                checks
+            },
             env_vars: vec![],
         },
         TestScenario {
