@@ -8,7 +8,7 @@ use std::time::Instant;
 
 use crate::color_utils::symbols;
 use crate::config::HeadDetectionConfig;
-use crate::model_access::{get_model_source_with_env_override, ModelAccess};
+use crate::model_access::{get_model_source_with_env_override, ModelAccess, ModelInfo};
 use crate::model_processing::{ModelProcessor, ModelResult};
 use crate::onnx_session::ModelSource;
 use crate::output_manager::OutputManager;
@@ -44,9 +44,14 @@ impl ModelAccess for HeadAccess {
 
     // Currently, head models don't support remote download (embedded only)
     // But this could be added in the future by uncommenting the following:
-    // fn get_default_model_info() -> Option<ModelInfo> {
-    //     Some(HEAD_MODEL_INFO)
-    // }
+    fn get_default_model_info() -> Option<ModelInfo> {
+        Some(ModelInfo {
+            name: "bird-head-detector-default".to_string(),
+            url: "https://github.com/ericphanson/beaker/releases/download/bird-head-detector-v0.1.1/best.onnx".to_string(),
+            md5_checksum: "".to_string(), // Will need to be filled in for real use
+            filename: "bird-head-detector-v0.1.1.onnx".to_string(),
+        })
+    }
 }
 
 #[derive(Serialize)]
@@ -199,8 +204,16 @@ impl ModelProcessor for HeadProcessor {
     type Config = HeadDetectionConfig;
     type Result = HeadDetectionResult;
 
-    fn get_model_source<'a>() -> Result<ModelSource<'a>> {
-        HeadAccess::get_model_source()
+    fn get_model_source<'a>(config: &Self::Config) -> Result<ModelSource<'a>> {
+        // Create CLI model info from config
+        let cli_model_info = crate::model_access::CliModelInfo {
+            model_path: config.model_path.clone(),
+            model_url: config.model_url.clone(),
+            model_checksum: config.model_checksum.clone(),
+        };
+
+        // Use CLI-aware model access
+        HeadAccess::get_model_source_with_cli(&cli_model_info)
     }
 
     fn process_single_image(

@@ -140,9 +140,16 @@ impl ModelProcessor for CutoutProcessor {
     type Config = CutoutConfig;
     type Result = CutoutResult;
 
-    fn get_model_source<'a>() -> Result<ModelSource<'a>> {
-        // Use the new model access interface for cutout models
-        CutAccess::get_model_source()
+    fn get_model_source<'a>(config: &Self::Config) -> Result<ModelSource<'a>> {
+        // Create CLI model info from config
+        let cli_model_info = crate::model_access::CliModelInfo {
+            model_path: config.model_path.clone(),
+            model_url: config.model_url.clone(),
+            model_checksum: config.model_checksum.clone(),
+        };
+
+        // Use CLI-aware model access
+        CutAccess::get_model_source_with_cli(&cli_model_info)
     }
 
     fn process_single_image(

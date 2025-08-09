@@ -53,7 +53,7 @@ pub trait ModelProcessor {
     type Result: ModelResult;
 
     /// Get the model source for loading the ONNX model
-    fn get_model_source<'a>() -> Result<ModelSource<'a>>;
+    fn get_model_source<'a>(config: &Self::Config) -> Result<ModelSource<'a>>;
 
     /// Process a single image through the complete pipeline
     fn process_single_image(
@@ -111,7 +111,7 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
     spinner.set_message(" Loading model...");
     spinner.enable_steady_tick(Duration::from_millis(100));
 
-    let model_source = P::get_model_source()?;
+    let model_source = P::get_model_source(&config)?;
 
     let session_config = SessionConfig {
         device: &device_selected,
