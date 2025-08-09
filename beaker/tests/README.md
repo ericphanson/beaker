@@ -30,7 +30,7 @@ Handles timing collection and reporting. Modify this to adjust performance thres
 #### `PARALLEL_STRESS_TEST_PLAN.md` - Stress Test Plan
 **Comprehensive plan for parallel process stress testing** focusing on:
 - ONNX and CoreML cache robustness under concurrent access
-- Network failure simulation and recovery testing  
+- Network failure simulation and recovery testing
 - Lock contention and race condition detection
 - Cache consistency validation across multiple processes
 
