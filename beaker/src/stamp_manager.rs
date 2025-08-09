@@ -13,21 +13,6 @@ use std::path::{Path, PathBuf};
 use crate::cache_common::{calculate_md5, get_cache_base_dir};
 use crate::config::{CutoutConfig, DetectionConfig};
 
-/// Configuration for stamp generation
-#[derive(Debug, Clone)]
-pub struct StampConfig {
-    /// Tool name (e.g., "head", "cutout")
-    pub tool_name: String,
-    /// Tool version
-    pub tool_version: String,
-    /// Configuration hash (from CLI parameters that affect output)
-    pub config_hash: String,
-    /// Model file hash (if applicable)
-    pub model_hash: Option<String>,
-    /// Model identifier (for deduplication)
-    pub model_id: Option<String>,
-}
-
 /// Generate a deterministic configuration hash for detection
 pub fn generate_detection_config_hash(config: &DetectionConfig) -> String {
     let mut hasher = Sha256::new();

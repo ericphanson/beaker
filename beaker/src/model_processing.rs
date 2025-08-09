@@ -160,7 +160,7 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
 
     // Generate stamps for Make-compatible incremental builds if depfile is requested
     let stamp_info = if config.base().depfile.is_some() {
-        let model_path = model_info.model_path.as_ref().map(|p| Path::new(p));
+        let model_path = model_info.model_path.as_ref().map(Path::new);
         Some(generate_stamps_for_tool::<P>(&config, model_path)?)
     } else {
         None
@@ -368,13 +368,7 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
 
     // Generate depfile if requested and stamps are available
     if let (Some(depfile_path), Some(stamp_info)) = (&config.base().depfile, stamp_info) {
-        generate_depfile_for_image::<P>(
-            result,
-            config,
-            image_path,
-            depfile_path,
-            stamp_info,
-        )?;
+        generate_depfile_for_image::<P>(result, config, image_path, depfile_path, stamp_info)?;
     }
 
     Ok(())
@@ -414,7 +408,9 @@ fn generate_depfile_for_image<P: ModelProcessor>(
     depfile_path: &str,
     stamp_info: &crate::stamp_manager::StampInfo,
 ) -> Result<()> {
-    use crate::depfile_generator::{generate_depfile, get_detection_output_files, get_cutout_output_files};
+    use crate::depfile_generator::{
+        generate_depfile, get_cutout_output_files, get_detection_output_files,
+    };
 
     // Determine output files based on tool type
     let outputs = match config.tool_name() {
@@ -452,12 +448,7 @@ fn generate_depfile_for_image<P: ModelProcessor>(
     let inputs = vec![image_path.to_path_buf()];
 
     // Generate the depfile
-    generate_depfile(
-        Path::new(depfile_path),
-        &outputs,
-        &inputs,
-        stamp_info,
-    )?;
+    generate_depfile(Path::new(depfile_path), &outputs, &inputs, stamp_info)?;
 
     Ok(())
 }

@@ -96,11 +96,6 @@ fn write_depfile_atomically(depfile_path: &Path, content: &String) -> Result<()>
     Ok(())
 }
 
-/// Check if a depfile should be generated based on configuration
-pub fn should_generate_depfile(depfile_option: &Option<String>) -> bool {
-    depfile_option.is_some()
-}
-
 /// Get the output files that will be created for detection
 pub fn get_detection_output_files(
     input_path: &Path,
@@ -286,11 +281,5 @@ mod tests {
 
         assert!(depfile_path.exists());
         assert_eq!(fs::read_to_string(&depfile_path).unwrap(), content);
-    }
-
-    #[test]
-    fn test_should_generate_depfile() {
-        assert!(should_generate_depfile(&Some("test.d".to_string())));
-        assert!(!should_generate_depfile(&None));
     }
 }
