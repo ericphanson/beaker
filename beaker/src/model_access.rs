@@ -877,9 +877,6 @@ pub fn get_model_source_with_cli_and_env_override<T: ModelAccess>(
     // First, validate CLI arguments
     cli_model_info.validate()?;
 
-    // Collect general ONNX cache system stats that are always available for "free"
-    let onnx_cache_info = get_onnx_cache_info();
-
     // Priority 1: CLI-provided model path
     if let Some(model_path) = &cli_model_info.model_path {
         log::info!("🔧 Using CLI-provided model path: {model_path}");
@@ -900,6 +897,7 @@ pub fn get_model_source_with_cli_and_env_override<T: ModelAccess>(
         test_model_basic_functionality(&path)?;
 
         // Custom paths don't use the download cache but get general cache system visibility
+        let onnx_cache_info = get_onnx_cache_info();
         let cache_stats = CacheStats {
             cache_hit: false,       // Not applicable for custom paths
             download_time_ms: None, // No download occurred
@@ -1024,6 +1022,7 @@ pub fn get_model_source_with_cli_and_env_override<T: ModelAccess>(
         test_model_basic_functionality(&path)?;
 
         // Custom paths don't use the download cache but get general cache system visibility
+        let onnx_cache_info = get_onnx_cache_info();
         let cache_stats = CacheStats {
             cache_hit: false,       // Not applicable for custom paths
             download_time_ms: None, // No download occurred
@@ -1042,9 +1041,10 @@ pub fn get_model_source_with_cli_and_env_override<T: ModelAccess>(
         log::debug!("📦 Using embedded model bytes");
 
         // Embedded models get general cache system visibility but no cache-specific metrics
+        let onnx_cache_info = get_onnx_cache_info();
         let cache_stats = CacheStats {
-            cache_hit: false, // Not applicable for embedded models
-            download_time_ms: None,
+            cache_hit: false,       // Not applicable for embedded models
+            download_time_ms: None, // No download occurred
             cached_models_count: Some(onnx_cache_info.count),
             cached_models_size_mb: Some(onnx_cache_info.size_mb()),
         };
@@ -1079,9 +1079,6 @@ pub fn get_model_source_with_cli_and_env_override<T: ModelAccess>(
 /// Returns both the model source and cache statistics.
 pub fn get_model_source_with_env_override_and_stats<T: ModelAccess>(
 ) -> Result<ModelSourceWithStats<'static>> {
-    // Collect general ONNX cache system stats that are always available
-    let onnx_cache_info = get_onnx_cache_info();
-
     // Check if user has specified a runtime model path via environment variable
     if let Ok(model_path) = std::env::var(T::get_env_var_name()) {
         log::debug!(
@@ -1100,10 +1097,11 @@ pub fn get_model_source_with_env_override_and_stats<T: ModelAccess>(
             ));
         }
 
-        // Return with general cache stats (no specific cache hit info for custom paths)
+        // Custom paths don't use the download cache but get general cache system visibility
+        let onnx_cache_info = get_onnx_cache_info();
         let cache_stats = CacheStats {
-            cache_hit: false, // Not applicable for custom paths
-            download_time_ms: None,
+            cache_hit: false,       // Not applicable for custom paths
+            download_time_ms: None, // No download occurred
             cached_models_count: Some(onnx_cache_info.count),
             cached_models_size_mb: Some(onnx_cache_info.size_mb()),
         };
@@ -1161,10 +1159,11 @@ pub fn get_model_source_with_env_override_and_stats<T: ModelAccess>(
     if let Some(embedded_bytes) = T::get_embedded_bytes() {
         log::debug!("📦 Using embedded model bytes");
 
-        // For embedded models, provide general cache system stats but no cache hit info
+        // Embedded models get general cache system visibility but no cache-specific metrics
+        let onnx_cache_info = get_onnx_cache_info();
         let cache_stats = CacheStats {
-            cache_hit: false, // Not applicable for embedded models
-            download_time_ms: None,
+            cache_hit: false,       // Not applicable for embedded models
+            download_time_ms: None, // No download occurred
             cached_models_count: Some(onnx_cache_info.count),
             cached_models_size_mb: Some(onnx_cache_info.size_mb()),
         };
