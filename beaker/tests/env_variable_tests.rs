@@ -139,7 +139,7 @@ fn test_metadata_captures_env_vars() {
     // Read and verify metadata contains environment variables
     let metadata_content = std::fs::read_to_string(&metadata_path).unwrap();
     assert!(
-        metadata_content.contains("[head.execution.beaker_env_vars]"),
+        metadata_content.contains("[detect.execution.beaker_env_vars]"),
         "Should contain environment variables section"
     );
     assert!(

@@ -14,7 +14,8 @@ use std::path::{Path, PathBuf};
 
 use crate::model_processing::ModelConfig;
 use crate::shared_metadata::{
-    get_metadata_path, load_or_create_metadata, save_metadata, CutoutSections, HeadSections,
+    get_metadata_path, load_or_create_metadata, save_metadata, CutoutSections, DetectSections,
+    HeadSections,
 };
 
 /// Unified output path management for all models
@@ -142,6 +143,7 @@ impl<'a> OutputManager<'a> {
     pub fn save_complete_metadata(
         &self,
         head_sections: Option<HeadSections>,
+        detect_sections: Option<DetectSections>,
         cutout_sections: Option<CutoutSections>,
     ) -> Result<()> {
         if self.config.base().skip_metadata {
@@ -156,6 +158,9 @@ impl<'a> OutputManager<'a> {
         // Update the sections that were provided
         if let Some(head) = head_sections {
             metadata.head = Some(head);
+        }
+        if let Some(detect) = detect_sections {
+            metadata.detect = Some(detect);
         }
         if let Some(cutout) = cutout_sections {
             metadata.cutout = Some(cutout);
@@ -188,8 +193,8 @@ pub fn make_path_relative_to_toml(file_path: &Path, toml_path: &Path) -> Result<
 mod tests {
     use super::*;
     use crate::config::{BaseModelConfig, DetectionConfig};
-    use tempfile::TempDir;
     use std::collections::HashSet;
+    use tempfile::TempDir;
 
     fn create_test_config(output_dir: Option<String>) -> DetectionConfig {
         DetectionConfig {

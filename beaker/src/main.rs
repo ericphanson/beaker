@@ -23,7 +23,7 @@ mod yolo_postprocessing;
 mod yolo_preprocessing;
 
 use color_utils::{colors, symbols};
-use config::{CutoutCommand, CutoutConfig, GlobalArgs, DetectCommand, DetectionConfig};
+use config::{CutoutCommand, CutoutConfig, DetectCommand, DetectionConfig, GlobalArgs};
 use cutout_processing::{get_default_cutout_model_info, run_cutout_processing};
 use detection::{run_detection, MODEL_VERSION};
 use progress::global_mp;
@@ -32,7 +32,7 @@ use std::io::Write;
 
 #[derive(clap::Subcommand)]
 pub enum Commands {
-    /// Detect and crop objects (bird, head, eyes, beak) in bird images  
+    /// Detect and crop objects (bird, head, eyes, beak) in bird images
     Detect(DetectCommand),
 
     /// Remove backgrounds from images
@@ -156,13 +156,14 @@ fn main() {
                 error!("No outputs requested! Pass at least one of `--metadata`, `--crop`, or `--bounding-box`.");
                 std::process::exit(1);
             } else {
-                let internal_config = match DetectionConfig::from_args(cli.global.clone(), detect_cmd.clone()) {
-                    Ok(config) => config,
-                    Err(e) => {
-                        error!("{} Configuration error: {e}", symbols::operation_failed());
-                        std::process::exit(1);
-                    }
-                };
+                let internal_config =
+                    match DetectionConfig::from_args(cli.global.clone(), detect_cmd.clone()) {
+                        Ok(config) => config,
+                        Err(e) => {
+                            error!("{} Configuration error: {e}", symbols::operation_failed());
+                            std::process::exit(1);
+                        }
+                    };
                 match run_detection(internal_config) {
                     Ok(_) => {}
                     Err(e) => {

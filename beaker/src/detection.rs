@@ -70,7 +70,7 @@ pub struct DetectionWithPath {
     pub crop_path: Option<String>,
 }
 
-/// Process multiple images sequentially  
+/// Process multiple images sequentially
 pub fn run_detection(config: DetectionConfig) -> Result<usize> {
     // Use the new generic processing framework
     crate::model_processing::run_model_processing::<DetectionProcessor>(config)
@@ -151,14 +151,15 @@ fn handle_image_outputs_with_timing(
     if !config.crop_classes.is_empty() && !detections.is_empty() {
         for (i, detection) in detections.iter().enumerate() {
             // Check if this detection's class should be cropped
-            let should_crop = config.crop_classes.iter().any(|class| {
-                class.to_string() == detection.class_name
-            });
-            
+            let should_crop = config
+                .crop_classes
+                .iter()
+                .any(|class| class.to_string() == detection.class_name);
+
             if !should_crop {
                 continue; // Skip this detection if its class is not in crop_classes
             }
-            
+
             let crop_filename = output_manager.generate_numbered_output(
                 "crop",
                 i + 1,

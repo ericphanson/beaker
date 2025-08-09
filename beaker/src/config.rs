@@ -30,7 +30,7 @@ impl DetectionClass {
             "head" => Ok(DetectionClass::Head),
             "eyes" => Ok(DetectionClass::Eyes),
             "beak" => Ok(DetectionClass::Beak),
-            _ => Err(format!("Unknown detection class: {}", s)),
+            _ => Err(format!("Unknown detection class: {s}")),
         }
     }
 
@@ -61,7 +61,7 @@ impl DetectionClass {
             1 => Ok(DetectionClass::Head),
             2 => Ok(DetectionClass::Eyes),
             3 => Ok(DetectionClass::Beak),
-            _ => Err(format!("Unknown class ID: {}", id)),
+            _ => Err(format!("Unknown class ID: {id}")),
         }
     }
 
@@ -364,8 +364,12 @@ mod tests {
         assert_eq!(config.base.sources, vec!["bird.jpg"]);
         assert_eq!(config.confidence, 0.8);
         assert_eq!(config.iou_threshold, 0.5);
-        assert!(config.crop_classes.contains(&crate::config::DetectionClass::Head));
-        assert!(config.crop_classes.contains(&crate::config::DetectionClass::Bird));
+        assert!(config
+            .crop_classes
+            .contains(&crate::config::DetectionClass::Head));
+        assert!(config
+            .crop_classes
+            .contains(&crate::config::DetectionClass::Bird));
         assert!(!config.bounding_box);
         assert!(config.base.strict); // permissive=false -> strict=true
     }

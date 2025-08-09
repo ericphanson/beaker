@@ -166,7 +166,7 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
         MetadataCheck::DeviceUsed(tool, expected_device) => {
             let system = match *tool {
                 "head" => metadata.head.as_ref().and_then(|h| h.system.as_ref()),
-                "detect" => metadata.head.as_ref().and_then(|h| h.system.as_ref()), // detect uses head metadata sections
+                "detect" => metadata.detect.as_ref().and_then(|d| d.system.as_ref()),
                 "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
                 _ => panic!("Unknown tool: {tool}"),
             };
@@ -187,6 +187,7 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
         MetadataCheck::ConfigValue(tool, field_path, expected_value) => {
             let config = match *tool {
                 "head" => metadata.head.as_ref().and_then(|h| h.config.as_ref()),
+                "detect" => metadata.detect.as_ref().and_then(|d| d.config.as_ref()),
                 "cutout" => metadata.cutout.as_ref().and_then(|c| c.config.as_ref()),
                 _ => panic!("Unknown tool: {tool}"),
             };
@@ -200,6 +201,7 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
             if *field_path == "device" {
                 let system = match *tool {
                     "head" => metadata.head.as_ref().and_then(|h| h.system.as_ref()),
+                    "detect" => metadata.detect.as_ref().and_then(|d| d.system.as_ref()),
                     "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
                     _ => panic!("Unknown tool: {tool}"),
                 };
@@ -263,6 +265,22 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
                         _ => panic!("Unknown timing field: {field}"),
                     }
                 }
+                "detect" => {
+                    let detect_sections = metadata.detect.as_ref().unwrap_or_else(|| {
+                        panic!("Detect sections should exist for test {test_name}")
+                    });
+                    match *field {
+                        "execution.model_processing_time_ms" => detect_sections
+                            .execution
+                            .as_ref()
+                            .and_then(|e| e.model_processing_time_ms),
+                        "system.model_load_time_ms" => detect_sections
+                            .system
+                            .as_ref()
+                            .and_then(|s| s.model_load_time_ms),
+                        _ => panic!("Unknown timing field: {field}"),
+                    }
+                }
                 "cutout" => {
                     let cutout_sections = metadata.cutout.as_ref().unwrap_or_else(|| {
                         panic!("Cutout sections should exist for test {test_name}")
@@ -299,6 +317,7 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
         MetadataCheck::ExecutionProvider(tool, expected_provider) => {
             let system = match *tool {
                 "head" => metadata.head.as_ref().and_then(|h| h.system.as_ref()),
+                "detect" => metadata.detect.as_ref().and_then(|d| d.system.as_ref()),
                 "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
                 _ => panic!("Unknown tool: {tool}"),
             };
@@ -321,6 +340,7 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
         MetadataCheck::ExitCode(tool, expected_code) => {
             let execution = match *tool {
                 "head" => metadata.head.as_ref().and_then(|h| h.execution.as_ref()),
+                "detect" => metadata.detect.as_ref().and_then(|d| d.execution.as_ref()),
                 "cutout" => metadata.cutout.as_ref().and_then(|c| c.execution.as_ref()),
                 _ => panic!("Unknown tool: {tool}"),
             };
@@ -339,6 +359,7 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
         MetadataCheck::BeakerVersion(tool) => {
             let execution = match *tool {
                 "head" => metadata.head.as_ref().and_then(|h| h.execution.as_ref()),
+                "detect" => metadata.detect.as_ref().and_then(|d| d.execution.as_ref()),
                 "cutout" => metadata.cutout.as_ref().and_then(|c| c.execution.as_ref()),
                 _ => panic!("Unknown tool: {tool}"),
             };
@@ -382,6 +403,7 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
         MetadataCheck::IoTimingExists(tool) => {
             let execution = match *tool {
                 "head" => metadata.head.as_ref().and_then(|h| h.execution.as_ref()),
+                "detect" => metadata.detect.as_ref().and_then(|d| d.execution.as_ref()),
                 "cutout" => metadata.cutout.as_ref().and_then(|c| c.execution.as_ref()),
                 _ => panic!("Unknown tool: {tool}"),
             };
@@ -411,6 +433,7 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
         MetadataCheck::EnvVarPresent(tool, env_var_name) => {
             let execution = match *tool {
                 "head" => metadata.head.as_ref().and_then(|h| h.execution.as_ref()),
+                "detect" => metadata.detect.as_ref().and_then(|d| d.execution.as_ref()),
                 "cutout" => metadata.cutout.as_ref().and_then(|c| c.execution.as_ref()),
                 _ => panic!("Unknown tool: {tool}"),
             };
@@ -436,6 +459,7 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
         MetadataCheck::EnvVarValue(tool, env_var_name, expected_value) => {
             let execution = match *tool {
                 "head" => metadata.head.as_ref().and_then(|h| h.execution.as_ref()),
+                "detect" => metadata.detect.as_ref().and_then(|d| d.execution.as_ref()),
                 "cutout" => metadata.cutout.as_ref().and_then(|c| c.execution.as_ref()),
                 _ => panic!("Unknown tool: {tool}"),
             };
@@ -551,11 +575,11 @@ where
 
     // Handle special cases
     let exit_code = if scenario.tool == "both" {
-        // Run head first
-        let head_exit = run_beaker_command(&[
-            "head",
+        // Run detect first
+        let detect_exit = run_beaker_command(&[
+            "detect",
             example_jpg.to_str().unwrap(),
-            "--crop",
+            "--crop=head",
             "--metadata",
             "--output-dir",
             temp_dir.path().to_str().unwrap(),
@@ -573,8 +597,8 @@ where
 
         // Both should succeed
         assert_eq!(
-            head_exit, 0,
-            "Head command should succeed in multi-tool test {}",
+            detect_exit, 0,
+            "Detect command should succeed in multi-tool test {}",
             scenario.name
         );
         assert_eq!(

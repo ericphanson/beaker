@@ -175,8 +175,8 @@ cp ../example.jpg .
 # Test help
 ./target/release/beaker --help
 
-# Test head detection
-./target/release/beaker head example.jpg --confidence 0.5 --device auto
+# Test detect command
+./target/release/beaker detect example.jpg --confidence 0.5 --device auto --metadata
 ```
 
 ## Coding Standards
@@ -230,7 +230,7 @@ Before committing, ensure all these pass:
 
 ### Manual Verification
 - [ ] CLI help works: `./target/release/beaker --help`
-- [ ] Basic functionality: `./target/release/beaker head example.jpg --confidence 0.5`
+- [ ] Basic functionality: `./target/release/beaker detect example.jpg --confidence 0.5 --metadata`
 - [ ] Line counts updated: `bash scripts/run_warloc.sh`
 - [ ] **Check git status**: Verify no unintended files are staged (test artifacts, temporary files, etc.)
 
@@ -272,7 +272,7 @@ cargo test --release
 
 # 5. Test CLI
 cp ../example.jpg .
-./target/release/beaker head example.jpg --confidence 0.5
+./target/release/beaker detect example.jpg --confidence 0.5 --metadata
 
 # 6. Update line counts (from repo root)
 cd ..

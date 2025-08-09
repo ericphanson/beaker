@@ -46,33 +46,50 @@ impl Detection {
     }
 }
 
-pub fn nms(mut detections: Vec<Detection>, iou_threshold: f32) -> Vec<Detection> {
+pub fn nms(detections: Vec<Detection>, iou_threshold: f32) -> Vec<Detection> {
     if detections.is_empty() {
         return detections;
     }
 
-    // Sort by confidence score in descending order
-    detections.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap());
-
-    let mut keep = Vec::new();
-    let mut suppressed = vec![false; detections.len()];
-
-    for i in 0..detections.len() {
-        if suppressed[i] {
-            continue;
-        }
-
-        keep.push(detections[i].clone());
-
-        // Suppress overlapping detections
-        for j in (i + 1)..detections.len() {
-            if !suppressed[j] && detections[i].iou(&detections[j]) > iou_threshold {
-                suppressed[j] = true;
-            }
-        }
+    // Group detections by class_id
+    use std::collections::HashMap;
+    let mut class_groups: HashMap<u32, Vec<Detection>> = HashMap::new();
+    for detection in detections {
+        class_groups
+            .entry(detection.class_id)
+            .or_default()
+            .push(detection);
     }
 
-    keep
+    let mut all_results = Vec::new();
+
+    // Apply NMS separately to each class
+    for (_, mut class_detections) in class_groups {
+        // Sort by confidence score in descending order
+        class_detections.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap());
+
+        let mut keep = Vec::new();
+        let mut suppressed = vec![false; class_detections.len()];
+
+        for i in 0..class_detections.len() {
+            if suppressed[i] {
+                continue;
+            }
+
+            keep.push(class_detections[i].clone());
+
+            // Suppress overlapping detections within the same class
+            for j in (i + 1)..class_detections.len() {
+                if !suppressed[j] && class_detections[i].iou(&class_detections[j]) > iou_threshold {
+                    suppressed[j] = true;
+                }
+            }
+        }
+
+        all_results.extend(keep);
+    }
+
+    all_results
 }
 
 pub fn postprocess_output(
@@ -103,7 +120,7 @@ pub fn postprocess_output(
         if is_legacy_head_model {
             // Legacy single-class head detection model (class 0 = head)
             let confidence = output[[0, 4, i]];
-            
+
             if confidence > confidence_threshold {
                 // Convert from center coordinates to corner coordinates
                 let x1 = x_center - width / 2.0;
@@ -130,7 +147,7 @@ pub fn postprocess_output(
             // Find the class with highest confidence
             let mut max_confidence = 0.0;
             let mut best_class_id = 0;
-            
+
             // Assume classes start at index 4
             let num_classes = shape[1] - 4; // Subtract 4 for bbox coordinates
             for class_idx in 0..num_classes {
@@ -140,7 +157,7 @@ pub fn postprocess_output(
                     best_class_id = class_idx as u32;
                 }
             }
-            
+
             if max_confidence > confidence_threshold {
                 // Convert from center coordinates to corner coordinates
                 let x1 = x_center - width / 2.0;
@@ -154,11 +171,12 @@ pub fn postprocess_output(
 
                 let class_name = match best_class_id {
                     0 => "bird",
-                    1 => "head", 
+                    1 => "head",
                     2 => "eyes",
                     3 => "beak",
                     _ => "unknown",
-                }.to_string();
+                }
+                .to_string();
 
                 detections.push(Detection {
                     x1: x1 * scale_x,

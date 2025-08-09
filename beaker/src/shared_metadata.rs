@@ -54,11 +54,13 @@ pub const RELEVANT_ENV_VARS: &[&str] = &[
     "RUST_LOG",
 ];
 
-/// Shared metadata structure that can contain both head and cutout results
+/// Shared metadata structure that can contain head, detect and cutout results
 #[derive(Serialize, Deserialize, Default, Debug)]
 pub struct BeakerMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub head: Option<HeadSections>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detect: Option<DetectSections>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cutout: Option<CutoutSections>,
 }
@@ -71,6 +73,24 @@ pub struct HeadSections {
     pub core: Option<toml::Value>,
 
     // New subsections
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config: Option<toml::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution: Option<ExecutionContext>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system: Option<SystemInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input: Option<InputProcessing>,
+}
+
+/// All sections for detect command tool
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct DetectSections {
+    // Core results (flattened detection results)
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub core: Option<toml::Value>,
+
+    // Subsections
     #[serde(skip_serializing_if = "Option::is_none")]
     pub config: Option<toml::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]

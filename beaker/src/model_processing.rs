@@ -306,7 +306,7 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
     start_timestamp: chrono::DateTime<chrono::Utc>,
 ) -> Result<()> {
     use crate::output_manager::OutputManager;
-    use crate::shared_metadata::{CutoutSections, ExecutionContext, HeadSections};
+    use crate::shared_metadata::{CutoutSections, DetectSections, ExecutionContext};
 
     let output_manager = OutputManager::new(config, image_path);
 
@@ -328,14 +328,14 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
     // Create the appropriate sections based on tool type
     match result.tool_name() {
         "detect" => {
-            let head_sections = HeadSections {
+            let detect_sections = DetectSections {
                 core: Some(core_results),
                 config: Some(config_value),
                 execution: Some(execution),
                 system: Some(system),
                 input: Some(input),
             };
-            output_manager.save_complete_metadata(Some(head_sections), None)?;
+            output_manager.save_complete_metadata(None, Some(detect_sections), None)?;
         }
         "cutout" => {
             let cutout_sections = CutoutSections {
@@ -346,7 +346,7 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
                 input: Some(input),
                 mask: result.get_mask_entry(),
             };
-            output_manager.save_complete_metadata(None, Some(cutout_sections))?;
+            output_manager.save_complete_metadata(None, None, Some(cutout_sections))?;
         }
         _ => {
             return Err(anyhow::anyhow!("Unknown tool name: {}", result.tool_name()));
