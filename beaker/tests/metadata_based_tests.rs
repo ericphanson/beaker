@@ -29,6 +29,11 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 MetadataCheck::BeakerVersion("detect"),
                 MetadataCheck::CoreResultsField("detect", "model_version"),
                 MetadataCheck::IoTimingExists("detect"),
+                // Cache statistics checks for embedded models
+                MetadataCheck::OnnxCacheStatsAbsent("detect"), // No cache stats for embedded models
+                MetadataCheck::DownloadCacheHitAbsent("detect"), // No cache hit/miss for embedded models
+                MetadataCheck::DownloadTimingAbsent("detect"), // No download timing for embedded models
+                MetadataCheck::CoremlCacheStatsAbsent("detect"), // No CoreML stats when using CPU
             ],
             env_vars: vec![],
         },
@@ -139,7 +144,7 @@ fn get_test_scenarios() -> Vec<TestScenario> {
         TestScenario {
             name: "cutout_basic_processing",
             tool: "cutout",
-            args: vec!["../example.jpg"],
+            args: vec!["../example.jpg", "--device", "cpu"],
             expected_files: vec!["example.beaker.toml", "example_cutout.png"],
             metadata_checks: vec![
                 MetadataCheck::ConfigValue("cutout", "alpha_matting", toml::Value::from(false)),
@@ -154,6 +159,10 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 MetadataCheck::ExitCode("cutout", 0),
                 MetadataCheck::CoreResultsField("cutout", "model_version"),
                 MetadataCheck::IoTimingExists("cutout"),
+                // Cache statistics checks for downloaded models
+                MetadataCheck::OnnxCacheStatsPresent("cutout"), // General cache stats should be present
+                MetadataCheck::DownloadCacheHitPresent("cutout"), // Cache hit/miss should be present for downloaded models
+                MetadataCheck::CoremlCacheStatsAbsent("cutout"),  // No CoreML stats when using CPU
             ],
             env_vars: vec![],
         },
