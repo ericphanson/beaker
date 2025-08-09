@@ -143,8 +143,8 @@ pub mod symbols {
             "  "
         }
     }
-    /// Symbol for starting a head detection operation
-    pub fn head_detection_start() -> &'static str {
+    /// Symbol for starting a detection operation
+    pub fn detection_start() -> &'static str {
         if colors_enabled() {
             "🔍"
         } else {

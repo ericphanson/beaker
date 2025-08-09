@@ -2,11 +2,11 @@
 
 [![Beaker CI](https://github.com/ericphanson/beaker/actions/workflows/beaker-ci.yml/badge.svg?branch=main)](https://github.com/ericphanson/beaker/actions/workflows/beaker-ci.yml)
 
-A tool to apply ML models to bird images. `beaker head` crops bird images to around their heads using a finetuned YOLOv8n model trained on the CUB-200-2011 dataset, and `beaker cutout` performs background removal using an off-the-shelf model.
+A tool to apply ML models to bird images. `beaker detect` detects and crops bird objects (bird, head, eyes, beak) using a finetuned YOLOv8n model trained on the CUB-200-2011 dataset, and `beaker cutout` performs background removal using an off-the-shelf model.
 
 ## 1. License & Usage
 
-This is for the model used by `beaker head`.
+This is for the model used by `beaker detect`.
 
 | Origin | Original terms | What that means for these weights |
 |--------|----------------|-----------------------------------|
@@ -34,11 +34,15 @@ to compile and install the binary. I don't have an apple developer account so I 
 beaker --help
 beaker version
 
-beaker head --crop example.jpg
-beaker head --bounding-box example.jpg
-beaker head --crop --device cpu example.jpg
-beaker head --crop *.jpg
-beaker head --crop my_folder
+beaker detect --crop=head example.jpg
+beaker detect --bounding-box example.jpg
+beaker detect --crop=head --device cpu example.jpg
+beaker detect --crop=head *.jpg
+beaker detect --crop=head my_folder
+
+# Multi-class detection and cropping
+beaker detect --crop=head,bird example.jpg
+beaker detect --crop=all example.jpg
 
 # Basic background removal
 beaker cutout image.jpg
@@ -57,7 +61,7 @@ For example, the example image
 can be processed with
 
 ```sh
-beaker head --crop example.jpg
+beaker detect --crop=head example.jpg
 ```
 
 yielding the output crop saved as `example_crop.jpg` (with 25% padding around the detected head)
@@ -66,11 +70,11 @@ yielding the output crop saved as `example_crop.jpg` (with 25% padding around th
 
 **Limitations:**
 - Works best on clear, well-lit images of single birds
-- False positives possible on non-bird objects. The `head` model has _only_ been finetuned on bird images.
+- False positives possible on non-bird objects. The detection model has _only_ been finetuned on bird images.
 
-## 3. Head Model Card
+## 3. Detection Model Card
 
-Here we describe the model used by `beaker head`, which has been finetuned to detect bird's heads. The model used by `beaker cutout` is `isnet-general-use` and has not been finetuned.
+Here we describe the model used by `beaker detect`, which has been finetuned to detect bird objects including heads. The model used by `beaker cutout` is `isnet-general-use` and has not been finetuned.
 
 - **Architecture:** YOLOv8n, ~3M parameters
 - **Finetuning dataset:** CUB-200-2011 bird parts (head regions only). ~6k train images, ~6k validation images

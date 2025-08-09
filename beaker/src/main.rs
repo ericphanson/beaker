@@ -145,7 +145,7 @@ fn main() {
 
             info!(
                 "{} Detection | conf: {} | IoU: {} | device: {}{}",
-                symbols::head_detection_start(),
+                symbols::detection_start(),
                 detect_cmd.confidence,
                 detect_cmd.iou_threshold,
                 cli.global.device,
@@ -227,7 +227,7 @@ fn main() {
         Some(Commands::Version) => {
             // Print version information
             println!("beaker v{}", env!("CARGO_PKG_VERSION"));
-            println!("Head model version: {}", MODEL_VERSION.trim());
+            println!("Detection model version: {}", MODEL_VERSION.trim());
             println!(
                 "Cutout model version: {}",
                 get_default_cutout_model_info().name.trim()
