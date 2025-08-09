@@ -7,7 +7,7 @@ This document outlines a comprehensive testing framework for validating the robu
 ## Background
 
 Beaker uses two primary caching mechanisms:
-1. **ONNX Model Cache**: Downloads and caches ONNX models with MD5 verification and lock-file based concurrency protection
+1. **ONNX Model Cache**: Downloads and caches ONNX models with SHA-256 verification and lock-file based concurrency protection
 2. **CoreML Cache**: On Apple Silicon, ONNX Runtime compiles ONNX models to CoreML format and caches the result
 
 Both caches must handle concurrent access gracefully without corruption, race conditions, or deadlocks.
@@ -26,23 +26,25 @@ Both caches must handle concurrent access gracefully without corruption, race co
 
 #### HTTP Mocking Options Evaluated
 
-**httpmock = "0.7.0"** (RECOMMENDED)
+**httpmock = "0.7.0"** (PRIMARY)
 - ✅ Simpler API focused on HTTP mocking
 - ✅ No async complexity - works with beaker's blocking model
 - ✅ MIT/Apache-2.0 license
-- ✅ Good for simulating network failures and responses
+- ✅ Good for simulating HTTP-level failures and responses
 - ✅ Thread-safe for concurrent test execution
 - ✅ Lighter weight than wiremock
+
+**Small hyper helper** (COMPLEMENTARY)
+- ✅ Enables true TCP-level failures that httpmock cannot simulate
+- ✅ Mid-stream socket abort and connection refused scenarios
+- ✅ ~40-60 LOC, stays within cargo test framework
+- ✅ No docker, no external dependencies
+- ✅ Covers highest-value network fault types
 
 **wiremock = "0.6.4"** (Alternative)
 - ⚠️ Adds async complexity with tokio dependency
 - ⚠️ More heavyweight for simple HTTP mocking needs
 - ✅ More features but potentially overkill
-
-**Custom HTTP Server**
-- ❌ Significant development overhead
-- ❌ Need to implement failure injection from scratch
-- ❌ Testing the test framework instead of the application
 
 #### Stress Testing Utilities
 
@@ -61,103 +63,177 @@ Both caches must handle concurrent access gracefully without corruption, race co
 
 ### 2. Mock HTTP Server with Failure Injection
 
-**Selected Crate**: `httpmock = "0.7.0"`
+**Primary Tool**: `httpmock = "0.7.0"` for HTTP-level failures
+**Supplementary Tool**: Small `hyper` helper for TCP-level failures
 
-**Failure Injection Capabilities**:
-- **Connection Failures**: Simulate network connectivity issues (immediate)
-- **Partial Downloads**: Return incomplete responses at specific byte counts
-- **Corrupted Data**: Serve models with incorrect checksums (deterministic corruption)
+**HTTP-Level Failure Injection** (via httpmock):
 - **HTTP Errors**: Return 4xx/5xx status codes at predetermined points
+- **Corrupted Data**: Serve models with incorrect SHA-256 checksums (deterministic corruption)
+- **Invalid Headers**: Malformed content-length or missing headers
 - **Deterministic Patterns**: Predefined failure sequences for reproducible testing
 
-### 3. Test Setup and Model Preparation
+**TCP-Level Failure Injection** (via hyper helper):
+- **Connection Refused**: No server listening on port (not achievable via HTTP status)
+- **Mid-Stream Abort**: Write headers + N bytes, then close socket abruptly
+- **Header-then-Stall**: Write headers, then close immediately without body
+- **Immediate Close**: Accept connection, then close without any response
 
-**Pre-test Model Acquisition**:
+**Small Hyper Helper Implementation** (~50 LOC):
 ```rust
-// Download real models once during test setup to a reliable cache
-// This ensures we have good copies to serve from our mock server
-fn setup_test_models(test_cache: &Path) -> TestModelStore {
-    // Download current production models to test_cache/reliable/
-    // - cutout model (larger, good for network stress)
-    // - alternative head model from issue #22
-    // - validate checksums and store metadata
+// tests/stress/tcp_fault_server.rs
+use hyper::service::{make_service_fn, service_fn};
+use hyper::{Body, Request, Response, Server};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+pub enum TcpFaultType {
+    Success(Vec<u8>),           // Normal response
+    MidStreamAbort(usize),      // Close after N bytes
+    HeaderThenClose,            // Headers only, then close
+    ImmediateClose,             // Accept then close
+}
+
+pub struct TcpFaultServer {
+    fault_sequence: Vec<TcpFaultType>,
+    request_counter: AtomicUsize,
+}
+
+impl TcpFaultServer {
+    pub fn start(faults: Vec<TcpFaultType>) -> (String, tokio::task::JoinHandle<()>) {
+        // Start server on random port, return URL and handle
+        // Implement fault injection based on request counter
+    }
 }
 ```
 
-**Mock Server Initialization**:
+### 3. Test Fixtures and Model Preparation
+
+**Embedded Test Fixtures** (replaces real model downloads):
 ```rust
-fn start_mock_server(models: &TestModelStore) -> MockServer {
-    // Start httpmock server on random port
-    // Configure routes to serve test models with controllable failures
-    // Return server handle with failure injection controls
+// tests/fixtures/models.rs
+pub struct TestFixtures {
+    pub small_model_bytes: &'static [u8],
+    pub small_model_sha256: &'static str,
+    pub corrupted_model_bytes: &'static [u8],  // First byte flipped
+    pub large_model_bytes: &'static [u8],      // For partial download tests
+    pub large_model_sha256: &'static str,
+}
+
+impl TestFixtures {
+    pub const fn new() -> Self {
+        Self {
+            // Small deterministic model for basic tests (~200-500 KB)
+            small_model_bytes: include_bytes!("small_test_model.onnx"),
+            small_model_sha256: "a1b2c3d4e5f6...", // Precomputed SHA-256
+            
+            // Corrupted variant (first byte flipped)
+            corrupted_model_bytes: {
+                let mut data = *include_bytes!("small_test_model.onnx");
+                data[0] = !data[0];  // Flip first bit
+                &data
+            },
+            
+            // Larger model for partial download stress (~1-2 MB)
+            large_model_bytes: include_bytes!("large_test_model.onnx"),
+            large_model_sha256: "f6e5d4c3b2a1...", // Precomputed SHA-256
+        }
+    }
+}
+
+// Generate fixtures if they don't exist
+fn generate_test_fixtures() -> TestFixtures {
+    // Create minimal valid ONNX files or use deterministic byte patterns
+    // Include correct SHA-256 checksums
+    // Store in tests/fixtures/ directory
 }
 ```
+
+**Fixture Generation Strategy**:
+- Use `include_bytes!()` for zero runtime overhead
+- Generate minimal valid ONNX files if needed (or deterministic byte patterns)
+- Precompute SHA-256 checksums for integrity testing
+- Multiple sizes: small (~200KB), large (~1-2MB) for different test scenarios
+- Embedded corrupted variants for checksum mismatch testing
 
 ### 4. Concurrency Test Scenarios
 
-#### Scenario 1: Concurrent Same-Model Downloads
-**Purpose**: Test ONNX cache lock contention
+#### Scenario 1: Concurrent Same-Model Downloads (Shared Cache)
+**Purpose**: Test ONNX cache lock contention with real race conditions
 ```rust
 fn test_concurrent_same_model_download() {
     // Launch 10 beaker processes simultaneously requesting same model
+    // ALL processes use SHARED cache directory - this is critical for lock contention
     // Verify only one downloads, others wait for completion
     // Ensure all processes end up with valid cached model
     // Check lock file cleanup
 }
 ```
 
-#### Scenario 2: Concurrent Different-Model Downloads
-**Purpose**: Test cache isolation and parallel downloads
+#### Scenario 2: Concurrent Different-Model Downloads (Shared Cache)
+**Purpose**: Test cache isolation and parallel downloads without interference
 ```rust
 fn test_concurrent_different_model_downloads() {
     // Launch processes requesting different models simultaneously
+    // ALL processes use SHARED cache directory for isolation testing
     // Verify parallel downloads work without interference
-    // Check each model caches correctly with proper checksums
+    // Check each model caches correctly with proper SHA-256 checksums
 }
 ```
 
-#### Scenario 3: Network Failure During Download
-**Purpose**: Test failure recovery and cache consistency
+#### Scenario 3: Network Failure During Download (Shared Cache)
+**Purpose**: Test failure recovery and cache consistency under contention
 ```rust
 fn test_network_failure_recovery() {
-    // Start downloads, inject failures partway through
+    // Start downloads, inject TCP-level failures partway through
+    // ALL processes use SHARED cache directory
     // Verify partial downloads are cleaned up
-    // Ensure retry logic works correctly
-    // Check lock files don't become stale
+    // Ensure retry logic works correctly with lock contention
+    // Check lock files don't become stale across processes
 }
 ```
 
-#### Scenario 4: Corrupted Download Handling
-**Purpose**: Test checksum validation under concurrent access
+#### Scenario 4: Corrupted Download Handling (Shared Cache)
+**Purpose**: Test SHA-256 validation under concurrent access
 ```rust
 fn test_corrupted_download_handling() {
-    // Serve model with wrong checksum to some processes
-    // Verify corrupted downloads are rejected
+    // Serve model with wrong SHA-256 checksum to some processes
+    // ALL processes use SHARED cache directory
+    // Verify corrupted downloads are rejected and purged
     // Ensure cache doesn't get poisoned
     // Check concurrent processes handle failures independently
 }
 ```
 
-#### Scenario 5: Cache Directory Stress
-**Purpose**: Test filesystem operations under concurrency
+#### Scenario 5: Cache Directory Stress (Shared Cache)
+**Purpose**: Test filesystem operations under heavy concurrency
 ```rust
 fn test_cache_directory_stress() {
-    // Multiple processes creating cache directories
-    // Concurrent file creation and deletion
+    // Multiple processes creating/accessing shared cache directory
+    // Concurrent file creation, locking, and cleanup
     // Test permission and ownership handling
-    // Verify cache cleanup operations
+    // Verify cache cleanup operations under load
 }
 ```
 
-#### Scenario 6: CoreML Cache Concurrency (macOS only)
+#### Scenario 6: Different-Model Isolation (Per-Process Cache)
+**Purpose**: Test cache isolation when processes use separate cache directories
+```rust
+fn test_different_model_isolation() {
+    // Each process uses its own cache directory
+    // Verify no interference between isolated caches
+    // Test for proper cache directory creation and management
+}
+```
+
+#### Scenario 7: CoreML Cache Concurrency (macOS only, Shared Cache)
 **Purpose**: Test CoreML compilation cache under load
 ```rust
 #[cfg(target_os = "macos")]
 fn test_coreml_cache_concurrency() {
     // Multiple processes compiling same ONNX model to CoreML
-    // Verify CoreML cache directory isolation
+    // ALL processes use SHARED CoreML cache directory
+    // Verify CoreML cache directory locking and compilation isolation
     // Check concurrent compilation handling
-    // Note: Limited by ONNX Runtime API capabilities
 }
 ```
 
@@ -173,10 +249,11 @@ struct FailureController {
 #[derive(Clone)]
 enum FailureEvent {
     Success,
-    ConnectionRefused,
-    PartialResponse(usize), // Fail after N bytes
-    CorruptedChecksum,
-    Http500Error,
+    HttpError(u16),              // HTTP status codes via httpmock
+    CorruptedChecksum,           // Wrong SHA-256 via httpmock
+    TcpConnectionRefused,        // Via hyper helper: no server on port
+    TcpMidStreamAbort(usize),    // Via hyper helper: close after N bytes
+    TcpHeaderThenClose,          // Via hyper helper: headers only
 }
 
 impl FailureController {
@@ -186,7 +263,7 @@ impl FailureController {
             current_request: AtomicUsize::new(0),
         }
     }
-    
+
     fn next_response(&self) -> FailureEvent {
         let index = self.current_request.fetch_add(1, Ordering::SeqCst);
         self.failure_sequence[index % self.failure_sequence.len()].clone()
@@ -195,12 +272,84 @@ impl FailureController {
 ```
 
 **Predefined Failure Patterns**:
-- **Progressive Degradation**: `[Success, Success, PartialResponse(1024), Success, ConnectionRefused]`
-- **Checksum Corruption**: `[Success, CorruptedChecksum, Success, Success]`
-- **Server Instability**: `[Http500Error, Http500Error, Success, Success]`
-- **Partial Download Recovery**: `[PartialResponse(512), PartialResponse(1024), Success]`
+- **TCP-Level Issues**: `[Success, TcpConnectionRefused, Success, TcpMidStreamAbort(1024)]`
+- **HTTP-Level Issues**: `[Success, HttpError(500), CorruptedChecksum, Success]`
+- **Mixed Failure Recovery**: `[TcpMidStreamAbort(512), HttpError(503), Success, Success]`
+- **Checksum Corruption**: `[Success, CorruptedChecksum, Success, CorruptedChecksum]`
 
-### 6. Process Management and Orchestration
+**Routing Between Mock Systems**:
+```rust
+fn configure_failure_injection(pattern: &[FailureEvent]) -> (MockServer, Option<TcpFaultServer>) {
+    let mock_server = MockServer::start();
+    let tcp_server = if pattern.iter().any(|e| matches!(e, FailureEvent::Tcp*)) {
+        Some(TcpFaultServer::start(tcp_faults))
+    } else {
+        None
+    };
+    
+    // Route HTTP-level failures to httpmock
+    // Route TCP-level failures to hyper helper
+    (mock_server, tcp_server)
+}
+```
+
+### 6. Failpoints for Filesystem Race Conditions
+
+**Failpoint Integration** (using `fail` crate in tests only):
+```rust
+// Critical points where corruption can occur during multi-process access
+pub enum CacheFailpoint {
+    AfterLockBeforeWrite,     // Process crash after acquiring lock
+    AfterWriteBeforeRename,   // Process crash after write, before atomic rename
+    AfterHashBeforeUnlock,    // Process crash after verification, before unlock
+    DuringLockFileCleanup,    // Process crash during stale lock cleanup
+}
+
+fn inject_failpoint(point: CacheFailpoint, process_id: usize) {
+    #[cfg(test)]
+    {
+        use fail::fail_point;
+        let point_name = format!("cache_{}_{}", point.as_str(), process_id);
+        fail_point!(&point_name);
+    }
+}
+```
+
+**Crash Recovery Test**:
+```rust
+fn test_crash_during_write_before_rename() {
+    // Set up shared cache directory
+    let shared_cache = TempDir::new().unwrap();
+    
+    // Configure failpoint for one process
+    #[cfg(test)]
+    fail::cfg("cache_after_write_before_rename_0", "panic").unwrap();
+    
+    // Start multiple processes downloading same model
+    // Process 0 will crash after write but before atomic rename
+    // Other processes should detect stale lock and recover
+    
+    // Validation:
+    // - No orphaned .tmp files remain
+    // - Exactly one valid final artifact exists
+    // - All successful processes have consistent cache state
+    // - Stale lock is cleaned up properly
+}
+```
+
+**Cross-Process Lock Testing** (using `fd-lock` for validation):
+```rust
+fn test_cross_process_lock_semantics() {
+    // Validate that file locks work correctly across processes
+    // Test stale lock detection and cleanup
+    // Verify lock acquisition/release patterns
+    use fd_lock::RwLock;
+    
+    // Test that beaker's locking matches expected cross-process semantics
+}
+```
+
+### 7. Process Management and Orchestration
 
 **Event-Based Process Coordination**:
 ```rust
@@ -224,50 +373,70 @@ impl StressTestOrchestrator {
     fn run_stress_test(&self, scenario: TestScenario) -> StressTestResults {
         let start_barrier = Arc::new(Barrier::new(self.max_concurrent_processes + 1));
         let (result_tx, result_rx): (Sender<ProcessResult>, Receiver<ProcessResult>) = channel();
-        
+
         // Launch processes with deterministic failure patterns
         let handles: Vec<_> = (0..self.max_concurrent_processes).map(|i| {
             let barrier = Arc::clone(&start_barrier);
             let tx = result_tx.clone();
             let failure_pattern = self.failure_patterns[i % self.failure_patterns.len()].clone();
-            
+
             std::thread::spawn(move || {
                 // Wait for all processes to be ready
                 barrier.wait();
-                
+
                 // Execute beaker with deterministic environment
                 let result = execute_beaker_process(i, &failure_pattern);
                 tx.send(result).unwrap();
             })
         }).collect();
-        
+
         // Start all processes simultaneously
         start_barrier.wait();
-        
+
         // Collect results as they complete (no timeouts)
         let mut results = Vec::new();
         for _ in 0..self.max_concurrent_processes {
             results.push(result_rx.recv().unwrap());
         }
-        
+
         // Wait for all threads to complete
         for handle in handles {
             handle.join().unwrap();
         }
-        
+
         StressTestResults::new(results)
     }
 }
 ```
 
-**Process Isolation**:
-- Each process gets its own temporary cache directory
-- Environment variables control model URLs to point to mock server with specific failure pattern
+**Process Configuration**:
+- **Shared Cache Testing**: Most scenarios use a single shared cache directory to test real lock contention and race conditions
+- **Isolated Cache Testing**: Only specific isolation tests use per-process cache directories
+- Environment variables control model URLs to point to appropriate mock servers (httpmock or hyper helper)
 - Separate output directories to avoid conflicts
 - Independent metadata file generation
 - No timing dependencies - processes coordinate through barriers and channels
 
-### 7. Validation and Metrics Collection
+**Cache Directory Strategy**:
+```rust
+enum CacheStrategy {
+    Shared(PathBuf),           // All processes use same cache dir (for contention testing)
+    PerProcess(Vec<PathBuf>),  // Each process gets own cache dir (for isolation testing)
+}
+
+fn configure_cache_strategy(scenario: TestScenario) -> CacheStrategy {
+    match scenario {
+        TestScenario::SameModelContention => CacheStrategy::Shared(shared_cache_dir()),
+        TestScenario::NetworkFailureRecovery => CacheStrategy::Shared(shared_cache_dir()),
+        TestScenario::CorruptionHandling => CacheStrategy::Shared(shared_cache_dir()),
+        TestScenario::CacheDirectoryStress => CacheStrategy::Shared(shared_cache_dir()),
+        TestScenario::CoreMLConcurrency => CacheStrategy::Shared(shared_cache_dir()),
+        TestScenario::DifferentModelIsolation => CacheStrategy::PerProcess(per_process_dirs()),
+    }
+}
+```
+
+### 8. Validation and Metrics Collection
 
 **Cache State Validation**:
 ```rust
@@ -276,7 +445,7 @@ struct CacheValidator;
 impl CacheValidator {
     fn validate_cache_consistency(&self, cache_dir: &Path) -> ValidationResult {
         // Check no partial/corrupted files remain
-        // Verify all cached models have correct checksums
+        // Verify all cached models have correct SHA-256 checksums
         // Ensure proper file permissions and ownership
         // Check cache directory structure integrity
         ValidationResult::from_invariants(&[
@@ -287,39 +456,58 @@ impl CacheValidator {
         ])
     }
 
-    fn validate_concurrent_safety(&self, cache_dirs: &[Path]) -> ValidationResult {
-        // Compare cache states across process directories
-        // Verify identical models have identical cache entries
+    fn validate_concurrent_safety(&self, cache_dir: &Path) -> ValidationResult {
+        // Validate shared cache state across all processes
         // Check for race condition artifacts
         // Validate lock file cleanup
         ValidationResult::from_invariants(&[
-            self.identical_models_have_same_cache(cache_dirs),
-            self.no_race_condition_artifacts(cache_dirs),
-            self.all_lock_files_cleaned_up(cache_dirs),
+            self.exactly_one_final_artifact_per_model(cache_dir),
+            self.no_race_condition_artifacts(cache_dir),
+            self.all_lock_files_cleaned_up(cache_dir),
+            self.readers_never_see_partial_content(cache_dir),
         ])
     }
-    
-    // Eventual invariants - these must eventually be true
+
+    // Specific invariants that must hold eventually
+    fn exactly_one_final_artifact_per_model(&self, cache_dir: &Path) -> bool {
+        // For each model URL/checksum combination, exactly one final file exists
+        // No duplicate or competing versions
+        let model_files: HashMap<String, Vec<PathBuf>> = self.group_by_model_identity(cache_dir);
+        model_files.values().all(|files| files.len() == 1)
+    }
+
     fn no_partial_files_remain(&self, cache_dir: &Path) -> bool {
         !cache_dir.read_dir().unwrap()
-            .any(|entry| entry.unwrap().file_name().to_string_lossy().contains(".tmp"))
+            .any(|entry| {
+                let name = entry.unwrap().file_name().to_string_lossy();
+                name.contains(".tmp") || name.contains(".partial") || name.contains(".downloading")
+            })
     }
-    
-    fn all_lock_files_cleaned_up(&self, cache_dirs: &[Path]) -> bool {
-        cache_dirs.iter().all(|dir| {
-            !dir.read_dir().unwrap()
-                .any(|entry| entry.unwrap().file_name().to_string_lossy().ends_with(".lock"))
-        })
+
+    fn all_lock_files_cleaned_up(&self, cache_dir: &Path) -> bool {
+        !cache_dir.read_dir().unwrap()
+            .any(|entry| entry.unwrap().file_name().to_string_lossy().ends_with(".lock"))
+    }
+
+    fn readers_never_see_partial_content(&self, cache_dir: &Path) -> bool {
+        // All readable files must have valid SHA-256 checksums
+        // No process should ever read a half-written file
+        cache_dir.read_dir().unwrap()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.file_type().unwrap().is_file())
+            .filter(|entry| !entry.file_name().to_string_lossy().ends_with(".lock"))
+            .all(|entry| self.file_has_valid_checksum(&entry.path()))
     }
 }
 ```
 
 **Logical Metrics Collection**:
-- Process completion states (success/failure with specific error types)
-- Cache consistency invariants (eventual properties that must hold)
-- Lock file lifecycle completeness (acquire -> release pattern validation)
-- Model integrity verification (checksum consistency across processes)
-- Error recovery patterns (how failures propagate and resolve)
+- **Process Completion Patterns**: Success/failure counts with specific error types mapped to expected failure patterns
+- **Cache Consistency Invariants**: Eventual properties validated after all processes complete
+- **Lock File Lifecycle Tracking**: Acquire → release patterns with proper cleanup validation
+- **Model Integrity Verification**: SHA-256 consistency across all successful processes
+- **Error Recovery Analysis**: How deterministic failures propagate and resolve
+- **Atomic Operation Validation**: Write → fsync → rename completeness under failpoint testing
 
 **Metadata Analysis**:
 - Leverage issue #35 cache metadata when available
@@ -327,40 +515,40 @@ impl CacheValidator {
 - Monitor cache hit/miss patterns
 - Analyze failure recovery timing
 
-### 8. Test Implementation Strategy
+### 9. Test Implementation Strategy
 
 #### Phase 1: Foundation Infrastructure
-1. Add httpmock dependency to `[dev-dependencies]`
-2. Create `tests/stress/` module structure
-3. Implement basic mock server with model serving
-4. Build process orchestration framework
-5. Add cache validation utilities
+1. Add httpmock and minimal hyper helper dependencies to `[dev-dependencies]`
+2. Create `tests/stress/` module structure with embedded fixtures
+3. Implement basic mock servers (httpmock + small hyper helper) with model serving
+4. Build process orchestration framework with shared cache support
+5. Add cache validation utilities with specific invariants
 
-#### Phase 2: Basic Concurrency Tests
-1. Implement concurrent same-model download test
-2. Add concurrent different-model download test
-3. Create cache validation for these scenarios
-4. Ensure tests run reliably in CI environment
+#### Phase 2: Basic Concurrency Tests with Shared Cache
+1. Implement concurrent same-model download test (shared cache directory)
+2. Add concurrent different-model download test (shared cache directory)
+3. Create cache validation for these scenarios with new invariants
+4. Ensure tests run reliably in CI environment under 30 seconds
 
-#### Phase 3: Failure Injection
-1. Add network failure simulation capabilities
-2. Implement corrupted download testing
-3. Create progressive failure rate testing
-4. Add timeout and slow network simulation
+#### Phase 3: TCP-Level Failure Injection
+1. Add small hyper helper for connection refused and mid-stream abort
+2. Implement corrupted download testing with SHA-256 validation
+3. Create mixed HTTP/TCP failure pattern testing
+4. Add failpoints around write → fsync → rename operations
 
-#### Phase 4: Advanced Scenarios
-1. Cache directory stress testing
-2. CoreML cache testing (macOS)
-3. Long-running stability tests
-4. Resource exhaustion scenarios
+#### Phase 4: Advanced Scenarios and Crash Recovery
+1. Cache directory stress testing with shared cache
+2. Failpoint-driven crash recovery testing
+3. CoreML cache testing with shared cache (macOS)
+4. Cross-process lock validation using fd-lock
 
 #### Phase 5: Integration and CI
 1. Integrate with existing test framework
-2. Add CI job for stress testing
-3. Performance regression detection
+2. Add CI job for stress testing (sub-5-minute target)
+3. Performance regression detection via logical invariants
 4. Documentation and maintenance guides
 
-### 9. Implementation Example
+### 10. Implementation Example
 
 Here's a concrete example of how the stress test framework would look:
 
@@ -376,58 +564,60 @@ use tempfile::TempDir;
 
 #[test]
 fn test_concurrent_model_download_stress() {
-    // Setup: Download real model for serving
-    let test_models = setup_test_models();
+    // Setup: Use embedded test fixtures instead of downloading
+    let test_fixtures = TestFixtures::new();
 
-    // Create deterministic failure pattern
+    // Create deterministic failure pattern with TCP and HTTP failures
     let failure_pattern = vec![
-        FailureEvent::Success,           // Process 0: succeeds
-        FailureEvent::ConnectionRefused, // Process 1: fails initially
-        FailureEvent::PartialResponse(1024), // Process 2: partial download
-        FailureEvent::Success,           // Process 3: succeeds
-        FailureEvent::CorruptedChecksum, // Process 4: gets corrupted data
+        FailureEvent::Success,                      // Process 0: succeeds
+        FailureEvent::TcpConnectionRefused,         // Process 1: TCP-level failure
+        FailureEvent::TcpMidStreamAbort(1024),      // Process 2: partial TCP download
+        FailureEvent::Success,                      // Process 3: succeeds
+        FailureEvent::CorruptedChecksum,            // Process 4: gets corrupted data
     ];
 
-    // Start mock server with deterministic responses
+    // Start mock servers with deterministic responses
     let mock_server = MockServer::start();
+    let tcp_fault_server = TcpFaultServer::start(extract_tcp_faults(&failure_pattern));
     let failure_controller = Arc::new(FailureController::new(failure_pattern));
 
     // Configure mock responses - no delays, immediate responses
     let failure_controller_clone = Arc::clone(&failure_controller);
     Mock::new()
-        .expect_request(When::path("/cutout-model.onnx"))
+        .expect_request(When::path("/small-test-model.onnx"))
         .return_response_with(move |_| {
             match failure_controller_clone.next_response() {
                 FailureEvent::Success => {
                     Then::new()
                         .status(200)
-                        .body(test_models.cutout_model_bytes.clone())
+                        .body(test_fixtures.small_model_bytes.to_vec())
                 }
-                FailureEvent::ConnectionRefused => {
-                    Then::new().status(0) // Connection refused
-                }
-                FailureEvent::PartialResponse(bytes) => {
-                    Then::new()
-                        .status(200)
-                        .body(test_models.cutout_model_bytes[..bytes].to_vec())
+                FailureEvent::HttpError(code) => {
+                    Then::new().status(code)
                 }
                 FailureEvent::CorruptedChecksum => {
-                    let mut corrupted = test_models.cutout_model_bytes.clone();
-                    corrupted[0] = !corrupted[0]; // Flip first byte
                     Then::new()
                         .status(200)
-                        .body(corrupted)
+                        .body(test_fixtures.corrupted_model_bytes.to_vec())
                 }
-                FailureEvent::Http500Error => {
-                    Then::new().status(500)
+                // TCP-level failures handled by hyper helper, not httpmock
+                FailureEvent::TcpConnectionRefused | 
+                FailureEvent::TcpMidStreamAbort(_) | 
+                FailureEvent::TcpHeaderThenClose => {
+                    // Redirect to TCP fault server
+                    Then::new()
+                        .status(302)
+                        .header("Location", &tcp_fault_server.url())
                 }
             }
         })
         .create_on(&mock_server);
 
-    // Environment setup for beaker processes
-    let temp_cache = TempDir::new().unwrap();
-    let mock_url = format!("{}/cutout-model.onnx", mock_server.base_url());
+    // Environment setup for beaker processes - SHARED cache directory
+    let temp_base = TempDir::new().unwrap();
+    let shared_cache = temp_base.path().join("shared_cache");  // All processes use this
+    std::fs::create_dir_all(&shared_cache).unwrap();
+    let mock_url = format!("{}/small-test-model.onnx", mock_server.base_url());
 
     // Synchronization for simultaneous start
     let process_count = 5;
@@ -437,8 +627,8 @@ fn test_concurrent_model_download_stress() {
     // Launch concurrent beaker processes
     let handles: Vec<_> = (0..process_count).map(|i| {
         let barrier = Arc::clone(&start_barrier);
-        let cache_dir = temp_cache.path().join(format!("cache_{}", i));
-        let output_dir = temp_cache.path().join(format!("output_{}", i));
+        let shared_cache = shared_cache.clone();  // ALL processes use shared cache
+        let output_dir = temp_base.path().join(format!("output_{}", i));
         let mock_url = mock_url.clone();
         let tx = result_tx.clone();
 
@@ -455,7 +645,7 @@ fn test_concurrent_model_download_stress() {
                     "--output-dir", output_dir.to_str().unwrap()
                 ])
                 .env("CUTOUT_MODEL_URL", mock_url)
-                .env("ONNX_MODEL_CACHE_DIR", cache_dir.to_str().unwrap())
+                .env("ONNX_MODEL_CACHE_DIR", shared_cache.to_str().unwrap())  // SHARED
                 .output()
                 .unwrap();
 
@@ -465,7 +655,7 @@ fn test_concurrent_model_download_stress() {
             tx.send(ProcessResult {
                 process_id: i,
                 exit_code,
-                cache_dir: cache_dir.clone(),
+                shared_cache_dir: shared_cache,  // Reference to shared cache
                 output_dir: output_dir.clone(),
                 error_output: stderr,
             }).unwrap();
@@ -487,67 +677,68 @@ fn test_concurrent_model_download_stress() {
     }
 
     // Validation: Eventual invariants that must hold
-    
+
     // At least some processes should succeed despite deterministic failures
     let success_count = results.iter()
         .filter(|r| r.exit_code == 0)
         .count();
     assert!(success_count >= 2, "Expected at least 2 successes, got {}", success_count);
 
-    // All successful processes must have consistent cache state
+    // Critical: Exactly one final artifact in shared cache for this model
+    let cached_model = shared_cache.join("small-test-model.onnx");
+    assert!(cached_model.exists(), "Shared cache should have the model");
+    
+    // Verify SHA-256 checksum on shared cache
+    let checksum = calculate_sha256(&cached_model).unwrap();
+    assert_eq!(checksum, test_fixtures.small_model_sha256);
+
+    // All successful processes should reference the same cached file
     for result in &results {
         if result.exit_code == 0 {
-            // Check cache has valid model
-            let cached_model = result.cache_dir.join("cutout-model.onnx");
-            assert!(cached_model.exists(), "Process {} should have cached model", result.process_id);
-
-            // Verify checksum
-            let checksum = calculate_md5(&cached_model).unwrap();
-            assert_eq!(checksum, test_models.cutout_model_checksum);
-
             // Check metadata was generated
             let metadata_file = result.output_dir.join("example.beaker.toml");
             assert!(metadata_file.exists(), "Process {} should have metadata", result.process_id);
         }
     }
 
-    // Eventual invariant: No partial downloads or lock files remain
-    for result in &results {
-        let lock_file = result.cache_dir.join("cutout-model.onnx.lock");
-        assert!(!lock_file.exists(), "No lock files should remain for process {}", result.process_id);
+    // Critical invariant: No partial downloads or lock files remain in shared cache
+    let lock_file = shared_cache.join("small-test-model.onnx.lock");
+    assert!(!lock_file.exists(), "No lock files should remain in shared cache");
 
-        // Check for partial/temporary files
-        if result.cache_dir.exists() {
-            let cache_entries: Vec<_> = std::fs::read_dir(&result.cache_dir)
-                .unwrap()
-                .collect();
-            for entry in cache_entries {
-                let entry = entry.unwrap();
-                let filename = entry.file_name();
-                assert!(!filename.to_string_lossy().contains(".tmp"),
-                       "No temporary files should remain: {:?}", filename);
-            }
-        }
+    // Check for partial/temporary files in shared cache
+    let cache_entries: Vec<_> = std::fs::read_dir(&shared_cache)
+        .unwrap()
+        .collect();
+    for entry in cache_entries {
+        let entry = entry.unwrap();
+        let filename = entry.file_name();
+        assert!(!filename.to_string_lossy().contains(".tmp"),
+               "No temporary files should remain: {:?}", filename);
+        assert!(!filename.to_string_lossy().contains(".partial"),
+               "No partial files should remain: {:?}", filename);
     }
 
-    // Validate error patterns match expected failures
-    let connection_failures = results.iter()
-        .filter(|r| r.exit_code != 0 && r.error_output.contains("connection"))
+    // Validate error patterns match expected TCP/HTTP failures
+    let tcp_failures = results.iter()
+        .filter(|r| r.exit_code != 0 && (
+            r.error_output.contains("connection refused") || 
+            r.error_output.contains("connection reset")
+        ))
         .count();
     let checksum_failures = results.iter()
         .filter(|r| r.exit_code != 0 && r.error_output.contains("checksum"))
         .count();
-    
+
     // Expect specific failure types based on our deterministic pattern
-    assert!(connection_failures >= 1, "Expected at least 1 connection failure");
-    assert!(checksum_failures >= 1, "Expected at least 1 checksum failure");
+    assert!(tcp_failures >= 1, "Expected at least 1 TCP-level failure");
+    assert!(checksum_failures >= 1, "Expected at least 1 SHA-256 checksum failure");
 }
 
 #[derive(Debug)]
 struct ProcessResult {
     process_id: usize,
     exit_code: i32,
-    cache_dir: PathBuf,
+    shared_cache_dir: PathBuf,  // Reference to shared cache
     output_dir: PathBuf,
     error_output: String,
 }
@@ -555,10 +746,11 @@ struct ProcessResult {
 #[derive(Clone, Debug)]
 enum FailureEvent {
     Success,
-    ConnectionRefused,
-    PartialResponse(usize),
-    CorruptedChecksum,
-    Http500Error,
+    HttpError(u16),              // HTTP status codes via httpmock
+    CorruptedChecksum,           // Wrong SHA-256 via httpmock
+    TcpConnectionRefused,        // Via hyper helper: no server on port
+    TcpMidStreamAbort(usize),    // Via hyper helper: close after N bytes
+    TcpHeaderThenClose,          // Via hyper helper: headers only
 }
 
 struct FailureController {
@@ -581,7 +773,7 @@ impl FailureController {
 }
 ```
 
-### 10. Required Dependencies
+### 11. Required Dependencies
 
 The following dependencies should be added to `[dev-dependencies]` in `Cargo.toml`:
 
@@ -593,18 +785,23 @@ paste = "1.0"
 
 # New dependencies for stress testing
 httpmock = "0.7.0"              # HTTP mocking with deterministic failure injection
+hyper = "0.14"                  # Small helper for TCP-level fault injection (~50 LOC)
+tokio = { version = "1.0", features = ["rt", "net"], optional = true }  # Only for hyper helper
 serde_json = "1.0"              # For test result serialization
+fail = "0.5"                    # Failpoints for crash testing (test-only)
+fd-lock = "4.0"                 # Cross-process lock validation
 ```
 
-These dependencies are:
-- **Minimal**: Only 2 additional crates for comprehensive stress testing (removed rand dependency)
-- **Well-maintained**: All are industry standard with active development
+**Dependency Rationale**:
+- **Minimal Impact**: Only 5 additional crates for comprehensive stress testing
+- **Well-maintained**: All are industry standard with active development  
 - **Zero runtime impact**: Only in dev-dependencies, no production overhead
 - **Compatible**: Work well with beaker's existing blocking/synchronous model
 - **No timing dependencies**: Deterministic behavior without sleep or delays
-- **No async complexity**: Avoids tokio/futures dependencies that would complicate the codebase
+- **Targeted async usage**: tokio only for the small hyper helper (~50 LOC), not for main test logic
+- **Failpoint isolation**: `fail` crate used only in test scenarios, no production code changes
 
-### 11. Test Configuration and Controls
+### 12. Test Configuration and Controls
 
 **Environment Variables**:
 ```rust
@@ -624,21 +821,24 @@ cargo test stress::coreml --features=macos-only
 cargo test stress --release -- --test-threads=1  // For deterministic results
 ```
 
-### 12. Success Criteria
+### 13. Success Criteria
 
 **Functional Requirements**:
-- ✅ No cache corruption under any concurrent access pattern
-- ✅ Lock files properly cleaned up after process termination
-- ✅ Checksum validation never passes for corrupted data
-- ✅ Failed downloads don't leave partial files in cache
+- ✅ No cache corruption under any concurrent access pattern with shared cache directories
+- ✅ Lock files properly cleaned up after process termination in shared cache
+- ✅ SHA-256 validation never passes for corrupted data
+- ✅ Failed downloads don't leave partial files in shared cache
 - ✅ Concurrent processes don't deadlock or hang indefinitely
+- ✅ Exactly one final artifact exists per model in shared cache
 
 **Logical Invariants**:
 - ✅ Cache consistency across all successful processes (eventual property)
-- ✅ Deterministic failure handling matches expected patterns
+- ✅ Deterministic failure handling matches expected TCP/HTTP patterns
 - ✅ All processes eventually complete (no infinite hanging)
 - ✅ Error recovery follows expected paths for each failure type
 - ✅ Resource cleanup completes for all process termination scenarios
+- ✅ Readers never observe partial content (atomic write operations)
+- ✅ Crash recovery properly handles write → fsync → rename boundaries
 
 **Reliability Requirements**:
 - ✅ Tests complete rapidly with immediate failure injection (under 30 seconds)
@@ -647,20 +847,23 @@ cargo test stress --release -- --test-threads=1  // For deterministic results
 - ✅ Clean process termination without resource leaks
 - ✅ Comprehensive error reporting for debugging failures
 
-### 13. Implementation Considerations
+### 14. Implementation Considerations
 
 **Minimizing Development Impact**:
 - Stress tests live entirely in `tests/stress/` directory
-- No changes to production code paths for test hooks
-- Optional dependency on httpmock only in dev-dependencies
+- No changes to production code paths except optional failpoint annotations (test-only)
+- Dependencies on httpmock, hyper helper, and failpoints only in dev-dependencies
 - Can be disabled for faster development builds
 - Uses simple thread-based concurrency matching beaker's blocking model
+- Small hyper helper (~50 LOC) isolated from main codebase
 
 **Deterministic Testing Strategy**:
 - Event-based coordination with barriers and channels instead of timing
 - Predefined failure sequences ensure reproducible test outcomes
 - Logical invariants validation rather than time-based assertions
 - Immediate failure injection eliminates flaky timing dependencies
+- Embedded fixtures eliminate network variance during test execution
+- Shared cache directories enable real lock contention testing
 
 **CI Integration**:
 - Run basic concurrency tests on every PR (fast execution under 30 seconds)
