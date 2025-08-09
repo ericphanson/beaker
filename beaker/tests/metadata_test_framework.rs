@@ -48,6 +48,24 @@ pub enum MetadataCheck {
     MaskEncodingPresent,
     /// Verify ASCII preview is present and contains expected characters
     AsciiPreviewValid,
+
+    // Cache Statistics Checks
+    /// Verify ONNX cache statistics are present (count and size)
+    OnnxCacheStatsPresent(&'static str), // tool
+    /// Verify ONNX cache statistics are absent (for models that don't access cache)
+    OnnxCacheStatsAbsent(&'static str), // tool
+    /// Verify download cache hit/miss field is present
+    DownloadCacheHitPresent(&'static str), // tool
+    /// Verify download cache hit/miss field is absent (for embedded models)
+    DownloadCacheHitAbsent(&'static str), // tool
+    /// Verify download timing is present (for downloaded models)
+    DownloadTimingPresent(&'static str), // tool
+    /// Verify download timing is absent (for embedded/cached models)
+    DownloadTimingAbsent(&'static str), // tool
+    /// Verify CoreML cache statistics are present (when CoreML device is used)
+    CoremlCacheStatsPresent(&'static str), // tool
+    /// Verify CoreML cache statistics are absent (when CoreML device is not used)
+    CoremlCacheStatsAbsent(&'static str), // tool
 }
 
 /// Copy test files to temp directory and return their paths
@@ -532,6 +550,181 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
                     "Preview row {i} should have width {} for test {test_name}, got {}",
                     preview.width,
                     row.len()
+                );
+            }
+        }
+
+        // Cache Statistics Checks
+        MetadataCheck::OnnxCacheStatsPresent(tool) => {
+            let system = match *tool {
+                "detect" => metadata.detect.as_ref().and_then(|h| h.system.as_ref()),
+                "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
+                _ => panic!("Unknown tool: {tool}"),
+            };
+
+            assert!(
+                system.is_some(),
+                "System info should exist for {tool} in test {test_name}"
+            );
+
+            let system = system.unwrap();
+            assert!(
+                system.onnx_cache.is_some(),
+                "onnx_cache should be present for {tool} in test {test_name}"
+            );
+            let onnx_cache = system.onnx_cache.as_ref().unwrap();
+            assert!(
+                onnx_cache.cached_models_count.is_some(),
+                "onnx_cache.cached_models_count should be present for {tool} in test {test_name}"
+            );
+            assert!(
+                onnx_cache.cached_models_size_mb.is_some(),
+                "onnx_cache.cached_models_size_mb should be present for {tool} in test {test_name}"
+            );
+        }
+
+        MetadataCheck::OnnxCacheStatsAbsent(tool) => {
+            let system = match *tool {
+                "detect" => metadata.detect.as_ref().and_then(|h| h.system.as_ref()),
+                "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
+                _ => panic!("Unknown tool: {tool}"),
+            };
+
+            if let Some(system) = system {
+                assert!(
+                    system.onnx_cache.is_none(),
+                    "onnx_cache should be absent for {tool} in test {test_name}"
+                );
+            }
+        }
+
+        MetadataCheck::DownloadCacheHitPresent(tool) => {
+            let system = match *tool {
+                "detect" => metadata.detect.as_ref().and_then(|h| h.system.as_ref()),
+                "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
+                _ => panic!("Unknown tool: {tool}"),
+            };
+
+            assert!(
+                system.is_some(),
+                "System info should exist for {tool} in test {test_name}"
+            );
+
+            let system = system.unwrap();
+            assert!(
+                system.onnx_cache.is_some(),
+                "onnx_cache should be present for {tool} in test {test_name}"
+            );
+            let onnx_cache = system.onnx_cache.as_ref().unwrap();
+            assert!(
+                onnx_cache.model_cache_hit.is_some(),
+                "onnx_cache.model_cache_hit should be present for {tool} in test {test_name}"
+            );
+        }
+
+        MetadataCheck::DownloadCacheHitAbsent(tool) => {
+            let system = match *tool {
+                "detect" => metadata.detect.as_ref().and_then(|h| h.system.as_ref()),
+                "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
+                _ => panic!("Unknown tool: {tool}"),
+            };
+
+            if let Some(system) = system {
+                if let Some(onnx_cache) = &system.onnx_cache {
+                    assert!(
+                        onnx_cache.model_cache_hit.is_none(),
+                        "onnx_cache.model_cache_hit should be absent for {tool} in test {test_name}"
+                    );
+                }
+                // If onnx_cache itself is None, that's also considered absent
+            }
+        }
+
+        MetadataCheck::DownloadTimingPresent(tool) => {
+            let system = match *tool {
+                "detect" => metadata.detect.as_ref().and_then(|h| h.system.as_ref()),
+                "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
+                _ => panic!("Unknown tool: {tool}"),
+            };
+
+            assert!(
+                system.is_some(),
+                "System info should exist for {tool} in test {test_name}"
+            );
+
+            let system = system.unwrap();
+            assert!(
+                system.onnx_cache.is_some(),
+                "onnx_cache should be present for {tool} in test {test_name}"
+            );
+            let onnx_cache = system.onnx_cache.as_ref().unwrap();
+            assert!(
+                onnx_cache.download_time_ms.is_some(),
+                "onnx_cache.download_time_ms should be present for {tool} in test {test_name}"
+            );
+        }
+
+        MetadataCheck::DownloadTimingAbsent(tool) => {
+            let system = match *tool {
+                "detect" => metadata.detect.as_ref().and_then(|h| h.system.as_ref()),
+                "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
+                _ => panic!("Unknown tool: {tool}"),
+            };
+
+            if let Some(system) = system {
+                if let Some(onnx_cache) = &system.onnx_cache {
+                    assert!(
+                        onnx_cache.download_time_ms.is_none(),
+                        "onnx_cache.download_time_ms should be absent for {tool} in test {test_name}"
+                    );
+                }
+                // If onnx_cache itself is None, that's also considered absent
+            }
+        }
+
+        MetadataCheck::CoremlCacheStatsPresent(tool) => {
+            let system = match *tool {
+                "detect" => metadata.detect.as_ref().and_then(|h| h.system.as_ref()),
+                "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
+                _ => panic!("Unknown tool: {tool}"),
+            };
+
+            assert!(
+                system.is_some(),
+                "System info should exist for {tool} in test {test_name}"
+            );
+
+            let system = system.unwrap();
+            assert!(
+                system.coreml_cache.is_some(),
+                "coreml_cache should be present for {tool} in test {test_name}"
+            );
+            let coreml_cache = system.coreml_cache.as_ref().unwrap();
+            assert!(
+                coreml_cache.cache_hit.is_some(),
+                "coreml_cache.cache_hit should be present for {tool} in test {test_name}"
+            );
+            assert!(
+                coreml_cache.cache_count.is_some(),
+                "coreml_cache.cache_count should be present for {tool} in test {test_name}"
+            );
+            assert!(
+                coreml_cache.cache_size_mb.is_some(),
+                "coreml_cache.cache_size_mb should be present for {tool} in test {test_name}"
+            );
+        }
+
+        MetadataCheck::CoremlCacheStatsAbsent(tool) => {
+            let system = match *tool {
+                "detect" => metadata.detect.as_ref().and_then(|h| h.system.as_ref()),
+                "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
+                _ => panic!("Unknown tool: {tool}"),
+            };
+
+            if let Some(system) = system {
+                assert!(
+                    system.coreml_cache.is_none(),
+                    "coreml_cache should be absent for {tool} in test {test_name}"
                 );
             }
         }
