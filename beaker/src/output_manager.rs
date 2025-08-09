@@ -197,6 +197,7 @@ mod tests {
                 sources: vec!["test.jpg".to_string()],
                 device: "cpu".to_string(),
                 output_dir,
+                depfile: None,
                 skip_metadata: false,
                 strict: true,
             },
