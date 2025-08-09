@@ -144,7 +144,7 @@ fn get_test_scenarios() -> Vec<TestScenario> {
         TestScenario {
             name: "cutout_basic_processing",
             tool: "cutout",
-            args: vec!["../example.jpg"],
+            args: vec!["../example.jpg", "--device", "cpu"],
             expected_files: vec!["example.beaker.toml", "example_cutout.png"],
             metadata_checks: vec![
                 MetadataCheck::ConfigValue("cutout", "alpha_matting", toml::Value::from(false)),
