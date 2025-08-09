@@ -8,7 +8,7 @@ use std::time::Instant;
 
 use crate::color_utils::symbols;
 use crate::config::HeadDetectionConfig;
-use crate::model_access::{get_model_source_with_env_override, ModelAccess};
+use crate::model_access::{ModelAccess, ModelInfo};
 use crate::model_processing::{ModelProcessor, ModelResult};
 use crate::onnx_session::ModelSource;
 use crate::output_manager::OutputManager;
@@ -30,10 +30,6 @@ pub const MODEL_VERSION: &str =
 pub struct HeadAccess;
 
 impl ModelAccess for HeadAccess {
-    fn get_model_source<'a>() -> Result<ModelSource<'a>> {
-        get_model_source_with_env_override::<Self>()
-    }
-
     fn get_embedded_bytes() -> Option<&'static [u8]> {
         // Reference to the embedded model bytes
         Some(MODEL_BYTES)
@@ -43,11 +39,14 @@ impl ModelAccess for HeadAccess {
         "BEAKER_HEAD_MODEL_PATH"
     }
 
-    // Currently, head models don't support remote download (embedded only)
-    // But this could be added in the future by uncommenting the following:
-    // fn get_default_model_info() -> Option<ModelInfo> {
-    //     Some(HEAD_MODEL_INFO)
-    // }
+    // Head models support remote download for CLI --model-url usage
+    // but prefer embedded bytes by default
+    fn get_default_model_info() -> Option<ModelInfo> {
+        // Only provide this for CLI usage when --model-url is specified
+        // The get_model_source_with_cli_and_env_override will use embedded bytes
+        // unless CLI args or env vars override it
+        None
+    }
 }
 
 #[derive(Serialize)]
@@ -214,8 +213,16 @@ impl ModelProcessor for HeadProcessor {
     type Config = HeadDetectionConfig;
     type Result = HeadDetectionResult;
 
-    fn get_model_source<'a>() -> Result<ModelSource<'a>> {
-        HeadAccess::get_model_source()
+    fn get_model_source<'a>(config: &Self::Config) -> Result<ModelSource<'a>> {
+        // Create CLI model info from config
+        let cli_model_info = crate::model_access::CliModelInfo {
+            model_path: config.model_path.clone(),
+            model_url: config.model_url.clone(),
+            model_checksum: config.model_checksum.clone(),
+        };
+
+        // Use CLI-aware model access
+        HeadAccess::get_model_source_with_cli(&cli_model_info)
     }
 
     fn process_single_image(
