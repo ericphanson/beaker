@@ -33,30 +33,30 @@ Always run these validation steps after making changes:
 
 ```bash
 # Test CLI help
-./target/release/beaker --help
+cargo run --release -- --help
 
 # Copy test image for validation
 cp ../example.jpg .
 
 # Test basic head detection (requires --crop, --bounding-box, or --metadata)
-./target/release/beaker head example.jpg --confidence 0.5 --crop
+cargo run --release -- head example.jpg --confidence 0.5 --crop
 
 # Test metadata generation
-./target/release/beaker head example.jpg --confidence 0.5 --metadata
+cargo run --release -- head example.jpg --confidence 0.5 --metadata
 
-# Test cutout functionality (takes ~3 seconds for model loading)
-./target/release/beaker cutout example.jpg
+# Test cutout functionality (takes ~6 seconds for model loading)
+cargo run --release -- cutout example.jpg
 
 # Test with two birds image
 cp ../example-2-birds.jpg .
-./target/release/beaker head example-2-birds.jpg --confidence 0.5 --crop
+cargo run --release -- head example-2-birds.jpg --confidence 0.5 --crop
 
 # Verify output files are created
 ls -la example_crop.jpg example_cutout.png *.beaker.toml
 ```
 
 ### Pre-commit and Code Quality
-Run before every commit - NEVER CANCEL: takes ~4 seconds:
+Run before every commit - NEVER CANCEL: takes ~10 seconds:
 
 ```bash
 # From repository root
@@ -107,38 +107,38 @@ Always test these scenarios after making changes:
 
 1. **Help and Version Commands**:
    ```bash
-   ./target/release/beaker --help
-   ./target/release/beaker version
+   cargo run --release -- --help
+   cargo run --release -- version
    ```
 
 2. **Head Detection Workflow**:
    ```bash
    # Basic crop output
-   ./target/release/beaker head example.jpg --confidence 0.5 --crop
+   cargo run --release -- head example.jpg --confidence 0.5 --crop
 
    # Bounding box output
-   ./target/release/beaker head example.jpg --confidence 0.5 --bounding-box
+   cargo run --release -- head example.jpg --confidence 0.5 --bounding-box
 
    # Metadata generation
-   ./target/release/beaker head example.jpg --confidence 0.5 --metadata
+   cargo run --release -- head example.jpg --confidence 0.5 --metadata
 
    # Multiple outputs
-   ./target/release/beaker head example.jpg --confidence 0.5 --crop --bounding-box --metadata
+   cargo run --release -- head example.jpg --confidence 0.5 --crop --bounding-box --metadata
 
    # Test with two birds
-   ./target/release/beaker head example-2-birds.jpg --confidence 0.5 --crop
+   cargo run --release -- head example-2-birds.jpg --confidence 0.5 --crop
    ```
 
 3. **Cutout Workflow**:
    ```bash
    # Basic cutout
-   ./target/release/beaker cutout example.jpg
+   cargo run --release -- cutout example.jpg
 
    # With alpha matting
-   ./target/release/beaker cutout example.jpg --alpha-matting --save-mask
+   cargo run --release -- cutout example.jpg --alpha-matting --save-mask
 
    # Custom background color
-   ./target/release/beaker cutout example.jpg --background-color "255,255,255,255"
+   cargo run --release -- cutout example.jpg --background-color "255,255,255,255"
    ```
 
 4. **Verify Output Files**:
@@ -250,8 +250,8 @@ cargo test --release    # ~2m 50s
 
 # 5. Manual CLI validation
 cp ../example.jpg .
-./target/release/beaker head example.jpg --confidence 0.5 --crop
-./target/release/beaker cutout example.jpg
+cargo run --release -- head example.jpg --confidence 0.5 --crop
+cargo run --release -- cutout example.jpg
 
 # 6. Update line counts and run pre-commit (from repo root)
 cd ..
