@@ -31,26 +31,6 @@ pub struct CoremlCacheStats {
     pub cache_size_mb: Option<f64>,
 }
 
-/// Temporary compatibility struct for functions that return cache stats
-/// TODO: Remove this once all functions are updated to return cache objects separately
-#[derive(Debug, Default, Clone)]
-pub struct CacheStats {
-    pub onnx: Option<OnnxCacheStats>,
-}
-
-impl CacheStats {
-    /// Create empty cache statistics
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Set ONNX cache stats (when download cache is used)
-    pub fn with_onnx_cache(mut self, onnx_stats: OnnxCacheStats) -> Self {
-        self.onnx = Some(onnx_stats);
-        self
-    }
-}
-
 /// Generic utility to track file I/O timing for any model
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct IoTiming {

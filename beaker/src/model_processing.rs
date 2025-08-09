@@ -56,10 +56,13 @@ pub trait ModelProcessor {
     type Result: ModelResult;
 
     /// Get the model source for loading the ONNX model
-    /// Returns (ModelSource, CacheStats) where CacheStats emerge from cache operations
+    /// Returns (ModelSource, OnnxCacheStats) where OnnxCacheStats emerge from cache operations
     fn get_model_source<'a>(
         config: &Self::Config,
-    ) -> Result<(ModelSource<'a>, crate::shared_metadata::CacheStats)>;
+    ) -> Result<(
+        ModelSource<'a>,
+        Option<crate::shared_metadata::OnnxCacheStats>,
+    )>;
 
     /// Process a single image through the complete pipeline
     fn process_single_image(
@@ -157,7 +160,7 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
         Some(model_info.model_size_bytes.try_into().unwrap()),
         Some(model_load_time_ms),
         Some(model_info.model_checksum),
-        onnx_cache_stats.onnx,
+        onnx_cache_stats,
         coreml_cache_stats,
     );
 

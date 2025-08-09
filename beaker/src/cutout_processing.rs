@@ -145,7 +145,10 @@ impl ModelProcessor for CutoutProcessor {
 
     fn get_model_source<'a>(
         config: &Self::Config,
-    ) -> Result<(ModelSource<'a>, crate::shared_metadata::CacheStats)> {
+    ) -> Result<(
+        ModelSource<'a>,
+        Option<crate::shared_metadata::OnnxCacheStats>,
+    )> {
         // Create CLI model info from config
         let cli_model_info = crate::model_access::CliModelInfo {
             model_path: config.model_path.clone(),
