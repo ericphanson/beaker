@@ -252,7 +252,6 @@ fn test_model_basic_functionality(model_path: &Path) -> Result<()> {
 /// Returns the download time in milliseconds
 fn download_model(url: &str, output_path: &Path) -> Result<f64> {
     let download_start = Instant::now();
-
     log::info!("📥 Downloading model from: {url}");
 
     // Create parent directory if it doesn't exist
@@ -427,6 +426,7 @@ fn download_with_concurrency_protection(
 
     let start_time = std::time::Instant::now();
     let mut wait_duration = INITIAL_WAIT;
+    let skip_verification = model_info.md5_checksum == "skip_verification";
 
     loop {
         // Try to create lock file atomically
@@ -484,27 +484,43 @@ fn download_with_concurrency_protection(
                         "{} Checking if concurrent download completed...",
                         symbols::checking()
                     );
-                    match cache_common::verify_checksum(model_path, &model_info.md5_checksum) {
-                        Ok(true) => {
-                            log::debug!(
-                                "{} Model downloaded by another process, using cached version",
-                                symbols::resources_found()
-                            );
-                            return Ok(None); // No download time since it was concurrent
+                    if skip_verification {
+                        // For no-verification downloads, just check if file exists and has size > 0
+                        if let Ok(metadata) = fs::metadata(model_path) {
+                            if metadata.len() > 0 {
+                                log::debug!(
+                                    "{} Model downloaded by another process, using cached version (no verification)",
+                                    symbols::resources_found()
+                                );
+                                return Ok(None); // No download time since it was concurrent
+                            }
                         }
-                        Ok(false) => {
-                            log::debug!(
-                                "{}Concurrent download produced invalid checksum, will retry",
-                                symbols::warning()
-                            );
-                            // Remove invalid file so we can retry
-                            let _ = fs::remove_file(model_path);
-                        }
-                        Err(e) => {
-                            log::debug!(
-                                "{}Error checking concurrent download: {e}, will retry",
-                                symbols::warning()
-                            );
+                        log::debug!("Concurrent download produced empty file, will retry");
+                        let _ = fs::remove_file(model_path);
+                    } else {
+                        // For normal downloads, verify checksum
+                        match cache_common::verify_checksum(model_path, &model_info.md5_checksum) {
+                            Ok(true) => {
+                                log::debug!(
+                                    "{} Model downloaded by another process, using cached version",
+                                    symbols::resources_found()
+                                );
+                                return Ok(None); // No download time since it was concurrent
+                            }
+                            Ok(false) => {
+                                log::debug!(
+                                    "{}Concurrent download produced invalid checksum, will retry",
+                                    symbols::warning()
+                                );
+                                // Remove invalid file so we can retry
+                                let _ = fs::remove_file(model_path);
+                            }
+                            Err(e) => {
+                                log::debug!(
+                                    "{}Error checking concurrent download: {e}, will retry",
+                                    symbols::warning()
+                                );
+                            }
                         }
                     }
                 }
@@ -565,6 +581,36 @@ fn download_with_concurrency_protection(
             }
         }
     }
+}
+
+/// Download model without checksum verification (for CLI URLs without checksums)
+pub fn download_model_without_verification(model_info: &ModelInfo) -> Result<PathBuf> {
+    let cache_dir = get_cache_dir()?;
+    let model_path = cache_dir.join(&model_info.filename);
+    let lock_path = cache_dir.join(format!("{}.lock", model_info.filename));
+
+    log::debug!("🗂️  Cache directory: {}", cache_dir.display());
+    log::debug!("📄 Model path: {}", model_path.display());
+    log::warn!(
+        "{}Downloading model without checksum verification. This is less secure. Use --model-checksum <CHECKSUM> to verify the downloaded model.",
+        symbols::warning()
+    );
+
+    // Handle concurrent downloads with lock file
+    download_with_concurrency_protection(&model_path, &lock_path, model_info)?;
+
+    // Validate model file size (but skip checksum verification)
+    validate_model_file_size(&model_path)?;
+
+    let file_info = get_file_info(&model_path)?;
+    log::debug!("   File info: {file_info}");
+
+    log::info!(
+        "{} Model downloaded successfully (checksum verification skipped)",
+        crate::color_utils::symbols::completed_successfully()
+    );
+
+    Ok(model_path)
 }
 
 /// Get the cached model path, downloading if necessary
@@ -723,7 +769,6 @@ pub fn get_or_download_model(model_info: &ModelInfo) -> Result<(PathBuf, CacheSt
     Ok((model_path, cache_stats))
 }
 
-/// Runtime model information that can be created from environment variables.
 /// This allows overriding URLs and checksums at runtime.
 #[derive(Debug, Clone)]
 pub struct RuntimeModelInfo {
@@ -1146,6 +1191,156 @@ pub fn get_model_source_with_env_override<T: ModelAccess>() -> Result<ModelSourc
     Ok(get_model_source_with_env_override_and_stats::<T>()?.source)
 }
 
+/// Generic implementation of model access that handles CLI arguments, env var checking and fallbacks.
+/// Returns both model source and cache statistics
+pub fn get_model_source_with_cli_and_env_override<T: ModelAccess>(
+    cli_model_info: &CliModelInfo,
+) -> Result<ModelSourceWithStats<'static>> {
+    // First, validate CLI arguments
+    cli_model_info.validate()?;
+
+    // Priority 1: CLI-provided model path
+    if let Some(model_path) = &cli_model_info.model_path {
+        log::info!("🔧 Using CLI-provided model path: {model_path}");
+
+        // Validate that the path exists
+        let path = PathBuf::from(model_path);
+        if !path.exists() {
+            return Err(anyhow!(
+                "Model path specified with --model-path does not exist: {}",
+                model_path
+            ));
+        }
+
+        // Validate file size (reject 0 bytes)
+        validate_model_file_size(&path)?;
+
+        // Test model functionality for new models
+        test_model_basic_functionality(&path)?;
+
+        // Custom paths don't provide cache statistics - they don't use the download cache
+        // Following the principle: "If we don't use a cache, there are no stats."
+        return Ok(ModelSourceWithStats {
+            source: ModelSource::FilePath(model_path.clone()),
+            cache_stats: None,
+        });
+    }
+
+    // Priority 2: CLI-provided model URL
+    if let Some(model_url) = &cli_model_info.model_url {
+        log::info!("🔧 Using CLI-provided model URL: {model_url}");
+
+        // Create a temporary model info for downloading
+        let default_model_info = T::get_default_model_info();
+        let filename = if let Some(ref info) = default_model_info {
+            // Use default filename if available
+            info.filename.clone()
+        } else {
+            // Extract filename from URL or use a generic name
+            model_url
+                .split('/')
+                .next_back()
+                .unwrap_or("custom_model.onnx")
+                .to_string()
+        };
+
+        // Check if checksum was provided
+        let checksum = if let Some(ref checksum) = cli_model_info.model_checksum {
+            checksum.clone()
+        } else {
+            log::warn!(
+                "{}No checksum provided for CLI model URL. Download will proceed but verification will be skipped. Use --model-checksum <CHECKSUM> for secure verification.",
+                symbols::warning()
+            );
+            "skip_verification".to_string() // Special marker to skip verification
+        };
+
+        let cli_model_info_for_download = ModelInfo {
+            name: "CLI-provided".to_string(),
+            url: model_url.clone(),
+            md5_checksum: checksum,
+            filename,
+        };
+
+        // Handle download with or without checksum verification
+        let (download_path, cache_stats) = if cli_model_info_for_download.md5_checksum == "skip_verification" {
+            // Download without checksum verification - no cache stats for unverified downloads
+            let path = download_model_without_verification(&cli_model_info_for_download)?;
+            (path, CacheStats::default())
+        } else {
+            // Download with checksum verification - this accesses the cache
+            get_or_download_model(&cli_model_info_for_download)?
+        };
+
+        // Test model functionality for newly downloaded models
+        test_model_basic_functionality(&download_path)?;
+
+        let path_str = download_path
+            .to_str()
+            .ok_or_else(|| anyhow!("Downloaded model path is not valid UTF-8"))?;
+
+        log::info!("📥 Using CLI-downloaded model: {path_str}");
+        return Ok(ModelSourceWithStats {
+            source: ModelSource::FilePath(path_str.to_string()),
+            cache_stats: Some(cache_stats),
+        });
+    }
+
+    // Priority 3: Fall back to existing environment variable and default behavior
+    get_model_source_with_env_override_and_stats::<T>()
+}
+
+/// Generic implementation of model access that handles env var checking and fallbacks.
+/// Returns both model source and cache statistics when the download cache is accessed
+pub fn get_model_source_with_env_override_and_stats<T: ModelAccess>() -> Result<ModelSourceWithStats<'static>> {
+    // Check for environment variable override
+    let env_var_name = T::get_env_var_name();
+    if let Ok(env_path) = std::env::var(env_var_name) {
+        log::info!("🌍 Environment variable {env_var_name}={env_path}");
+
+        // For environment variable paths, we don't access the download cache
+        // so we don't provide cache statistics - following the principle of
+        // "if we don't use a cache, there are no stats"
+        return Ok(ModelSourceWithStats {
+            source: ModelSource::FilePath(env_path),
+            cache_stats: None,
+        });
+    }
+
+    // Use embedded model if available
+    if let Some(embedded_bytes) = T::get_embedded_bytes() {
+        log::debug!("📦 Using embedded model for {}", T::get_env_var_name());
+        
+        // Embedded models don't access the download cache, so no cache statistics.
+        // Following the principle: "If we don't use a cache, there are no stats."
+        return Ok(ModelSourceWithStats {
+            source: ModelSource::Bytes(embedded_bytes),
+            cache_stats: None,
+        });
+    }
+
+    // Try to download from default URL if model info is available
+    // This is the ONLY path where we access the download cache
+    if let Some(model_info) = T::get_default_model_info() {
+        log::info!("📥 Downloading default model for {}", T::get_env_var_name());
+        let (model_path, cache_stats) = get_or_download_model(&model_info)?;
+        
+        let path_str = model_path
+            .to_str()
+            .ok_or_else(|| anyhow!("Model path is not valid UTF-8"))?;
+        
+        return Ok(ModelSourceWithStats {
+            source: ModelSource::FilePath(path_str.to_string()),
+            cache_stats: Some(cache_stats),
+        });
+    }
+
+    // No fallback available
+    Err(anyhow!(
+        "No model source available: no embedded bytes and no download info for {}",
+        T::get_env_var_name()
+    ))
+}
 #[cfg(test)]
 mod tests {
     use super::*;
