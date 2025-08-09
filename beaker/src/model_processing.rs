@@ -20,8 +20,11 @@ use crate::color_utils::maybe_dim_stderr;
 use crate::shared_metadata::{InputProcessing, SystemInfo};
 
 /// Configuration trait for models that can be processed generically
-pub trait ModelConfig {
+pub trait ModelConfig: std::any::Any {
     fn base(&self) -> &BaseModelConfig;
+
+    /// Get the tool name for this config (e.g., "detect", "cutout")
+    fn tool_name(&self) -> &'static str;
 }
 
 /// Result trait for model outputs that can be handled generically
@@ -149,10 +152,18 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
         device_selection_reason: Some(device_selection_reason.to_string()),
         execution_providers: model_info.execution_providers,
         model_source: Some(model_info.model_source),
-        model_path: model_info.model_path,
+        model_path: model_info.model_path.clone(),
         model_size_bytes: Some(model_info.model_size_bytes.try_into().unwrap()),
         model_load_time_ms: Some(model_load_time_ms),
         model_checksum: Some(model_info.model_checksum),
+    };
+
+    // Generate stamps for Make-compatible incremental builds if depfile is requested
+    let stamp_info = if config.base().depfile.is_some() {
+        let model_path = model_info.model_path.as_ref().map(|p| Path::new(p));
+        Some(generate_stamps_for_tool::<P>(&config, model_path)?)
+    } else {
+        None
     };
 
     // Process each image and collect results
@@ -210,6 +221,7 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
                         system.clone(),
                         input.clone(),
                         start_timestamp,
+                        stamp_info.as_ref(),
                     )?;
                 }
                 if progress_bar.is_none() {
@@ -304,6 +316,7 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
     system: SystemInfo,
     input: InputProcessing,
     start_timestamp: chrono::DateTime<chrono::Utc>,
+    stamp_info: Option<&crate::stamp_manager::StampInfo>,
 ) -> Result<()> {
     use crate::output_manager::OutputManager;
     use crate::shared_metadata::{CutoutSections, DetectSections, ExecutionContext};
@@ -352,6 +365,99 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
             return Err(anyhow::anyhow!("Unknown tool name: {}", result.tool_name()));
         }
     }
+
+    // Generate depfile if requested and stamps are available
+    if let (Some(depfile_path), Some(stamp_info)) = (&config.base().depfile, stamp_info) {
+        generate_depfile_for_image::<P>(
+            result,
+            config,
+            image_path,
+            depfile_path,
+            stamp_info,
+        )?;
+    }
+
+    Ok(())
+}
+
+/// Generate stamps for the appropriate tool type
+fn generate_stamps_for_tool<P: ModelProcessor>(
+    config: &P::Config,
+    model_path: Option<&Path>,
+) -> Result<crate::stamp_manager::StampInfo> {
+    match config.tool_name() {
+        "detect" => {
+            // Cast to DetectionConfig
+            let detection_config = config as &dyn std::any::Any;
+            let detection_config = detection_config
+                .downcast_ref::<crate::config::DetectionConfig>()
+                .ok_or_else(|| anyhow::anyhow!("Failed to downcast to DetectionConfig"))?;
+            crate::stamp_manager::generate_detection_stamps(detection_config, model_path)
+        }
+        "cutout" => {
+            // Cast to CutoutConfig
+            let cutout_config = config as &dyn std::any::Any;
+            let cutout_config = cutout_config
+                .downcast_ref::<crate::config::CutoutConfig>()
+                .ok_or_else(|| anyhow::anyhow!("Failed to downcast to CutoutConfig"))?;
+            crate::stamp_manager::generate_cutout_stamps(cutout_config, model_path)
+        }
+        tool_name => Err(anyhow::anyhow!("Unknown tool name: {}", tool_name)),
+    }
+}
+
+/// Generate a depfile for a single processed image
+fn generate_depfile_for_image<P: ModelProcessor>(
+    _result: &P::Result,
+    config: &P::Config,
+    image_path: &Path,
+    depfile_path: &str,
+    stamp_info: &crate::stamp_manager::StampInfo,
+) -> Result<()> {
+    use crate::depfile_generator::{generate_depfile, get_detection_output_files, get_cutout_output_files};
+
+    // Determine output files based on tool type
+    let outputs = match config.tool_name() {
+        "detect" => {
+            let detection_config = config as &dyn std::any::Any;
+            let detection_config = detection_config
+                .downcast_ref::<crate::config::DetectionConfig>()
+                .ok_or_else(|| anyhow::anyhow!("Failed to downcast to DetectionConfig"))?;
+
+            get_detection_output_files(
+                image_path,
+                &detection_config.crop_classes,
+                detection_config.bounding_box,
+                !config.base().skip_metadata,
+                config.base().output_dir.as_deref(),
+            )
+        }
+        "cutout" => {
+            let cutout_config = config as &dyn std::any::Any;
+            let cutout_config = cutout_config
+                .downcast_ref::<crate::config::CutoutConfig>()
+                .ok_or_else(|| anyhow::anyhow!("Failed to downcast to CutoutConfig"))?;
+
+            get_cutout_output_files(
+                image_path,
+                cutout_config.save_mask,
+                !config.base().skip_metadata,
+                config.base().output_dir.as_deref(),
+            )
+        }
+        tool_name => return Err(anyhow::anyhow!("Unknown tool name: {}", tool_name)),
+    };
+
+    // Input files are just the source image
+    let inputs = vec![image_path.to_path_buf()];
+
+    // Generate the depfile
+    generate_depfile(
+        Path::new(depfile_path),
+        &outputs,
+        &inputs,
+        stamp_info,
+    )?;
 
     Ok(())
 }
