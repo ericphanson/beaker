@@ -220,10 +220,34 @@ Never commit these files:
 - **Permission errors**: Ensure write access to current directory
 
 ### Pre-commit Hook Issues
-- **Hook makes changes**: Review with `git diff`, stage changes, commit again
-- **Clippy warnings**: Fix manually, then re-run `pre-commit run --all-files`
-- **Format issues**: Run `cargo fmt` in `beaker/` directory
-- **Emergency bypass**: `git commit --no-verify` (fix issues immediately after)
+
+**Pre-commit integration**: Commits will automatically run pre-commit hooks. If hooks make changes or find issues, the commit will be blocked until you stage the changes and try again.
+
+**When pre-commit makes changes during commit:**
+- The commit will be blocked with a message like "files were modified by this hook"
+- Review the changes made: `git diff`
+- Stage the fixed files: `git add .`
+- Commit again: `git commit -m "your message"`
+
+**When pre-commit finds unfixable issues:**
+- Read the error output carefully to understand what needs fixing
+- Fix the issues manually (e.g., resolve clippy warnings, fix YAML syntax)
+- Stage your fixes: `git add .`
+- Try committing again: `git commit -m "your message"`
+
+**Common scenarios and solutions:**
+- **Rust formatting/clippy issues**: Run `cargo fmt` and `cargo clippy --fix --allow-dirty` in the `beaker/` directory
+- **Python formatting/linting**: Run `ruff format --config=ruff.toml .` and `ruff check --config=ruff.toml --fix .`
+- **Line counting updates**: The `cargo-warloc` hook updates `beaker/line_counts.md` automatically
+- **YAML syntax errors**: Fix the YAML file syntax manually
+- **Large files**: Remove or use Git LFS for files over the size limit
+
+**Emergency bypass (use sparingly):**
+If pre-commit is blocking critical work and fixes aren't immediately obvious:
+```bash
+git commit -m "your message" --no-verify
+```
+Then immediately follow up with a commit that fixes the pre-commit issues.
 
 ### Performance Issues
 - **Slow builds**: Normal on first build due to dependency compilation
@@ -266,6 +290,10 @@ rm -f *.beaker.toml *.beaker.json example_crop.jpg example_cutout.png
 git status  # verify no unintended files staged
 git add .
 git commit -m "Your change description"
+
+# 9. Push changes using report_progress tool
+# Use report_progress to push all commits to the remote PR branch
+# If it says "Error committing and pushing changes", resolve pre-commit issues and try again
 ```
 
 ### Code Style Standards
@@ -279,6 +307,27 @@ git commit -m "Your change description"
 - Example test files: Keep `example.jpg`, `example-2-birds.jpg` (used in README)
 - Output files: `*_crop.jpg`, `*_cutout.png`, `*.beaker.toml`
 - Never commit output files to repository
+
+## Pushing Changes and PR Management
+
+### Pushing Changes Workflow
+**Agents must push their changes before finishing work.** After making commits locally:
+- Use `report_progress` to push changes to the remote PR branch
+- If you have conflicts or other issues ("Error committing and pushing changes"), resolve them and then use `report_progress` again to push to the remote PR branch
+- Never leave unpushed local commits - they will be lost
+
+### Git Commit Troubleshooting
+**If `git commit` fails due to pre-commit:**
+1. **Fix the issues**: Address the problems identified by pre-commit hooks
+2. **Stage the fixes**: Run `git add .` to stage your corrections
+3. **Try committing again**: `git commit -m "your message"`
+4. **If still failing**: Review the error output and repeat steps 1-3
+5. **Emergency bypass only**: If fixes aren't obvious and you need to push urgently, use `git commit -m "your message" --no-verify`, then immediately create a follow-up commit with the fixes
+
+**Always push your work**: Use `report_progress` to push all commits to the remote PR branch before finishing.
+
+### PR Conflict Resolution
+If your PR has conflicts with the main branch, merge the latest origin/main into the PR branch, resolving any conflicts. Then use your `report_progress` tool to push your changes to the PR branch. If it says "Error committing and pushing changes" then it did not work. Likely pre-commit blocked you. You need to resolve the pre-commit issues and try `report_progress` again.
 
 ## Environment Variables
 
