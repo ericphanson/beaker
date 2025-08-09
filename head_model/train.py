@@ -565,6 +565,7 @@ def on_fit_epoch_end_log_preds(trainer):
         interval = max(1, int(TRAINING_CONFIG.get("pred_log_interval", 1)))
         if epoch >= 0 and (epoch % interval) != 0:
             return
+
         # Determine a small set of validation images
         ds = getattr(getattr(trainer, "validator", None), "dataloader", None)
         paths = []
@@ -579,24 +580,45 @@ def on_fit_epoch_end_log_preds(trainer):
                 ]
         except Exception:
             paths = []
-        if not paths or GLOBAL_YOLO is None:
+        if not paths:
             return
+
+        # Get the best checkpoint path instead of using the global YOLO instance
+        # This avoids interfering with training gradients
+        weights_dir = os.path.join(trainer.save_dir, "weights")
+        last_pt = os.path.join(weights_dir, "last.pt")
+
+        # Use the best model if available, otherwise last
+        model_path = None
+        if os.path.exists(last_pt):
+            model_path = last_pt
+
+        if model_path is None:
+            return
+
         # Save predictions under the train run directory
         project_dir = str(trainer.save_dir)
         pred_project = os.path.join(project_dir, "epoch_preds")
         pred_name = f"epoch_{epoch:03d}"
-        # Run prediction and save images
-        GLOBAL_YOLO.predict(
-            source=paths,
-            imgsz=TRAINING_CONFIG["imgsz"],
-            conf=TRAINING_CONFIG["conf"],
-            iou=TRAINING_CONFIG["iou"],
-            save=True,
-            project=pred_project,
-            name=pred_name,
-            verbose=False,
-            device=GLOBAL_DEVICE,
-        )
+
+        # Create a temporary model instance for prediction only
+        # This prevents interference with the training model's gradients
+        with torch.no_grad():
+            pred_model = YOLO(model_path)
+            pred_model.predict(
+                source=paths,
+                imgsz=TRAINING_CONFIG["imgsz"],
+                conf=TRAINING_CONFIG["conf"],
+                iou=TRAINING_CONFIG["iou"],
+                save=True,
+                project=pred_project,
+                name=pred_name,
+                verbose=False,
+                device=GLOBAL_DEVICE,
+            )
+            # Clear the temporary model
+            del pred_model
+
         # Log to Comet
         if COMET_EXPERIMENT is not None:
             out_dir = os.path.join(pred_project, pred_name)
