@@ -2,15 +2,34 @@
 # This verifies that beaker integrates properly with Make for dependency tracking
 
 # Test images and outputs
-TEST_IMG := test.jpg
-CUTOUT_OUTPUT := test_cutout.png
-DETECT_OUTPUT := test_crop.jpg
+TEST_IMG := example.jpg
+CUTOUT_OUTPUT := example_cutout.png
+DETECT_OUTPUT := example_bounding-box.jpg
 
 # Beaker binary (use cargo run in development)
 BEAKER := ../../../target/release/beaker
 
 # Test targets
-.PHONY: all test_incremental clean
+.PHONY: all test_incremental clean detect-confidence-0.3 detect-with-metadata cutout-with-metadata
+
+all: $(CUTOUT_OUTPUT) $(DETECT_OUTPUT)
+
+# Alternative confidence test
+detect-confidence-0.3:
+	$(BEAKER) detect $(TEST_IMG) --confidence 0.3 --crop bird --depfile example_crop_03.jpg.d
+
+# Test targets with metadata for integration testing
+detect-with-metadata: example_crop_metadata.jpg
+
+example_crop_metadata.jpg: $(TEST_IMG)
+	@echo "Building detection with metadata from $<"
+	$(BEAKER) detect $< --confidence 0.5 --crop bird --metadata --depfile $@.d
+
+cutout-with-metadata: example_cutout_metadata.png
+
+example_cutout_metadata.png: $(TEST_IMG)
+	@echo "Building cutout with metadata from $<"
+	$(BEAKER) cutout $< --metadata --depfile $@.d
 
 all: $(CUTOUT_OUTPUT) $(DETECT_OUTPUT)
 
@@ -22,7 +41,7 @@ $(CUTOUT_OUTPUT): $(TEST_IMG)
 # Detection target - includes depfile generation
 $(DETECT_OUTPUT): $(TEST_IMG)
 	@echo "Building detection crops from $<"
-	$(BEAKER) detect $< --confidence 0.5 --crop bird --metadata --depfile $@.d
+	$(BEAKER) detect $< --confidence 0.1 --bounding-box --metadata --depfile $@.d
 
 # Include dependency files if they exist
 -include $(CUTOUT_OUTPUT).d
@@ -43,4 +62,9 @@ test_incremental: clean
 clean:
 	rm -f $(CUTOUT_OUTPUT) $(DETECT_OUTPUT)
 	rm -f $(CUTOUT_OUTPUT).d $(DETECT_OUTPUT).d
+	rm -f example_crop_metadata.jpg example_cutout_metadata.png
+	rm -f example_crop_metadata.jpg.d example_cutout_metadata.png.d
+	rm -f example_crop_03.jpg example_crop_03.jpg.d
+	rm -f example_crop.jpg example_crop.jpg.d
+	rm -f example_bbox.jpg example_bbox.jpg.d
 	rm -f *.beaker.toml *.beaker.json

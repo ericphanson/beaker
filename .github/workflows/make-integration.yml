@@ -1,0 +1,111 @@
+name: Make Integration Tests
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'beaker/**'
+      - '.github/workflows/make-integration.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'beaker/**'
+      - '.github/workflows/make-integration.yml'
+  workflow_dispatch:  # Allow manual triggering
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_LOG: "debug"
+  RUST_BACKTRACE: "1"
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  make-integration:
+    name: Make Integration Tests
+    runs-on: ubuntu-latest  # Run only on Linux to save CI resources
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install Make
+      run: sudo apt-get update && sudo apt-get install -y make
+
+    - name: Set up caching for ONNX models
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/onnx-models
+        key: onnx-models-${{ hashFiles('beaker/build.rs') }}
+        restore-keys: onnx-models-
+
+    - name: Build Beaker (Release)
+      working-directory: beaker
+      run: |
+        cargo build --release
+        # Verify the binary works
+        ./target/release/beaker --help
+
+    - name: Set up test environment
+      working-directory: beaker/tests/make_integration
+      run: |
+        # Copy test images
+        cp ../../example.jpg .
+        cp ../../example-2-birds.jpg .
+
+        # Set custom stamp directory for isolated testing
+        echo "BEAKER_STAMP_DIR=$(pwd)/test_stamps" >> $GITHUB_ENV
+
+    - name: Run Make integration tests
+      working-directory: beaker/tests/make_integration
+      run: |
+        chmod +x test_make_integration.sh
+        ./test_make_integration.sh
+
+    - name: Verify test artifacts
+      working-directory: beaker/tests/make_integration
+      run: |
+        # Check that stamp files were created
+        ls -la test_stamps/
+
+        # Check that output files were created
+        ls -la example_crop.jpg example_cutout.png
+
+        # Check that depfiles were created
+        ls -la *.d
+
+    - name: Test alternative model parameters
+      working-directory: beaker/tests/make_integration
+      run: |
+        # Test that changing confidence triggers rebuild
+        echo "=== Testing confidence change ==="
+        make clean
+        make detect-confidence-0.3
+        make detect-confidence-0.3  # Should be up to date
+        OUTPUT=$(make detect-confidence-0.3 2>&1)
+        if echo "$OUTPUT" | grep -q "Nothing to be done\|is up to date"; then
+          echo "✅ No rebuild for same confidence"
+        else
+          echo "❌ Unexpected rebuild: $OUTPUT"
+          exit 1
+        fi
+
+    - name: Test metadata preservation
+      working-directory: beaker/tests/make_integration
+      run: |
+        # Test that cutout after detect doesn't rebuild detect
+        echo "=== Testing metadata preservation ==="
+        make clean
+        make detect-with-metadata  # Run detect with metadata
+        make cutout-with-metadata  # Run cutout with metadata (updates TOML)
+
+        # Now running detect again should NOT rebuild because TOML is not a prerequisite
+        OUTPUT=$(make detect-with-metadata 2>&1)
+        if echo "$OUTPUT" | grep -q "Nothing to be done\|is up to date"; then
+          echo "✅ Detect not rebuilt after cutout metadata update"
+        else
+          echo "❌ Detect incorrectly rebuilt: $OUTPUT"
+          exit 1
+        fi

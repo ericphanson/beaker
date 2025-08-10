@@ -53,8 +53,9 @@ if echo "$OUTPUT" | grep -q "is up to date"; then
 elif echo "$OUTPUT" | grep -q "Nothing to be done"; then
     echo "✅ Make correctly detected no rebuild needed"
 else
-    echo "⚠️  Make output: $OUTPUT"
+    echo "❌ Make output: $OUTPUT"
     echo "Expected no rebuild, but got different output"
+    exit 1
 fi
 
 echo ""

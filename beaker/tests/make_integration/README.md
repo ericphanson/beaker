@@ -45,4 +45,4 @@ make all            # Should rebuild both targets
 
 ## Integration with CI
 
-This test can be run in CI to ensure Make compatibility is maintained across changes to the dependency tracking system.
+This test can be run in CI to ensure Make compatibility is maintained across changes to the dependency tracking system. See `.github/workflows/make-integration.yml` for the automated CI workflow that runs these tests on every PR.

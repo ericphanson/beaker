@@ -398,24 +398,25 @@ fn generate_stamps_for_tool<P: ModelProcessor>(
     config: &P::Config,
     model_path: Option<&Path>,
 ) -> Result<crate::stamp_manager::StampInfo> {
-    match config.tool_name() {
+    let tool_name = config.tool_name();
+
+    // Downcast to Any first, then to the specific config type
+    let config_any = config as &dyn std::any::Any;
+
+    match tool_name {
         "detect" => {
-            // Cast to DetectionConfig
-            let detection_config = config as &dyn std::any::Any;
-            let detection_config = detection_config
+            let detection_config = config_any
                 .downcast_ref::<crate::config::DetectionConfig>()
                 .ok_or_else(|| anyhow::anyhow!("Failed to downcast to DetectionConfig"))?;
-            crate::stamp_manager::generate_stamps_for_model("detect", detection_config, model_path)
+            crate::stamp_manager::generate_stamps_for_model(tool_name, detection_config, model_path)
         }
         "cutout" => {
-            // Cast to CutoutConfig
-            let cutout_config = config as &dyn std::any::Any;
-            let cutout_config = cutout_config
+            let cutout_config = config_any
                 .downcast_ref::<crate::config::CutoutConfig>()
                 .ok_or_else(|| anyhow::anyhow!("Failed to downcast to CutoutConfig"))?;
-            crate::stamp_manager::generate_stamps_for_model("cutout", cutout_config, model_path)
+            crate::stamp_manager::generate_stamps_for_model(tool_name, cutout_config, model_path)
         }
-        tool_name => Err(anyhow::anyhow!("Unknown tool name: {}", tool_name)),
+        _ => Err(anyhow::anyhow!("Unknown tool name: {}", tool_name)),
     }
 }
 
