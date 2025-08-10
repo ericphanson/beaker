@@ -139,10 +139,10 @@ fn handle_image_outputs_with_timing(
     image_path: &Path,
     config: &DetectionConfig,
     io_timing: &mut IoTiming,
+    output_manager: &OutputManager,
 ) -> Result<(Option<String>, Vec<DetectionWithPath>)> {
     let source_path = image_path;
     let output_ext = get_output_extension(source_path);
-    let output_manager = OutputManager::new(config, source_path);
 
     let mut detections_with_paths = Vec::new();
 
@@ -245,6 +245,7 @@ impl ModelProcessor for DetectionProcessor {
         session: &mut Session,
         image_path: &Path,
         config: &Self::Config,
+        output_manager: &crate::output_manager::OutputManager,
     ) -> Result<Self::Result> {
         let processing_start = Instant::now();
         let mut io_timing = IoTiming::new();
@@ -306,6 +307,7 @@ impl ModelProcessor for DetectionProcessor {
             image_path,
             config,
             &mut io_timing,
+            output_manager,
         )?;
 
         Ok(DetectionResult {

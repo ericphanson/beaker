@@ -66,6 +66,7 @@ pub trait ModelProcessor {
         session: &mut Session,
         image_path: &Path,
         config: &Self::Config,
+        output_manager: &crate::output_manager::OutputManager,
     ) -> Result<Self::Result>;
 
     /// Get serializable configuration for metadata
@@ -185,6 +186,9 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
             strict_mode: config.base().strict,
         };
 
+        // Create OutputManager for this image
+        let output_manager = crate::output_manager::OutputManager::new(&config, image_path);
+
         if let Some(ref pb) = progress_bar {
             // we will style the filename with bold:
             let filename = crate::color_utils::maybe_color_stderr(
@@ -208,7 +212,7 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
                 pb.set_message(format!("ETA: {eta:.1}s"));
             }
         }
-        match P::process_single_image(&mut session, image_path, &config) {
+        match P::process_single_image(&mut session, image_path, &config, &output_manager) {
             Ok(result) => {
                 successful_count += 1;
 
@@ -222,6 +226,7 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
                         input.clone(),
                         start_timestamp,
                         stamp_info.as_ref(),
+                        &output_manager,
                     )?;
                 }
                 if progress_bar.is_none() {
@@ -317,11 +322,9 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
     input: InputProcessing,
     start_timestamp: chrono::DateTime<chrono::Utc>,
     stamp_info: Option<&crate::stamp_manager::StampInfo>,
+    output_manager: &crate::output_manager::OutputManager,
 ) -> Result<()> {
-    use crate::output_manager::OutputManager;
     use crate::shared_metadata::{CutoutSections, DetectSections, ExecutionContext};
-
-    let output_manager = OutputManager::new(config, image_path);
 
     // Create execution context
     let execution = ExecutionContext {
@@ -374,7 +377,7 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
             image_path,
             depfile_path,
             stamp_info,
-            &output_manager,
+            output_manager,
         )?;
     }
 
