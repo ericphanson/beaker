@@ -184,8 +184,10 @@ pub fn create_onnx_session(
                     None
                 } else {
                     // Check if cache already exists - this determines cache hit/miss
-                    let compiled_model_path = cache_dir.join("compiled_model.mlmodelc");
-                    let cache_hit = compiled_model_path.exists();
+                    let cache_hit = cache_dir.is_dir()
+                        && std::fs::read_dir(&cache_dir)
+                            .map(|mut dir| dir.next().is_some())
+                            .unwrap_or(false);
 
                     if cache_hit {
                         log::debug!("♻️  Reusing existing CoreML cache: {}", cache_dir.display());

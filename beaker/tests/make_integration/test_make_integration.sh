@@ -201,7 +201,7 @@ else
 fi
 
 echo ""
-echo "=== Test 9: Metadata preservation test (from CI workflow) ==="
+echo "=== Test 9: Metadata preservation test ==="
 # NOTE: This test exposes a limitation in beaker's Make integration where
 # the output file naming and depfile target naming can become mismatched.
 # This would require architectural changes to fix properly.
