@@ -26,6 +26,33 @@ pub const MODEL_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/bird-he
 pub const MODEL_VERSION: &str =
     include_str!(concat!(env!("OUT_DIR"), "/bird-head-detector.version"));
 
+/// Derive model version from ModelInfo based on the actual model being used
+fn derive_model_version(model_info: &crate::onnx_session::ModelInfo) -> String {
+    match model_info.model_source.as_str() {
+        "Embedded" => {
+            // For embedded models, use the built-in version
+            MODEL_VERSION.trim().to_string()
+        }
+        "File" => {
+            // For file-based models, derive version from path
+            if let Some(path) = &model_info.model_path {
+                // Extract filename from path and use as version
+                std::path::Path::new(path)
+                    .file_stem()
+                    .and_then(|stem| stem.to_str())
+                    .map(|name| format!("custom-{name}"))
+                    .unwrap_or_else(|| format!("custom-file-{}", &model_info.model_checksum[..8]))
+            } else {
+                format!("custom-file-{}", &model_info.model_checksum[..8])
+            }
+        }
+        _ => {
+            // For other sources (e.g., downloaded models), use checksum-based identifier
+            format!("custom-{}", &model_info.model_checksum[..8])
+        }
+    }
+}
+
 /// Head detection model access implementation.
 pub struct HeadAccess;
 
@@ -244,6 +271,7 @@ impl ModelProcessor for DetectionProcessor {
         session: &mut Session,
         image_path: &Path,
         config: &Self::Config,
+        model_info: &crate::onnx_session::ModelInfo,
     ) -> Result<Self::Result> {
         let processing_start = Instant::now();
         let mut io_timing = IoTiming::new();
@@ -308,7 +336,7 @@ impl ModelProcessor for DetectionProcessor {
         )?;
 
         Ok(DetectionResult {
-            model_version: MODEL_VERSION.to_string(),
+            model_version: derive_model_version(model_info),
             processing_time_ms: total_processing_time,
             bounding_box_path,
             detections: detections_with_paths,

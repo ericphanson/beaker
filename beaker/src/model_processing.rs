@@ -69,6 +69,7 @@ pub trait ModelProcessor {
         session: &mut Session,
         image_path: &Path,
         config: &Self::Config,
+        model_info: &crate::onnx_session::ModelInfo,
     ) -> Result<Self::Result>;
 
     /// Get serializable configuration for metadata
@@ -154,12 +155,12 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
         device_requested: Some(config.base().device.clone()),
         device_selected: Some(device_selected.to_string()),
         device_selection_reason: Some(device_selection_reason.to_string()),
-        execution_providers: model_info.execution_providers,
-        model_source: Some(model_info.model_source),
-        model_path: model_info.model_path,
+        execution_providers: model_info.execution_providers.clone(),
+        model_source: Some(model_info.model_source.clone()),
+        model_path: model_info.model_path.clone(),
         model_size_bytes: Some(model_info.model_size_bytes.try_into().unwrap()),
         model_load_time_ms: Some(model_load_time_ms),
-        model_checksum: Some(model_info.model_checksum),
+        model_checksum: Some(model_info.model_checksum.clone()),
         onnx_cache: onnx_cache_stats,
         coreml_cache: coreml_cache_stats,
     };
@@ -206,7 +207,7 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
                 pb.set_message(format!("ETA: {eta:.1}s"));
             }
         }
-        match P::process_single_image(&mut session, image_path, &config) {
+        match P::process_single_image(&mut session, image_path, &config, &model_info) {
             Ok(result) => {
                 successful_count += 1;
 

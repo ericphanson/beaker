@@ -27,6 +27,38 @@ pub fn get_default_cutout_model_info() -> ModelInfo {
     }
 }
 
+/// Derive model version from ModelInfo based on the actual model being used
+fn derive_cutout_model_version(model_info: &crate::onnx_session::ModelInfo) -> String {
+    // First check if this matches the default model by checksum, regardless of source
+    if model_info.model_checksum == get_default_cutout_model_info().md5_checksum {
+        return get_default_cutout_model_info().name;
+    }
+
+    match model_info.model_source.as_str() {
+        "Embedded" => {
+            // Cutout models don't have embedded versions, but handle this case for consistency
+            "embedded-cutout".to_string()
+        }
+        "File" => {
+            // For file-based models, derive version from path or use generic identifier
+            if let Some(path) = &model_info.model_path {
+                // Extract filename from path and use as version
+                std::path::Path::new(path)
+                    .file_stem()
+                    .and_then(|stem| stem.to_str())
+                    .map(|name| format!("custom-{name}"))
+                    .unwrap_or_else(|| format!("custom-file-{}", &model_info.model_checksum[..8]))
+            } else {
+                format!("custom-file-{}", &model_info.model_checksum[..8])
+            }
+        }
+        _ => {
+            // For other sources, use checksum-based identifier
+            format!("custom-{}", &model_info.model_checksum[..8])
+        }
+    }
+}
+
 /// Cutout model access implementation.
 pub struct CutAccess;
 
@@ -164,6 +196,7 @@ impl ModelProcessor for CutoutProcessor {
         session: &mut Session,
         image_path: &Path,
         config: &Self::Config,
+        model_info: &crate::onnx_session::ModelInfo,
     ) -> Result<Self::Result> {
         let start_time = Instant::now();
         let mut io_timing = IoTiming::new();
@@ -253,7 +286,7 @@ impl ModelProcessor for CutoutProcessor {
         // Create result with timing information
         let cutout_result = CutoutResult {
             output_path: output_path.to_string_lossy().to_string(),
-            model_version: get_default_cutout_model_info().name,
+            model_version: derive_cutout_model_version(model_info),
             processing_time_ms: processing_time,
             mask_path: mask_path.map(|p| p.to_string_lossy().to_string()),
             io_timing,
