@@ -23,7 +23,7 @@ detect-with-metadata: example_crop_metadata.jpg
 
 example_crop_metadata.jpg: $(TEST_IMG)
 	@echo "Building detection with metadata from $<"
-	$(BEAKER) detect $< --confidence 0.5 --crop bird --metadata --depfile $@.d
+	$(BEAKER) detect $< --confidence 0.5 --crop head --metadata --depfile $@.d
 
 cutout-with-metadata: example_cutout_metadata.png
 

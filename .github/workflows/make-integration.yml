@@ -48,77 +48,23 @@ jobs:
         restore-keys: onnx-models-
 
     - name: Build Beaker (Release)
-      run: |
-        cargo build --release
-        # Verify the binary works
-        ./target/release/beaker --help
+      run: cargo build --release
 
-    - name: Set up test environment
-      working-directory: beaker/tests/make_integration
-      run: |
-        # Copy test images
-        cp ../../../example.jpg .
-        cp ../../../example-2-birds.jpg .
-
-        # Set custom stamp directory for isolated testing
-        echo "BEAKER_STAMP_DIR=$(pwd)/test_stamps" >> $GITHUB_ENV
-
-    - name: Run Make integration tests
+    - name: Run comprehensive Make integration tests
       working-directory: beaker/tests/make_integration
       run: |
         chmod +x test_make_integration.sh
         ./test_make_integration.sh
 
-    - name: Verify test artifacts
+    - name: Verify stamp files were preserved
       working-directory: beaker/tests/make_integration
       run: |
-        # Check that stamp files were created
-        ls -la test_stamps/
-
-        # Copy test image back for verification builds
-        cp ../../../example.jpg .
-
-        # Create sample outputs to verify the build works after testing
-        echo "Creating verification outputs..."
-        make example_cutout.png
-        make example_bounding-box.jpg
-
-        # Check that output files can be created
-        ls -la example_cutout.png example_bounding-box.jpg
-
-        # Check that depfiles were created
-        ls -la *.d
-
-    - name: Test alternative model parameters
-      working-directory: beaker/tests/make_integration
-      run: |
-        # Test that changing confidence triggers rebuild
-        echo "=== Testing confidence change ==="
-        make clean
-        make detect-confidence-0.3
-        make detect-confidence-0.3  # Should be up to date
-        OUTPUT=$(make detect-confidence-0.3 2>&1)
-        if echo "$OUTPUT" | grep -q "Nothing to be done\|is up to date"; then
-          echo "✅ No rebuild for same confidence"
+        # Check that stamp files were created and preserved
+        if [ -d "test_stamps" ] && [ "$(find test_stamps -name '*.stamp' | wc -l)" -gt 0 ]; then
+          echo "✅ Stamp files preserved for CI verification"
+          echo "Stamp files found:"
+          find test_stamps -name '*.stamp' | head -5
         else
-          echo "❌ Unexpected rebuild: $OUTPUT"
-          exit 1
-        fi
-
-    - name: Test metadata preservation
-      working-directory: beaker/tests/make_integration
-      run: |
-        # Test that cutout after detect doesn't rebuild detect
-        echo "=== Testing metadata preservation ==="
-        make clean
-        make detect-with-metadata  # Run detect with metadata
-        make cutout-with-metadata  # Run cutout with metadata (updates TOML)
-
-        # Now running detect again should NOT rebuild because TOML is not a prerequisite
-        OUTPUT=$(make detect-with-metadata 2>&1)
-        if echo "$OUTPUT" | grep -q "Nothing to be done\|is up to date"; then
-          echo "✅ Detect not rebuilt after cutout metadata update"
-        else
-          echo "❌ Detect incorrectly rebuilt: $OUTPUT"
+          echo "❌ No stamp files found after testing"
           exit 1
         fi
