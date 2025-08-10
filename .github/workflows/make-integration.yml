@@ -50,6 +50,6 @@ jobs:
     - name: Build Beaker (Release)
       run: cargo build --release
 
-    - name: Run comprehensive Make integration tests
+    - name: Run Make integration tests
       working-directory: beaker/tests/make_integration
       run: ./test_make_integration.sh
