@@ -122,7 +122,7 @@ pub fn run_beaker_command_with_env(args: &[&str], env_vars: &[(&str, &str)]) -> 
     });
 
     // Run the built binary directly
-    let beaker_binary = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/debug/beaker");
+    let beaker_binary = Path::new(env!("CARGO_MANIFEST_DIR")).join("../target/debug/beaker");
 
     let output = Command::new(&beaker_binary)
         .args(args)

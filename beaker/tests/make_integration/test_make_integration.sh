@@ -21,10 +21,8 @@ echo "Stamp directory: $BEAKER_STAMP_DIR"
 cd "$TEST_DIR"
 
 # Copy test image from repository root
-if [ ! -f "$TEST_IMG" ]; then
-    echo "Copying test image..."
-    cp "../../../example.jpg" "$TEST_IMG"
-fi
+echo "Copying test image..."
+cp "../../../example.jpg" "$TEST_IMG"
 
 # Clean start
 echo "Cleaning up previous test artifacts..."
@@ -100,9 +98,33 @@ else
 fi
 
 echo ""
+echo "=== Test 6: Metadata preservation test (cutout after detect should not rerun detect) ==="
+# Clean and run detect first
+make clean
+echo "Running detect with metadata..."
+make test_crop.jpg
+echo "Running cutout with metadata (should NOT trigger detect rebuild)..."
+make test_cutout.png 2>&1 | tee cutout_output.log
+if grep -q "Building detection" cutout_output.log; then
+    echo "❌ Detection was incorrectly rebuilt when running cutout"
+    cat cutout_output.log
+    exit 1
+else
+    echo "✅ Detection was not rebuilt when running cutout (correct behavior)"
+fi
+rm -f cutout_output.log
+
+echo ""
+echo "=== Test 7: Alternative model parameter test ==="
+export BEAKER_STAMP_DIR="./stamps_alt"
+make -f Makefile.alt_model test_model_changes
+
+echo ""
 echo "=== Cleaning up ==="
 make clean
+make -f Makefile.alt_model clean
 rm -rf "$BEAKER_STAMP_DIR"
+rm -rf "./stamps_alt"
 rm -f "$TEST_IMG"
 
 echo "✅ All Make integration tests passed!"

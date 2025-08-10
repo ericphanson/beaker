@@ -11,7 +11,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::cache_common::{calculate_md5, get_cache_base_dir};
-use crate::config::{CutoutConfig, DetectionConfig};
 use beaker_stamp::write_cfg_stamp;
 
 /// Generate tool version hash
@@ -97,22 +96,6 @@ pub fn generate_stamps_for_model<T: beaker_stamp::Stamp>(
     })
 }
 
-/// Generate all stamps for a detection run using beaker-stamp
-pub fn generate_detection_stamps(
-    config: &DetectionConfig,
-    model_path: Option<&Path>,
-) -> Result<StampInfo> {
-    generate_stamps_for_model("detect", config, model_path)
-}
-
-/// Generate all stamps for a cutout run using beaker-stamp
-pub fn generate_cutout_stamps(
-    config: &CutoutConfig,
-    model_path: Option<&Path>,
-) -> Result<StampInfo> {
-    generate_stamps_for_model("cutout", config, model_path)
-}
-
 /// Information about generated stamp files
 #[derive(Debug)]
 pub struct StampInfo {
@@ -145,7 +128,7 @@ mod tests {
     //! This helps prevent dependency tracking issues where changes don't trigger rebuilds.
 
     use super::*;
-    use crate::config::{DetectCommand, GlobalArgs};
+    use crate::config::{DetectCommand, DetectionConfig, GlobalArgs};
     use clap_verbosity_flag::Verbosity;
 
     fn create_test_detection_config() -> DetectionConfig {
@@ -174,21 +157,23 @@ mod tests {
     }
 
     #[test]
-    fn test_detection_config_hash_deterministic() {
+    fn test_detection_stamp_deterministic() {
+        use beaker_stamp::Stamp;
         let config = create_test_detection_config();
-        let hash1 = generate_detection_config_hash(&config);
-        let hash2 = generate_detection_config_hash(&config);
+        let hash1 = config.stamp_hash();
+        let hash2 = config.stamp_hash();
         assert_eq!(hash1, hash2);
-        assert_eq!(hash1.len(), 16); // Should be truncated to 16 chars
+        assert!(hash1.starts_with("sha256:"));
     }
 
     #[test]
-    fn test_detection_config_hash_changes_with_params() {
+    fn test_detection_stamp_changes_with_params() {
+        use beaker_stamp::Stamp;
         let mut config = create_test_detection_config();
-        let hash1 = generate_detection_config_hash(&config);
+        let hash1 = config.stamp_hash();
 
         config.confidence = 0.5; // Change confidence
-        let hash2 = generate_detection_config_hash(&config);
+        let hash2 = config.stamp_hash();
 
         assert_ne!(hash1, hash2);
     }

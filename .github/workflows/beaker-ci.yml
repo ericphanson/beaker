@@ -92,17 +92,17 @@ jobs:
       if: runner.os != 'Windows'
       run: |
         echo "📊 Binary information:"
-        ls -lh target/${{ matrix.target }}/release/beaker
+        ls -lh ../target/${{ matrix.target }}/release/beaker
         echo ""
-        echo "🔍 Binary size: $(du -h target/${{ matrix.target }}/release/beaker | cut -f1)"
-        echo "📏 Stripped size: $(strip target/${{ matrix.target }}/release/beaker -o /tmp/beaker-stripped && du -h /tmp/beaker-stripped | cut -f1)"
+        echo "🔍 Binary size: $(du -h ../target/${{ matrix.target }}/release/beaker | cut -f1)"
+        echo "📏 Stripped size: $(strip ../target/${{ matrix.target }}/release/beaker -o /tmp/beaker-stripped && du -h /tmp/beaker-stripped | cut -f1)"
       working-directory: beaker
 
     - name: Show binary information (Windows)
       if: runner.os == 'Windows'
       run: |
         echo "Binary information:"
-        Get-ChildItem target/${{ matrix.target }}/release/beaker.exe | Format-Table Name, Length
+        Get-ChildItem ../target/${{ matrix.target }}/release/beaker.exe | Format-Table Name, Length
       working-directory: beaker
 
     - name: Copy example image to beaker directory
@@ -112,7 +112,7 @@ jobs:
       if: runner.os != 'Windows'
       run: |
         echo "🧪 Testing CLI help command..."
-        ./target/${{ matrix.target }}/release/beaker --help
+        ../target/${{ matrix.target }}/release/beaker --help
         echo "✅ CLI help works"
       working-directory: beaker
 
@@ -120,7 +120,7 @@ jobs:
       if: runner.os == 'Windows'
       run: |
         echo "Testing CLI help command..."
-        ./target/${{ matrix.target }}/release/beaker.exe --help
+        ../target/${{ matrix.target }}/release/beaker.exe --help
         echo "CLI help works"
       working-directory: beaker
 
@@ -129,7 +129,7 @@ jobs:
       run: |
         echo "🧪 Testing CLI detect command with ORT logging..."
         echo "Device: ${{ matrix.device }}, Target: ${{ matrix.target }}"
-        ./target/${{ matrix.target }}/release/beaker detect example.jpg --confidence 0.5 --device ${{ matrix.device }} --metadata
+        ../target/${{ matrix.target }}/release/beaker detect example.jpg --confidence 0.5 --device ${{ matrix.device }} --metadata
         echo "✅ CLI detect command works"
       working-directory: beaker
 
@@ -138,7 +138,7 @@ jobs:
       run: |
         echo "Testing CLI detect command with ORT logging..."
         echo "Device: ${{ matrix.device }}, Target: ${{ matrix.target }}"
-        ./target/${{ matrix.target }}/release/beaker.exe detect example.jpg --confidence 0.5 --device ${{ matrix.device }} --metadata
+        ../target/${{ matrix.target }}/release/beaker.exe detect example.jpg --confidence 0.5 --device ${{ matrix.device }} --metadata
         echo "CLI detect command works"
       working-directory: beaker
 
@@ -157,10 +157,10 @@ jobs:
         fi
         echo ""
         echo "=== Running with --device auto ==="
-        ./target/${{ matrix.target }}/release/beaker detect example.jpg --confidence 0.5 --device auto --metadata
+        ../target/${{ matrix.target }}/release/beaker detect example.jpg --confidence 0.5 --device auto --metadata
         echo ""
         echo "=== Running with --device cpu ==="
-        ./target/${{ matrix.target }}/release/beaker detect example.jpg --confidence 0.5 --device cpu --metadata
+        ../target/${{ matrix.target }}/release/beaker detect example.jpg --confidence 0.5 --device cpu --metadata
         echo "✅ Execution provider testing complete"
       working-directory: beaker
 
@@ -172,10 +172,10 @@ jobs:
         echo "Expected: CoreML should not be available, fallback to CPU"
         echo ""
         echo "=== Running with --device auto ==="
-        ./target/${{ matrix.target }}/release/beaker.exe detect example.jpg --confidence 0.5 --device auto --metadata
+        ../target/${{ matrix.target }}/release/beaker.exe detect example.jpg --confidence 0.5 --device auto --metadata
         echo ""
         echo "=== Running with --device cpu ==="
-        ./target/${{ matrix.target }}/release/beaker.exe detect example.jpg --confidence 0.5 --device cpu --metadata
+        ../target/${{ matrix.target }}/release/beaker.exe detect example.jpg --confidence 0.5 --device cpu --metadata
         echo "Execution provider testing complete"
       working-directory: beaker
 
@@ -187,7 +187,7 @@ jobs:
       run: |
         echo "🔽 Pre-downloading models to avoid test concurrency issues..."
         echo "Running cutout command to trigger model download:"
-        ./target/${{ matrix.target }}/release/beaker cutout example.jpg --device ${{ matrix.device }} || echo "Pre-download may have failed but continuing with tests"
+        ../target/${{ matrix.target }}/release/beaker cutout example.jpg --device ${{ matrix.device }} || echo "Pre-download may have failed but continuing with tests"
         echo "✅ Model pre-download attempt completed"
       working-directory: beaker
 
@@ -196,7 +196,7 @@ jobs:
       run: |
         echo "Pre-downloading models to avoid test concurrency issues..."
         echo "Running cutout command to trigger model download:"
-        ./target/${{ matrix.target }}/release/beaker.exe cutout example.jpg --device ${{ matrix.device }} || echo "Pre-download may have failed but continuing with tests"
+        ../target/${{ matrix.target }}/release/beaker.exe cutout example.jpg --device ${{ matrix.device }} || echo "Pre-download may have failed but continuing with tests"
         echo "Model pre-download attempt completed"
       working-directory: beaker
 
@@ -209,7 +209,7 @@ jobs:
       with:
         name: beaker-${{ matrix.target }}
         path: |
-          beaker/target/${{ matrix.target }}/release/beaker*
+          target/${{ matrix.target }}/release/beaker*
         retention-days: 7
 
 

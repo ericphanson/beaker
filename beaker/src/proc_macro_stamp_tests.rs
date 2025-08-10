@@ -1,5 +1,5 @@
 // Test the new proc macro stamp generation
-use crate::config::{BaseModelConfig, CutoutConfig, DetectionClass, DetectionConfig};
+use crate::config::{BaseModelConfig, CutoutConfig, DetectionConfig};
 use beaker_stamp::Stamp;
 use std::collections::HashSet;
 

@@ -1,3 +1,4 @@
+BEAKER := ../../../target/release/beaker
 # Makefile for testing beaker incremental build compatibility
 # This verifies that beaker integrates properly with Make for dependency tracking
 
@@ -7,7 +8,7 @@ CUTOUT_OUTPUT := test_cutout.png
 DETECT_OUTPUT := test_crop.jpg
 
 # Beaker binary (use cargo run in development)
-BEAKER := ../../../target/release/beaker
+BEAKER := cargo run --release --
 
 # Test targets
 .PHONY: all test_incremental clean

@@ -405,7 +405,7 @@ fn generate_stamps_for_tool<P: ModelProcessor>(
             let detection_config = detection_config
                 .downcast_ref::<crate::config::DetectionConfig>()
                 .ok_or_else(|| anyhow::anyhow!("Failed to downcast to DetectionConfig"))?;
-            crate::stamp_manager::generate_detection_stamps(detection_config, model_path)
+            crate::stamp_manager::generate_stamps_for_model("detect", detection_config, model_path)
         }
         "cutout" => {
             // Cast to CutoutConfig
@@ -413,7 +413,7 @@ fn generate_stamps_for_tool<P: ModelProcessor>(
             let cutout_config = cutout_config
                 .downcast_ref::<crate::config::CutoutConfig>()
                 .ok_or_else(|| anyhow::anyhow!("Failed to downcast to CutoutConfig"))?;
-            crate::stamp_manager::generate_cutout_stamps(cutout_config, model_path)
+            crate::stamp_manager::generate_stamps_for_model("cutout", cutout_config, model_path)
         }
         tool_name => Err(anyhow::anyhow!("Unknown tool name: {}", tool_name)),
     }
