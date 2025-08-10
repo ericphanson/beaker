@@ -50,16 +50,3 @@ paste = "1.0"
 [build-dependencies]
 ureq        = { version = "2.12", features = ["json"] }
 serde_json  = "1.0"
-
-# ───────────────────────────────────────────────────────────────
-# Profiles
-# ───────────────────────────────────────────────────────────────
-[profile.release]
-lto            = true
-codegen-units  = 1
-panic          = "abort"
-strip          = true
-rpath          = true
-
-[profile.dev]
-rpath = true
