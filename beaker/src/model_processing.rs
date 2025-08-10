@@ -238,6 +238,20 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
                         &output_manager,
                     )?;
                 }
+
+                // Generate depfile if requested and stamps are available (independent of metadata)
+                if let (Some(depfile_path), Some(stamp_info)) =
+                    (&config.base().depfile, stamp_info.as_ref())
+                {
+                    generate_depfile_for_image::<P>(
+                        &result,
+                        &config,
+                        image_path,
+                        depfile_path,
+                        stamp_info,
+                        &output_manager,
+                    )?;
+                }
                 if progress_bar.is_none() {
                     let val = result.processing_time_ms();
                     let timing_str: String = maybe_dim_stderr(&format!("in {val:.0} ms"));
@@ -325,12 +339,12 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
 fn save_enhanced_metadata_for_file<P: ModelProcessor>(
     result: &P::Result,
     config: &P::Config,
-    image_path: &std::path::Path,
+    _image_path: &std::path::Path,
     command_line: &[String],
     system: SystemInfo,
     input: InputProcessing,
     start_timestamp: chrono::DateTime<chrono::Utc>,
-    stamp_info: Option<&crate::stamp_manager::StampInfo>,
+    _stamp_info: Option<&crate::stamp_manager::StampInfo>,
     output_manager: &crate::output_manager::OutputManager,
 ) -> Result<()> {
     use crate::shared_metadata::{CutoutSections, DetectSections, ExecutionContext};
@@ -376,18 +390,6 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
         _ => {
             return Err(anyhow::anyhow!("Unknown tool name: {}", result.tool_name()));
         }
-    }
-
-    // Generate depfile if requested and stamps are available
-    if let (Some(depfile_path), Some(stamp_info)) = (&config.base().depfile, stamp_info) {
-        generate_depfile_for_image::<P>(
-            result,
-            config,
-            image_path,
-            depfile_path,
-            stamp_info,
-            output_manager,
-        )?;
     }
 
     Ok(())

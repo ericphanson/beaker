@@ -66,11 +66,14 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 "0.5",
                 "--crop=head",
                 "--bounding-box",
+                "--depfile",
+                "example.d",
             ],
             expected_files: vec![
                 "example.beaker.toml",
                 "example_crop.jpg",
                 "example_bounding-box.jpg",
+                "example.d",
             ],
             metadata_checks: vec![
                 MetadataCheck::ConfigValue("detect", "confidence", toml::Value::from(0.5)),
@@ -82,6 +85,7 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 MetadataCheck::ConfigValue("detect", "bounding_box", toml::Value::from(true)),
                 MetadataCheck::OutputCreated("example_crop.jpg"),
                 MetadataCheck::OutputCreated("example_bounding-box.jpg"),
+                MetadataCheck::OutputCreated("example.d"),
                 MetadataCheck::ExitCode("detect", 0),
                 MetadataCheck::CoreResultsField("detect", "detections"),
             ],
