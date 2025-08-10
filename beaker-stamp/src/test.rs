@@ -24,10 +24,10 @@ mod tests {
         };
 
         let stamp_value = config.stamp_value();
-        println!("Stamp value: {}", stamp_value);
+        println!("Stamp value: {stamp_value}");
 
         let hash = config.stamp_hash();
-        println!("Stamp hash: {}", hash);
+        println!("Stamp hash: {hash}");
 
         assert!(hash.starts_with("sha256:"));
     }

@@ -95,7 +95,7 @@ pub fn write_cfg_stamp(subcmd: &str, cfg: &impl Stamp) -> std::io::Result<std::p
         hash.trim_start_matches("sha256:")
     );
     let path: PathBuf = paths::stamp_dir().join(fname);
-    let content = format!("cfg={} {}\n", subcmd, hash).into_bytes();
+    let content = format!("cfg={subcmd} {hash}\n").into_bytes();
     write::write_atomic_if_changed(&path, &content)?;
     Ok(path)
 }

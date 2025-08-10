@@ -2,7 +2,7 @@
 # Tests that changing model parameters causes rebuilds
 
 # Test images and outputs
-TEST_IMG := test.jpg
+TEST_IMG := example.jpg
 DETECT_DEFAULT := test_crop_default.jpg
 DETECT_ALT_CONF := test_crop_alt_conf.jpg
 

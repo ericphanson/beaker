@@ -6,9 +6,9 @@ set -e  # Exit on any error
 
 # Test configuration
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TEST_IMG="$TEST_DIR/test.jpg"
-CUTOUT_OUTPUT="$TEST_DIR/test_cutout.png"
-DETECT_OUTPUT="$TEST_DIR/test_crop.jpg"
+TEST_IMG="$TEST_DIR/example.jpg"
+CUTOUT_OUTPUT="$TEST_DIR/example_cutout.png"
+DETECT_OUTPUT="$TEST_DIR/example_bounding-box.jpg"
 
 # Use isolated stamp directory for testing (concurrency safe)
 export BEAKER_STAMP_DIR="$TEST_DIR/stamps"
@@ -103,9 +103,9 @@ echo "=== Test 6: Metadata preservation test (cutout after detect should not rer
 # Clean and run detect first
 make clean
 echo "Running detect with metadata..."
-make test_crop.jpg
+make example_bounding-box.jpg
 echo "Running cutout with metadata (should NOT trigger detect rebuild)..."
-make test_cutout.png 2>&1 | tee cutout_output.log
+make example_cutout.png 2>&1 | tee cutout_output.log
 if grep -q "Building detection" cutout_output.log; then
     echo "❌ Detection was incorrectly rebuilt when running cutout"
     cat cutout_output.log
