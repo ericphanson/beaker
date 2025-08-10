@@ -20,7 +20,7 @@ use crate::color_utils::maybe_dim_stderr;
 use crate::shared_metadata::{InputProcessing, SystemInfo};
 
 /// Configuration trait for models that can be processed generically
-pub trait ModelConfig: std::any::Any {
+pub trait ModelConfig: std::any::Any + beaker_stamp::Stamp {
     fn base(&self) -> &BaseModelConfig;
 
     /// Get the tool name for this config (e.g., "detect", "cutout")
@@ -399,25 +399,7 @@ fn generate_stamps_for_tool<P: ModelProcessor>(
     model_path: Option<&Path>,
 ) -> Result<crate::stamp_manager::StampInfo> {
     let tool_name = config.tool_name();
-
-    // Downcast to Any first, then to the specific config type
-    let config_any = config as &dyn std::any::Any;
-
-    match tool_name {
-        "detect" => {
-            let detection_config = config_any
-                .downcast_ref::<crate::config::DetectionConfig>()
-                .ok_or_else(|| anyhow::anyhow!("Failed to downcast to DetectionConfig"))?;
-            crate::stamp_manager::generate_stamps_for_model(tool_name, detection_config, model_path)
-        }
-        "cutout" => {
-            let cutout_config = config_any
-                .downcast_ref::<crate::config::CutoutConfig>()
-                .ok_or_else(|| anyhow::anyhow!("Failed to downcast to CutoutConfig"))?;
-            crate::stamp_manager::generate_stamps_for_model(tool_name, cutout_config, model_path)
-        }
-        _ => Err(anyhow::anyhow!("Unknown tool name: {}", tool_name)),
-    }
+    crate::stamp_manager::generate_stamps_for_model(tool_name, config, model_path)
 }
 
 /// Generate a depfile for a single processed image

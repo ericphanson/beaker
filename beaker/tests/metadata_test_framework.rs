@@ -21,6 +21,7 @@ pub struct TestScenario {
 
 /// Metadata validation checks
 #[derive(Debug)]
+#[allow(dead_code)] // All variants are used in integration tests, but clippy doesn't detect this with --all-targets
 pub enum MetadataCheck {
     /// Verify device was used for a specific tool
     DeviceUsed(&'static str, &'static str), // tool, device

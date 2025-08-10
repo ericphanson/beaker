@@ -7,11 +7,13 @@
 
 use anyhow::{anyhow, Result};
 use sha2::{Digest, Sha256};
-use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::cache_common::{calculate_md5, get_cache_base_dir};
+use crate::cache_common::calculate_md5;
 use beaker_stamp::write_cfg_stamp;
+
+#[cfg(test)]
+use std::fs;
 
 /// Generate tool version hash
 pub fn generate_tool_hash() -> String {
@@ -29,34 +31,18 @@ pub fn generate_model_hash_from_path(model_path: &Path) -> Result<String> {
     }
 }
 
-/// Get the beaker stamps cache directory
-pub fn get_stamps_cache_dir() -> Result<PathBuf> {
-    let cache_dir = get_cache_base_dir()?;
-    Ok(cache_dir.join("beaker").join("stamps"))
-}
-
 /// Create stamp file if content has changed
+///
+/// This is a legacy function that duplicates beaker-stamp functionality.
+/// New code should use beaker_stamp::write_cfg_stamp directly.
 pub fn create_or_update_stamp(stamp_type: &str, hash: &str, content: &str) -> Result<PathBuf> {
-    let stamps_dir = get_stamps_cache_dir()?;
-    fs::create_dir_all(&stamps_dir)?;
+    let stamps_dir = beaker_stamp::paths::stamp_dir();
 
     let stamp_filename = format!("{stamp_type}-{hash}.stamp");
     let stamp_path = stamps_dir.join(stamp_filename);
 
-    // Check if stamp already exists with same content
-    if stamp_path.exists() {
-        if let Ok(existing_content) = fs::read_to_string(&stamp_path) {
-            if existing_content == content {
-                // Content is identical, preserve mtime
-                return Ok(stamp_path);
-            }
-        }
-    }
-
-    // Write new content atomically
-    let temp_path = stamp_path.with_extension("tmp");
-    fs::write(&temp_path, content)?;
-    fs::rename(temp_path, &stamp_path)?;
+    beaker_stamp::write::write_atomic_if_changed(&stamp_path, content.as_bytes())
+        .map_err(|e| anyhow!("Failed to write stamp file: {}", e))?;
 
     Ok(stamp_path)
 }

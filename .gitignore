@@ -18,6 +18,9 @@ beaker/*-notes.md
 *.beaker.toml
 *.beaker.json
 
+# Stamp files - test artifacts that should not be committed
+*.stamp
+
 # Image files in beaker directory - examples should be at top-level
 beaker/*.jpg
 beaker/*.jpeg
