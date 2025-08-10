@@ -416,8 +416,8 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
 
             let timing = io_timing.unwrap();
             // At least one timing field should be present and non-zero (we do read and write operations)
-            let has_read_timing = timing.read_time_ms.map_or(false, |t| t > 0.0);
-            let has_write_timing = timing.write_time_ms.map_or(false, |t| t > 0.0);
+            let has_read_timing = timing.read_time_ms.is_some_and(|t| t > 0.0);
+            let has_write_timing = timing.write_time_ms.is_some_and(|t| t > 0.0);
 
             assert!(
                 has_read_timing || has_write_timing,

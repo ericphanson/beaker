@@ -5,11 +5,17 @@ on:
     branches: [ main ]
     paths:
       - 'beaker/**'
+      - 'beaker-stamp/**'
+      - 'beaker-stamp-derive/**'
+      - 'Cargo.toml'
       - '.github/workflows/make-integration.yml'
   pull_request:
     branches: [ main ]
     paths:
       - 'beaker/**'
+      - 'beaker-stamp/**'
+      - 'beaker-stamp-derive/**'
+      - 'Cargo.toml'
       - '.github/workflows/make-integration.yml'
   workflow_dispatch:  # Allow manual triggering
 
@@ -42,7 +48,6 @@ jobs:
         restore-keys: onnx-models-
 
     - name: Build Beaker (Release)
-      working-directory: beaker
       run: |
         cargo build --release
         # Verify the binary works
@@ -52,8 +57,8 @@ jobs:
       working-directory: beaker/tests/make_integration
       run: |
         # Copy test images
-        cp ../../example.jpg .
-        cp ../../example-2-birds.jpg .
+        cp ../../../example.jpg .
+        cp ../../../example-2-birds.jpg .
 
         # Set custom stamp directory for isolated testing
         echo "BEAKER_STAMP_DIR=$(pwd)/test_stamps" >> $GITHUB_ENV

@@ -5,11 +5,17 @@ on:
     branches: [ main ]
     paths:
       - 'beaker/**'
+      - 'beaker-stamp/**'
+      - 'beaker-stamp-derive/**'
+      - 'Cargo.toml'
       - '.github/workflows/beaker-ci.yml'
   pull_request:
     branches: [ main ]
     paths:
       - 'beaker/**'
+      - 'beaker-stamp/**'
+      - 'beaker-stamp-derive/**'
+      - 'Cargo.toml'
       - '.github/workflows/beaker-ci.yml'
   workflow_dispatch:  # Allow manual triggering
 
@@ -52,9 +58,8 @@ jobs:
     - name: Cache Rust dependencies
       uses: Swatinem/rust-cache@v2
       with:
-        workspaces: "beaker -> target"
-        # Include ONNX Runtime downloads in cache key
-        key: ${{ matrix.target }}-${{ hashFiles('beaker/Cargo.lock') }}-${{ hashFiles('beaker/build.rs') }}
+        # Workspace structure - cache at root level
+        key: ${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('beaker/build.rs') }}
 
     - name: Cache ONNX model
       uses: actions/cache@v4
@@ -69,22 +74,18 @@ jobs:
       run: echo "ONNX_MODEL_CACHE_DIR=$HOME/.cache/onnx-models" >> $GITHUB_ENV
 
     - name: Check code formatting
-      run: cargo fmt --check
-      working-directory: beaker
+      run: cargo fmt --all --check
 
     - name: Run clippy
-      run: cargo clippy --target ${{ matrix.target }} -- -D warnings
-      working-directory: beaker
+      run: cargo clippy --all-targets --target ${{ matrix.target }} -- -D warnings
 
     - name: Build (debug)
       run: cargo build --target ${{ matrix.target }}
-      working-directory: beaker
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Build (release)
       run: cargo build --release --target ${{ matrix.target }}
-      working-directory: beaker
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -92,55 +93,49 @@ jobs:
       if: runner.os != 'Windows'
       run: |
         echo "📊 Binary information:"
-        ls -lh ../target/${{ matrix.target }}/release/beaker
+        ls -lh target/${{ matrix.target }}/release/beaker
         echo ""
-        echo "🔍 Binary size: $(du -h ../target/${{ matrix.target }}/release/beaker | cut -f1)"
-        echo "📏 Stripped size: $(strip ../target/${{ matrix.target }}/release/beaker -o /tmp/beaker-stripped && du -h /tmp/beaker-stripped | cut -f1)"
-      working-directory: beaker
+        echo "🔍 Binary size: $(du -h target/${{ matrix.target }}/release/beaker | cut -f1)"
+        echo "📏 Stripped size: $(strip target/${{ matrix.target }}/release/beaker -o /tmp/beaker-stripped && du -h /tmp/beaker-stripped | cut -f1)"
 
     - name: Show binary information (Windows)
       if: runner.os == 'Windows'
       run: |
         echo "Binary information:"
-        Get-ChildItem ../target/${{ matrix.target }}/release/beaker.exe | Format-Table Name, Length
-      working-directory: beaker
+        Get-ChildItem target/${{ matrix.target }}/release/beaker.exe | Format-Table Name, Length
 
-    - name: Copy example image to beaker directory
-      run: cp example.jpg beaker/
+    - name: Copy example image to current directory
+      run: cp example.jpg ./
 
     - name: Test CLI help (Unix)
       if: runner.os != 'Windows'
       run: |
         echo "🧪 Testing CLI help command..."
-        ../target/${{ matrix.target }}/release/beaker --help
+        ./target/${{ matrix.target }}/release/beaker --help
         echo "✅ CLI help works"
-      working-directory: beaker
 
     - name: Test CLI help (Windows)
       if: runner.os == 'Windows'
       run: |
         echo "Testing CLI help command..."
-        ../target/${{ matrix.target }}/release/beaker.exe --help
+        ./target/${{ matrix.target }}/release/beaker.exe --help
         echo "CLI help works"
-      working-directory: beaker
 
     - name: Test CLI detect command with ORT logging (Unix)
       if: runner.os != 'Windows'
       run: |
         echo "🧪 Testing CLI detect command with ORT logging..."
         echo "Device: ${{ matrix.device }}, Target: ${{ matrix.target }}"
-        ../target/${{ matrix.target }}/release/beaker detect example.jpg --confidence 0.5 --device ${{ matrix.device }} --metadata
+        ./target/${{ matrix.target }}/release/beaker detect example.jpg --confidence 0.5 --device ${{ matrix.device }} --metadata
         echo "✅ CLI detect command works"
-      working-directory: beaker
 
     - name: Test CLI detect command with ORT logging (Windows)
       if: runner.os == 'Windows'
       run: |
         echo "Testing CLI detect command with ORT logging..."
         echo "Device: ${{ matrix.device }}, Target: ${{ matrix.target }}"
-        ../target/${{ matrix.target }}/release/beaker.exe detect example.jpg --confidence 0.5 --device ${{ matrix.device }} --metadata
+        ./target/${{ matrix.target }}/release/beaker.exe detect example.jpg --confidence 0.5 --device ${{ matrix.device }} --metadata
         echo "CLI detect command works"
-      working-directory: beaker
 
     - name: Test execution provider details with debug logging (Unix)
       if: runner.os != 'Windows'
@@ -157,12 +152,11 @@ jobs:
         fi
         echo ""
         echo "=== Running with --device auto ==="
-        ../target/${{ matrix.target }}/release/beaker detect example.jpg --confidence 0.5 --device auto --metadata
+        ./target/${{ matrix.target }}/release/beaker detect example.jpg --confidence 0.5 --device auto --metadata
         echo ""
         echo "=== Running with --device cpu ==="
-        ../target/${{ matrix.target }}/release/beaker detect example.jpg --confidence 0.5 --device cpu --metadata
+        ./target/${{ matrix.target }}/release/beaker detect example.jpg --confidence 0.5 --device cpu --metadata
         echo "✅ Execution provider testing complete"
-      working-directory: beaker
 
     - name: Test execution provider details with debug logging (Windows)
       if: runner.os == 'Windows'
@@ -172,37 +166,33 @@ jobs:
         echo "Expected: CoreML should not be available, fallback to CPU"
         echo ""
         echo "=== Running with --device auto ==="
-        ../target/${{ matrix.target }}/release/beaker.exe detect example.jpg --confidence 0.5 --device auto --metadata
+        ./target/${{ matrix.target }}/release/beaker.exe detect example.jpg --confidence 0.5 --device auto --metadata
         echo ""
         echo "=== Running with --device cpu ==="
-        ../target/${{ matrix.target }}/release/beaker.exe detect example.jpg --confidence 0.5 --device cpu --metadata
+        ./target/${{ matrix.target }}/release/beaker.exe detect example.jpg --confidence 0.5 --device cpu --metadata
         echo "Execution provider testing complete"
-      working-directory: beaker
 
     - name: Copy second test image
-      run: cp example-2-birds.jpg beaker/
+      run: cp example-2-birds.jpg ./
 
     - name: Pre-download models for testing (Unix)
       if: runner.os != 'Windows'
       run: |
         echo "🔽 Pre-downloading models to avoid test concurrency issues..."
         echo "Running cutout command to trigger model download:"
-        ../target/${{ matrix.target }}/release/beaker cutout example.jpg --device ${{ matrix.device }} || echo "Pre-download may have failed but continuing with tests"
+        ./target/${{ matrix.target }}/release/beaker cutout example.jpg --device ${{ matrix.device }} || echo "Pre-download may have failed but continuing with tests"
         echo "✅ Model pre-download attempt completed"
-      working-directory: beaker
 
     - name: Pre-download models for testing (Windows)
       if: runner.os == 'Windows'
       run: |
         echo "Pre-downloading models to avoid test concurrency issues..."
         echo "Running cutout command to trigger model download:"
-        ../target/${{ matrix.target }}/release/beaker.exe cutout example.jpg --device ${{ matrix.device }} || echo "Pre-download may have failed but continuing with tests"
+        ./target/${{ matrix.target }}/release/beaker.exe cutout example.jpg --device ${{ matrix.device }} || echo "Pre-download may have failed but continuing with tests"
         echo "Model pre-download attempt completed"
-      working-directory: beaker
 
     - name: Run integration tests
-      run: cargo test --release --target ${{ matrix.target }} --verbose
-      working-directory: beaker
+      run: cargo test --release --all --target ${{ matrix.target }} --verbose
 
     - name: Upload binary artifact
       uses: actions/upload-artifact@v4

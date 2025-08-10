@@ -149,26 +149,24 @@ jobs:
 
     - name: Build release binary
       run: cargo build --release --target ${{ matrix.target }}
-      working-directory: beaker
 
     - name: Prepare binary for upload
       shell: bash
       run: |
-        cd beaker
         BINARY_PATH="target/${{ matrix.target }}/release/${{ matrix.binary_name }}"
         UPLOAD_NAME="beaker-${{ matrix.target }}${{ matrix.target == 'x86_64-pc-windows-msvc' && '.exe' || '' }}"
 
         echo "📦 Preparing binary: $BINARY_PATH -> $UPLOAD_NAME"
 
-        # Copy binary to root with upload name
-        cp "$BINARY_PATH" "../$UPLOAD_NAME"
+        # Copy binary to current directory with upload name
+        cp "$BINARY_PATH" "$UPLOAD_NAME"
 
         # Get file size
         if [[ "${{ runner.os }}" == "Windows" ]]; then
-          SIZE=$(powershell -command "(Get-Item '../$UPLOAD_NAME').Length")
-          SIZE_MB=$(powershell -command "[math]::Round((Get-Item '../$UPLOAD_NAME').Length / 1MB, 2)")
+          SIZE=$(powershell -command "(Get-Item '$UPLOAD_NAME').Length")
+          SIZE_MB=$(powershell -command "[math]::Round((Get-Item '$UPLOAD_NAME').Length / 1MB, 2)")
         else
-          SIZE=$(stat -c%s "../$UPLOAD_NAME" 2>/dev/null || stat -f%z "../$UPLOAD_NAME")
+          SIZE=$(stat -c%s "$UPLOAD_NAME" 2>/dev/null || stat -f%z "$UPLOAD_NAME")
           SIZE_MB=$(echo "scale=2; $SIZE / 1024 / 1024" | bc)
         fi
 

@@ -8,48 +8,49 @@ Always follow these instructions first and only fallback to additional search an
 Execute these commands in order to set up a working development environment:
 
 ```bash
-# Navigate to main Rust codebase
-cd beaker
+# Repository uses a Cargo workspace structure with:
+# - Repository root contains workspace Cargo.toml
+# - beaker/ contains the main CLI codebase
+# - beaker-stamp/ and beaker-stamp-derive/ contain proc macro crates
 
 # Check Rust toolchain (requires Rust 1.70+)
 rustc --version && cargo --version
 
-# Format and lint code
-cargo fmt
-cargo clippy --fix --allow-dirty -- -D warnings
-
-# Build debug version (takes ~40 seconds)
+# Build all workspace members (from repository root)
 cargo build
 
 # Build release version - NEVER CANCEL: takes 1 minute 40 seconds. Set timeout to 3+ minutes.
 cargo build --release
 
+# Format and lint code (from repository root)
+cargo fmt --all
+cargo clippy --all-targets --fix --allow-dirty -- -D warnings
+
 # Run tests - NEVER CANCEL: takes 2 minutes 50 seconds. Set timeout to 5+ minutes.
-cargo test --release
+cargo test --release --all
 ```
 
 ### Validation and Testing
 Always run these validation steps after making changes:
 
 ```bash
-# Test CLI help
-cargo run --release -- --help
+# Test CLI help (from repository root)
+cargo run --release --bin beaker -- --help
 
-# Copy test image for validation
-cp ../example.jpg .
+# Copy test image for validation (beaker binary reads from current working directory)
+cp example.jpg example-2-birds.jpg ./
 
 # Test basic detect command (requires --crop, --bounding-box, or --metadata)
-cargo run --release -- detect example.jpg --confidence 0.5 --crop
+cargo run --release --bin beaker -- detect example.jpg --confidence 0.5 --crop
 
 # Test metadata generation
-cargo run --release -- detect example.jpg --confidence 0.5 --metadata
+cargo run --release --bin beaker -- detect example.jpg --confidence 0.5 --metadata
 
 # Test cutout functionality (takes ~6 seconds for model loading)
-cargo run --release -- cutout example.jpg
+cargo run --release --bin beaker -- cutout example.jpg
 
 # Test with two birds image
-cp ../example-2-birds.jpg .
-cargo run --release -- detect example-2-birds.jpg --confidence 0.5 --crop
+cargo run --release --bin beaker -- detect example-2-birds.jpg --confidence 0.5 --crop
 
 # Verify output files are created
 ls -la example_crop.jpg example_cutout.png *.beaker.toml
@@ -63,12 +64,10 @@ Run before every commit - NEVER CANCEL: takes ~10 seconds:
 pre-commit run --all-files
 
 # Individual checks if pre-commit unavailable:
-cd beaker
-cargo fmt --check
-cargo clippy -- -D warnings
-cargo build --release
-cargo test --release
-cd ..
+cargo fmt --all --check
+cargo clippy --all-targets -- -D warnings
+cargo build --release --all
+cargo test --release --all
 ruff check --config=ruff.toml --fix .
 ruff format --config=ruff.toml .
 
@@ -162,42 +161,49 @@ The CI runs comprehensive tests on Linux, macOS, and Windows. Ensure changes pas
 
 ### Commands CI Runs
 ```bash
-# Formatting and linting
-cargo fmt --check
-cargo clippy --target <platform> -- -D warnings
+# Formatting and linting (from repository root)
+cargo fmt --all --check
+cargo clippy --all-targets --target <platform> -- -D warnings
 
-# Building
+# Building (from repository root)
 cargo build --target <platform>
 cargo build --release --target <platform>
 
-# CLI testing
+# CLI testing (binary located in target/<platform>/release/)
 ./target/<platform>/release/beaker --help
 ./target/<platform>/release/beaker detect example.jpg --confidence 0.5 --device auto --metadata
 ./target/<platform>/release/beaker cutout example.jpg --device auto
 
 # Integration tests
-cargo test --release --target <platform> --verbose
+cargo test --release --all --target <platform> --verbose
 ```
 
 ## Repository Structure
 
 ### Key Directories
+- **Root**: Cargo workspace with top-level `Cargo.toml`
 - `beaker/` - Main Rust CLI codebase (focus here for CLI changes)
 - `beaker/src/` - Rust source code
 - `beaker/tests/` - Integration tests
+- `beaker-stamp/` - Core stamp traits and utilities (proc macro support)
+- `beaker-stamp-derive/` - Procedural macro for automatic stamp generation
 - `.github/workflows/` - CI/CD pipeline definitions
 - `scripts/` - Utility scripts (line counting, etc.)
 
 ### Important Files
-- `beaker/Cargo.toml` - Rust project configuration and dependencies
+- **Root**: `Cargo.toml` - Workspace configuration and shared dependencies
+- `beaker/Cargo.toml` - Main CLI crate configuration and dependencies
 - `beaker/build.rs` - Build script that downloads ONNX models
+- `beaker-stamp/Cargo.toml` - Core stamp crate configuration
+- `beaker-stamp-derive/Cargo.toml` - Proc macro crate configuration
 - `.pre-commit-config.yaml` - Pre-commit hook configuration
 - `ruff.toml` - Python linting configuration
 - `example.jpg`, `example-2-birds.jpg` - Test images for CLI validation
 
 ### Build Artifacts to Ignore
 Never commit these files:
-- `beaker/target/` - Rust build artifacts
+- `target/` - Rust build artifacts (workspace level)
+- `beaker/target/` - Legacy target directory (if present)
 - `*.beaker.toml`, `*.beaker.json` - CLI metadata output
 - `*_crop.jpg`, `*_cutout.png` - CLI image output
 - Temporary test files
@@ -236,7 +242,7 @@ Never commit these files:
 - Try committing again: `git commit -m "your message"`
 
 **Common scenarios and solutions:**
-- **Rust formatting/clippy issues**: Run `cargo fmt` and `cargo clippy --fix --allow-dirty` in the `beaker/` directory
+- **Rust formatting/clippy issues**: Run `cargo fmt --all` and `cargo clippy --all-targets --fix --allow-dirty` from repository root
 - **Python formatting/linting**: Run `ruff format --config=ruff.toml .` and `ruff check --config=ruff.toml --fix .`
 - **Line counting updates**: The `cargo-warloc` hook updates `beaker/line_counts.md` automatically
 - **YAML syntax errors**: Fix the YAML file syntax manually
@@ -258,32 +264,30 @@ Then immediately follow up with a commit that fixes the pre-commit issues.
 
 ### Typical Change Process
 ```bash
-# 1. Navigate to Rust codebase
-cd beaker
+# 1. Repository uses Cargo workspace structure
+# All commands run from repository root unless specified
 
 # 2. Make your code changes
-# ... edit files ...
+# ... edit files in beaker/, beaker-stamp/, or beaker-stamp-derive/ ...
 
 # 3. Format and fix issues
-cargo fmt
-cargo clippy --fix --allow-dirty -- -D warnings
+cargo fmt --all
+cargo clippy --all-targets --fix --allow-dirty -- -D warnings
 
 # 4. Build and test - NEVER CANCEL: allow full time for completion
-cargo build --release  # ~1m 40s
-cargo test --release    # ~2m 50s
+cargo build --release --all  # ~1m 40s
+cargo test --release --all    # ~2m 50s
 
 # 5. Manual CLI validation
-cp ../example.jpg .
-cargo run --release -- detect example.jpg --confidence 0.5 --crop
-cargo run --release -- cutout example.jpg
+cp example.jpg example-2-birds.jpg ./
+cargo run --release --bin beaker -- detect example.jpg --confidence 0.5 --crop
+cargo run --release --bin beaker -- cutout example.jpg
 
-# 6. Update line counts and run pre-commit (from repo root)
-cd ..
+# 6. Update line counts and run pre-commit
 bash scripts/run_warloc.sh
 pre-commit run --all-files
 
 # 7. Clean up test artifacts
-cd beaker
 rm -f *.beaker.toml *.beaker.json example_crop.jpg example_cutout.png
 
 # 8. Check git status and commit
