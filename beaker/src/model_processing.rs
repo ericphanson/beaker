@@ -20,8 +20,11 @@ use crate::color_utils::maybe_dim_stderr;
 use crate::shared_metadata::{InputProcessing, SystemInfo};
 
 /// Configuration trait for models that can be processed generically
-pub trait ModelConfig {
+pub trait ModelConfig: std::any::Any + beaker_stamp::Stamp {
     fn base(&self) -> &BaseModelConfig;
+
+    /// Get the tool name for this config (e.g., "detect", "cutout")
+    fn tool_name(&self) -> &'static str;
 }
 
 /// Result trait for model outputs that can be handled generically
@@ -69,6 +72,7 @@ pub trait ModelProcessor {
         session: &mut Session,
         image_path: &Path,
         config: &Self::Config,
+        output_manager: &crate::output_manager::OutputManager,
     ) -> Result<Self::Result>;
 
     /// Get serializable configuration for metadata
@@ -156,12 +160,20 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
         device_selection_reason: Some(device_selection_reason.to_string()),
         execution_providers: model_info.execution_providers,
         model_source: Some(model_info.model_source),
-        model_path: model_info.model_path,
+        model_path: model_info.model_path.clone(),
         model_size_bytes: Some(model_info.model_size_bytes.try_into().unwrap()),
         model_load_time_ms: Some(model_load_time_ms),
         model_checksum: Some(model_info.model_checksum),
         onnx_cache: onnx_cache_stats,
         coreml_cache: coreml_cache_stats,
+    };
+
+    // Generate stamps for Make-compatible incremental builds if depfile is requested
+    let stamp_info = if config.base().depfile.is_some() {
+        let model_path = model_info.model_path.as_ref().map(Path::new);
+        Some(generate_stamps_for_tool::<P>(&config, model_path)?)
+    } else {
+        None
     };
 
     // Process each image and collect results
@@ -182,6 +194,9 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
             source_type: source_type.to_string(),
             strict_mode: config.base().strict,
         };
+
+        // Create OutputManager for this image
+        let output_manager = crate::output_manager::OutputManager::new(&config, image_path);
 
         if let Some(ref pb) = progress_bar {
             // we will style the filename with bold:
@@ -206,7 +221,7 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
                 pb.set_message(format!("ETA: {eta:.1}s"));
             }
         }
-        match P::process_single_image(&mut session, image_path, &config) {
+        match P::process_single_image(&mut session, image_path, &config, &output_manager) {
             Ok(result) => {
                 successful_count += 1;
 
@@ -219,6 +234,8 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
                         system.clone(),
                         input.clone(),
                         start_timestamp,
+                        stamp_info.as_ref(),
+                        &output_manager,
                     )?;
                 }
                 if progress_bar.is_none() {
@@ -313,11 +330,10 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
     system: SystemInfo,
     input: InputProcessing,
     start_timestamp: chrono::DateTime<chrono::Utc>,
+    stamp_info: Option<&crate::stamp_manager::StampInfo>,
+    output_manager: &crate::output_manager::OutputManager,
 ) -> Result<()> {
-    use crate::output_manager::OutputManager;
     use crate::shared_metadata::{CutoutSections, DetectSections, ExecutionContext};
-
-    let output_manager = OutputManager::new(config, image_path);
 
     // Create execution context
     let execution = ExecutionContext {
@@ -361,6 +377,50 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
             return Err(anyhow::anyhow!("Unknown tool name: {}", result.tool_name()));
         }
     }
+
+    // Generate depfile if requested and stamps are available
+    if let (Some(depfile_path), Some(stamp_info)) = (&config.base().depfile, stamp_info) {
+        generate_depfile_for_image::<P>(
+            result,
+            config,
+            image_path,
+            depfile_path,
+            stamp_info,
+            output_manager,
+        )?;
+    }
+
+    Ok(())
+}
+
+/// Generate stamps for the appropriate tool type
+fn generate_stamps_for_tool<P: ModelProcessor>(
+    config: &P::Config,
+    model_path: Option<&Path>,
+) -> Result<crate::stamp_manager::StampInfo> {
+    let tool_name = config.tool_name();
+    crate::stamp_manager::generate_stamps_for_model(tool_name, config, model_path)
+}
+
+/// Generate a depfile for a single processed image
+fn generate_depfile_for_image<P: ModelProcessor>(
+    _result: &P::Result,
+    _config: &P::Config,
+    image_path: &Path,
+    depfile_path: &str,
+    stamp_info: &crate::stamp_manager::StampInfo,
+    output_manager: &crate::output_manager::OutputManager,
+) -> Result<()> {
+    use crate::depfile_generator::generate_depfile;
+
+    // Input files are just the source image
+    let inputs = vec![image_path.to_path_buf()];
+
+    // Use OutputManager as single source of truth for all outputs
+    let outputs = output_manager.get_produced_outputs();
+
+    // Generate the depfile
+    generate_depfile(Path::new(depfile_path), &outputs, &inputs, stamp_info)?;
 
     Ok(())
 }

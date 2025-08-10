@@ -21,12 +21,27 @@ use crate::shared_metadata::{
 pub struct OutputManager<'a> {
     config: &'a dyn ModelConfig,
     input_path: &'a Path,
+    produced_outputs: std::cell::RefCell<Vec<PathBuf>>,
 }
 
 impl<'a> OutputManager<'a> {
     /// Create a new OutputManager for the given config and input path
     pub fn new(config: &'a dyn ModelConfig, input_path: &'a Path) -> Self {
-        Self { config, input_path }
+        Self {
+            config,
+            input_path,
+            produced_outputs: std::cell::RefCell::new(Vec::new()),
+        }
+    }
+
+    /// Track that an output file was produced
+    pub fn track_output(&self, path: PathBuf) {
+        self.produced_outputs.borrow_mut().push(path);
+    }
+
+    /// Get all outputs that have been tracked as produced
+    pub fn get_produced_outputs(&self) -> Vec<PathBuf> {
+        self.produced_outputs.borrow().clone()
     }
 
     /// Get the input file stem (filename without extension)
@@ -126,6 +141,50 @@ impl<'a> OutputManager<'a> {
         Ok(output_path)
     }
 
+    /// Generate main output path with optional tracking (default: track=true)
+    pub fn generate_main_output_path_with_tracking(
+        &self,
+        default_suffix: &str,
+        extension: &str,
+        track: bool,
+    ) -> Result<PathBuf> {
+        let path = self.generate_main_output_path(default_suffix, extension)?;
+        if track {
+            self.track_output(path.clone());
+        }
+        Ok(path)
+    }
+
+    /// Generate numbered output path with optional tracking (default: track=true)
+    pub fn generate_numbered_output_with_tracking(
+        &self,
+        base_suffix: &str,
+        index: usize,
+        total: usize,
+        extension: &str,
+        track: bool,
+    ) -> Result<PathBuf> {
+        let path = self.generate_numbered_output(base_suffix, index, total, extension)?;
+        if track {
+            self.track_output(path.clone());
+        }
+        Ok(path)
+    }
+
+    /// Generate auxiliary output path with optional tracking (default: track=true)
+    pub fn generate_auxiliary_output_with_tracking(
+        &self,
+        suffix: &str,
+        extension: &str,
+        track: bool,
+    ) -> Result<PathBuf> {
+        let path = self.generate_auxiliary_output(suffix, extension)?;
+        if track {
+            self.track_output(path.clone());
+        }
+        Ok(path)
+    }
+
     /// Make a file path relative to the metadata file location
     pub fn make_relative_to_metadata(&self, path: &Path) -> Result<String> {
         if self.config.base().skip_metadata {
@@ -163,6 +222,9 @@ impl<'a> OutputManager<'a> {
 
         save_metadata(&metadata, &metadata_path)?;
 
+        // Note: Do not track metadata file as output.
+        // Per invariant: shared TOML should never be a prerequisite of earlier targets.
+
         debug!("📋 Saved complete metadata to: {}", metadata_path.display());
 
         Ok(())
@@ -196,7 +258,8 @@ mod tests {
             base: BaseModelConfig {
                 sources: vec!["test.jpg".to_string()],
                 device: "cpu".to_string(),
-                output_dir,
+                output_dir: output_dir.clone(),
+                depfile: None,
                 skip_metadata: false,
                 strict: true,
             },
@@ -207,6 +270,7 @@ mod tests {
             model_path: None,
             model_url: None,
             model_checksum: None,
+            output_dir, // Add the stamped output_dir field
         }
     }
 

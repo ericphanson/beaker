@@ -8,6 +8,7 @@
 //! The design separates CLI concerns (argument parsing, help text, validation) from
 //! business logic (processing parameters, feature flags, internal state).
 
+use beaker_stamp_derive::Stamp as DeriveStamp;
 use clap::Parser;
 use clap_verbosity_flag::Verbosity;
 use serde::Serialize;
@@ -108,6 +109,10 @@ pub struct GlobalArgs {
     #[arg(long, global = true)]
     pub metadata: bool,
 
+    /// Write Make-compatible dependency file listing all inputs and outputs
+    #[arg(long, global = true)]
+    pub depfile: Option<String>,
+
     /// Verbosity level (-q/--quiet, -v/-vv/-vvv/-vvvv for info/debug/trace)
     #[command(flatten)]
     pub verbosity: Verbosity,
@@ -135,6 +140,9 @@ pub struct BaseModelConfig {
     /// Optional output directory override
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_dir: Option<String>,
+    /// Optional depfile path for Make-compatible dependency tracking
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub depfile: Option<String>,
     /// Whether to skip metadata generation
     pub skip_metadata: bool,
     /// Use strict mode (fail if files are not found or are unsupported). Opposite of `--permissive`.
@@ -179,23 +187,43 @@ pub struct DetectCommand {
 }
 
 /// Internal configuration for detection processing
-#[derive(Debug, Clone, Serialize)]
+///
+/// **IMPORTANT**: Fields marked with #[stamp] affect byte-level output and are included
+/// in stamp hash generation. When adding new fields:
+/// 1. Add #[stamp] if the field affects actual image bytes produced
+/// 2. Update tests in stamp_manager.rs to verify stamp changes
+/// 3. Consider if the field should be included in serialized config
+///
+/// Only include parameters that affect the actual image bytes produced,
+/// not metadata-only or performance-related settings.
+#[derive(Debug, Clone, Serialize, DeriveStamp)]
 pub struct DetectionConfig {
     #[serde(skip)]
     pub base: BaseModelConfig,
+    #[stamp]
     pub confidence: f32,
+    #[stamp]
     pub iou_threshold: f32,
+    #[stamp]
     pub crop_classes: HashSet<DetectionClass>,
+    #[stamp]
     pub bounding_box: bool,
     /// CLI-provided model path override
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[stamp]
     pub model_path: Option<String>,
     /// CLI-provided model URL override
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[stamp]
     pub model_url: Option<String>,
     /// CLI-provided model checksum override
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[stamp]
     pub model_checksum: Option<String>,
+    /// Output directory (affects output file paths, extracted from base for stamping)
+    #[serde(skip)]
+    #[stamp]
+    pub output_dir: Option<String>,
 }
 
 /// CLI command for cutout processing (only command-specific arguments)
@@ -247,27 +275,50 @@ pub struct CutoutCommand {
 }
 
 /// Internal configuration for cutout processing
-#[derive(Debug, Clone, Serialize)]
+///
+/// **IMPORTANT**: Fields marked with #[stamp] affect byte-level output and are included
+/// in stamp hash generation. When adding new fields:
+/// 1. Add #[stamp] if the field affects actual image bytes produced
+/// 2. Update tests in stamp_manager.rs to verify stamp changes
+/// 3. Consider if the field should be included in serialized config
+///
+/// Only include parameters that affect the actual image bytes produced,
+/// not metadata-only or performance-related settings.
+#[derive(Debug, Clone, Serialize, DeriveStamp)]
 pub struct CutoutConfig {
     #[serde(skip)]
     pub base: BaseModelConfig,
+    #[stamp]
     pub post_process_mask: bool,
+    #[stamp]
     pub alpha_matting: bool,
+    #[stamp]
     pub alpha_matting_foreground_threshold: u8,
+    #[stamp]
     pub alpha_matting_background_threshold: u8,
+    #[stamp]
     pub alpha_matting_erode_size: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[stamp]
     pub background_color: Option<[u8; 4]>,
+    #[stamp]
     pub save_mask: bool,
     /// CLI-provided model path override
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[stamp]
     pub model_path: Option<String>,
     /// CLI-provided model URL override
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[stamp]
     pub model_url: Option<String>,
     /// CLI-provided model checksum override
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[stamp]
     pub model_checksum: Option<String>,
+    /// Output directory (affects output file paths, extracted from base for stamping)
+    #[serde(skip)]
+    #[stamp]
+    pub output_dir: Option<String>,
 }
 
 // Conversion traits from CLI commands to internal configurations
@@ -278,6 +329,7 @@ impl From<GlobalArgs> for BaseModelConfig {
             sources: Vec::new(), // Sources come from command, not global args
             device: global.device,
             output_dir: global.output_dir,
+            depfile: global.depfile,
             skip_metadata: !global.metadata, // Note: CLI uses metadata flag, internal uses skip_metadata
             strict: !global.permissive,      // Note: CLI uses permissive, internal uses strict
         }
@@ -295,6 +347,7 @@ impl DetectionConfig {
             None => HashSet::new(), // No cropping if not specified
         };
 
+        let output_dir = base.output_dir.clone(); // Clone before move
         Ok(Self {
             base,
             confidence: cmd.confidence,
@@ -304,6 +357,7 @@ impl DetectionConfig {
             model_path: cmd.model_path,
             model_url: cmd.model_url,
             model_checksum: cmd.model_checksum,
+            output_dir, // Use the cloned value
         })
     }
 }
@@ -314,6 +368,7 @@ impl CutoutConfig {
         let mut base: BaseModelConfig = global.into();
         base.sources = cmd.sources; // Add sources from command
 
+        let output_dir = base.output_dir.clone(); // Clone before move
         Self {
             base,
             post_process_mask: cmd.post_process,
@@ -326,6 +381,7 @@ impl CutoutConfig {
             model_path: cmd.model_path,
             model_url: cmd.model_url,
             model_checksum: cmd.model_checksum,
+            output_dir, // Use the cloned value
         }
     }
 }
@@ -337,11 +393,19 @@ impl ModelConfig for DetectionConfig {
     fn base(&self) -> &BaseModelConfig {
         &self.base
     }
+
+    fn tool_name(&self) -> &'static str {
+        "detect"
+    }
 }
 
 impl ModelConfig for CutoutConfig {
     fn base(&self) -> &BaseModelConfig {
         &self.base
+    }
+
+    fn tool_name(&self) -> &'static str {
+        "cutout"
     }
 }
 
@@ -355,6 +419,7 @@ mod tests {
             device: "cpu".to_string(),
             output_dir: Some("/tmp".to_string()),
             metadata: false,
+            depfile: Some("/tmp/test.d".to_string()),
             verbosity: Verbosity::new(2, 0), // -vv level (info level enables verbose)
             permissive: true,
             no_color: false,
@@ -365,6 +430,7 @@ mod tests {
         assert_eq!(config.sources, Vec::<String>::new()); // Sources come from command
         assert_eq!(config.device, "cpu");
         assert_eq!(config.output_dir, Some("/tmp".to_string()));
+        assert_eq!(config.depfile, Some("/tmp/test.d".to_string()));
         assert!(config.skip_metadata); // metadata=false -> skip_metadata=true
                                        // Note: verbosity is now handled directly by the logging system via env_logger
         assert!(!config.strict); // permissive=true -> strict=false
@@ -376,6 +442,7 @@ mod tests {
             device: "auto".to_string(),
             output_dir: None,
             metadata: false,
+            depfile: None,
             verbosity: Verbosity::new(0, 0), // Default level (warnings and errors only)
             permissive: false,
             no_color: false,
@@ -416,6 +483,7 @@ mod tests {
             device: "coreml".to_string(),
             output_dir: Some("/output".to_string()),
             metadata: false,
+            depfile: None,
             verbosity: Verbosity::new(1, 0), // -v level (info)
             permissive: false,
             no_color: false,
@@ -455,6 +523,7 @@ mod tests {
                 sources: vec!["test.jpg".to_string()],
                 device: "cpu".to_string(),
                 output_dir: Some("/tmp".to_string()),
+                depfile: None,
                 skip_metadata: true,
                 strict: true,
             },
@@ -465,6 +534,7 @@ mod tests {
             model_path: None,
             model_url: None,
             model_checksum: None,
+            output_dir: Some("/tmp".to_string()), // Add the stamped output_dir
         };
 
         // Test field access through base config

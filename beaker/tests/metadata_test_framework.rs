@@ -21,6 +21,7 @@ pub struct TestScenario {
 
 /// Metadata validation checks
 #[derive(Debug)]
+#[allow(dead_code)] // All variants are used in integration tests, but clippy doesn't detect this with --all-targets
 pub enum MetadataCheck {
     /// Verify device was used for a specific tool
     DeviceUsed(&'static str, &'static str), // tool, device
@@ -58,12 +59,8 @@ pub enum MetadataCheck {
     DownloadCacheHitPresent(&'static str), // tool
     /// Verify download cache hit/miss field is absent (for embedded models)
     DownloadCacheHitAbsent(&'static str), // tool
-    /// Verify download timing is present (for downloaded models)
-    DownloadTimingPresent(&'static str), // tool
     /// Verify download timing is absent (for embedded/cached models)
     DownloadTimingAbsent(&'static str), // tool
-    /// Verify CoreML cache statistics are present (when CoreML device is used)
-    CoremlCacheStatsPresent(&'static str), // tool
     /// Verify CoreML cache statistics are absent (when CoreML device is not used)
     CoremlCacheStatsAbsent(&'static str), // tool
 }
@@ -122,7 +119,7 @@ pub fn run_beaker_command_with_env(args: &[&str], env_vars: &[(&str, &str)]) -> 
     });
 
     // Run the built binary directly
-    let beaker_binary = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/debug/beaker");
+    let beaker_binary = Path::new(env!("CARGO_MANIFEST_DIR")).join("../target/debug/beaker");
 
     let output = Command::new(&beaker_binary)
         .args(args)
@@ -416,8 +413,8 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
 
             let timing = io_timing.unwrap();
             // At least one timing field should be present and non-zero (we do read and write operations)
-            let has_read_timing = timing.read_time_ms.map_or(false, |t| t > 0.0);
-            let has_write_timing = timing.write_time_ms.map_or(false, |t| t > 0.0);
+            let has_read_timing = timing.read_time_ms.is_some_and(|t| t > 0.0);
+            let has_write_timing = timing.write_time_ms.is_some_and(|t| t > 0.0);
 
             assert!(
                 has_read_timing || has_write_timing,
@@ -640,30 +637,6 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
             }
         }
 
-        MetadataCheck::DownloadTimingPresent(tool) => {
-            let system = match *tool {
-                "detect" => metadata.detect.as_ref().and_then(|h| h.system.as_ref()),
-                "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
-                _ => panic!("Unknown tool: {tool}"),
-            };
-
-            assert!(
-                system.is_some(),
-                "System info should exist for {tool} in test {test_name}"
-            );
-
-            let system = system.unwrap();
-            assert!(
-                system.onnx_cache.is_some(),
-                "onnx_cache should be present for {tool} in test {test_name}"
-            );
-            let onnx_cache = system.onnx_cache.as_ref().unwrap();
-            assert!(
-                onnx_cache.download_time_ms.is_some(),
-                "onnx_cache.download_time_ms should be present for {tool} in test {test_name}"
-            );
-        }
-
         MetadataCheck::DownloadTimingAbsent(tool) => {
             let system = match *tool {
                 "detect" => metadata.detect.as_ref().and_then(|h| h.system.as_ref()),
@@ -680,38 +653,6 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
                 }
                 // If onnx_cache itself is None, that's also considered absent
             }
-        }
-
-        MetadataCheck::CoremlCacheStatsPresent(tool) => {
-            let system = match *tool {
-                "detect" => metadata.detect.as_ref().and_then(|h| h.system.as_ref()),
-                "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
-                _ => panic!("Unknown tool: {tool}"),
-            };
-
-            assert!(
-                system.is_some(),
-                "System info should exist for {tool} in test {test_name}"
-            );
-
-            let system = system.unwrap();
-            assert!(
-                system.coreml_cache.is_some(),
-                "coreml_cache should be present for {tool} in test {test_name}"
-            );
-            let coreml_cache = system.coreml_cache.as_ref().unwrap();
-            assert!(
-                coreml_cache.cache_hit.is_some(),
-                "coreml_cache.cache_hit should be present for {tool} in test {test_name}"
-            );
-            assert!(
-                coreml_cache.cache_count.is_some(),
-                "coreml_cache.cache_count should be present for {tool} in test {test_name}"
-            );
-            assert!(
-                coreml_cache.cache_size_mb.is_some(),
-                "coreml_cache.cache_size_mb should be present for {tool} in test {test_name}"
-            );
         }
 
         MetadataCheck::CoremlCacheStatsAbsent(tool) => {
