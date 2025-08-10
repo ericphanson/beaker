@@ -1,6 +1,6 @@
 //! Mock HTTP/TCP servers with deterministic failure injection
 
-use httpmock::{Mock, MockServer, Then, When};
+use httpmock::MockServer;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 

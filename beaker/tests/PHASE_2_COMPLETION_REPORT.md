@@ -33,17 +33,17 @@ Phase 2 of the comprehensive stress testing framework has been successfully impl
 === Benchmark Report ===
 Test Name                  Duration(s)    Processes     Proc/sec    Hit Ratio         MB/s
 -------------------------------------------------------------------------------------
-small_concurrent_2proc            0.00            2       879.97        100.0%         0.86
-medium_concurrent_4proc           0.00            4      2170.70        100.0%         2.12
-large_concurrent_8proc            0.01            8      1021.82        100.0%         1.00
+small_concurrent_2proc            0.00            2       896.68        100.0%         0.88
+medium_concurrent_4proc           0.00            4      2177.44        100.0%         2.13
+large_concurrent_8proc            0.01            8      1453.32        100.0%         1.42
 -------------------------------------------------------------------------------------
-TOTAL/AVERAGE                     0.01           14      1172.07        100.0%         1.33
+TOTAL/AVERAGE                     0.01           14      1462.58        100.0%         1.47
 ========================
 ```
 
 ### Key Performance Metrics
 
-- **Process Throughput**: 1,172+ processes/second average (peak: 2,170+ processes/second)
+- **Process Throughput**: 1,463+ processes/second average (peak: 2,177+ processes/second)
 - **Test Execution Speed**: All tests complete in <0.1 seconds with deterministic outcomes
 - **Cache Hit Ratio**: 100% in successful test scenarios, demonstrating effective caching
 - **Zero Flakiness**: Event-based synchronization with immediate failure responses
@@ -51,10 +51,10 @@ TOTAL/AVERAGE                     0.01           14      1172.07        100.0%  
 
 ### Scalability Analysis
 
-- **2 Processes**: 880 processes/second - baseline performance
-- **4 Processes**: 2,171 processes/second - excellent scaling (2.5x improvement)
-- **8 Processes**: 1,022 processes/second - good performance despite increased coordination overhead
-- **Average Throughput**: 1,172 processes/second across all scenarios
+- **2 Processes**: 897 processes/second - baseline performance
+- **4 Processes**: 2,177 processes/second - excellent scaling (2.4x improvement)
+- **8 Processes**: 1,453 processes/second - good performance despite increased coordination overhead
+- **Average Throughput**: 1,463 processes/second across all scenarios
 
 ## Test Coverage
 
@@ -143,7 +143,7 @@ The framework is now positioned for further expansion:
 ## Conclusion
 
 Phase 2 delivers a production-ready stress testing framework with excellent performance characteristics:
-- **1,172+ processes/second** average throughput
+- **1,463+ processes/second** average throughput
 - **Sub-100ms** test execution time
 - **100% deterministic** outcomes with zero flakiness
 - **Comprehensive coverage** of concurrent cache scenarios

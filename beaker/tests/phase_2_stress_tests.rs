@@ -2,7 +2,6 @@
 
 mod stress;
 
-use std::path::Path;
 use stress::{
     fixtures::TestFixtures,
     mock_servers::{FailureEvent, MockServerManager},
@@ -37,7 +36,7 @@ fn test_phase_2_concurrent_shared_cache_basic() {
         FailureEvent::Success, // Second process succeeds (cache hit)
         FailureEvent::Success, // Third process succeeds (cache hit)
     ];
-    let mock_manager = MockServerManager::new(failure_pattern);
+    let _mock_manager = MockServerManager::new(failure_pattern);
 
     tracker.end_operation("test_setup");
     tracker.start_operation("process_orchestration");
@@ -296,7 +295,7 @@ fn test_phase_2_integration() {
     tracker.start_operation("full_integration");
 
     // 1. Test TCP fault server creation (without actually starting it)
-    let fault_sequence = vec![
+    let _fault_sequence = vec![
         TcpFaultType::Success(b"test".to_vec()),
         TcpFaultType::MidStreamAbort(10),
     ];
