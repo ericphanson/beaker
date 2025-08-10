@@ -12,24 +12,18 @@ BEAKER := ../../../target/release/beaker
 # Test targets
 .PHONY: all test_incremental clean detect-confidence-0.3 detect-with-metadata cutout-with-metadata
 
-all: $(CUTOUT_OUTPUT) $(DETECT_OUTPUT)
-
 # Alternative confidence test
 detect-confidence-0.3:
 	$(BEAKER) detect $(TEST_IMG) --confidence 0.3 --crop bird --depfile example_crop_03.jpg.d
 
 # Test targets with metadata for integration testing
-detect-with-metadata: example_crop_metadata.jpg
+detect-with-metadata: example_crop.jpg
 
-example_crop_metadata.jpg: $(TEST_IMG)
+example_crop.jpg: $(TEST_IMG)
 	@echo "Building detection with metadata from $<"
 	$(BEAKER) detect $< --confidence 0.5 --crop head --metadata --depfile $@.d
 
-cutout-with-metadata: example_cutout_metadata.png
-
-example_cutout_metadata.png: $(TEST_IMG)
-	@echo "Building cutout with metadata from $<"
-	$(BEAKER) cutout $< --metadata --depfile $@.d
+cutout-with-metadata: $(CUTOUT_OUTPUT)
 
 all: $(CUTOUT_OUTPUT) $(DETECT_OUTPUT)
 
@@ -46,6 +40,7 @@ $(DETECT_OUTPUT): $(TEST_IMG)
 # Include dependency files if they exist
 -include $(CUTOUT_OUTPUT).d
 -include $(DETECT_OUTPUT).d
+-include example_crop.jpg.d
 
 # Test incremental behavior
 test_incremental: clean
@@ -62,9 +57,8 @@ test_incremental: clean
 clean:
 	rm -f $(CUTOUT_OUTPUT) $(DETECT_OUTPUT)
 	rm -f $(CUTOUT_OUTPUT).d $(DETECT_OUTPUT).d
-	rm -f example_crop_metadata.jpg example_cutout_metadata.png
-	rm -f example_crop_metadata.jpg.d example_cutout_metadata.png.d
+	rm -f example_crop.jpg
+	rm -f example_crop.jpg.d
 	rm -f example_crop_03.jpg example_crop_03.jpg.d
-	rm -f example_crop.jpg example_crop.jpg.d
 	rm -f example_bbox.jpg example_bbox.jpg.d
 	rm -f *.beaker.toml *.beaker.json
