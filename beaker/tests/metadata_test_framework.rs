@@ -718,22 +718,37 @@ where
         0
     } else {
         // Single tool execution - replace file placeholders with actual paths
-        let mut full_args = vec![scenario.tool];
+        let mut full_args: Vec<String> = vec![scenario.tool.to_string()];
         for arg in &scenario.args {
             if *arg == "../example.jpg" {
-                full_args.push(example_jpg.to_str().unwrap());
+                full_args.push(example_jpg.to_str().unwrap().to_string());
             } else if *arg == "../example-2-birds.jpg" {
-                full_args.push(example_2_birds.to_str().unwrap());
+                full_args.push(example_2_birds.to_str().unwrap().to_string());
             } else {
-                full_args.push(arg);
+                full_args.push(arg.to_string());
             }
         }
-        full_args.extend_from_slice(&[
+
+        // Handle depfile paths specially - they need to be made absolute to temp directory
+        for i in 0..full_args.len() {
+            if full_args[i] == "--depfile" && i + 1 < full_args.len() {
+                let depfile_name = &full_args[i + 1];
+                if !depfile_name.starts_with('/') {
+                    // Make relative depfile paths absolute to temp directory
+                    let absolute_depfile = temp_dir.path().join(depfile_name);
+                    full_args[i + 1] = absolute_depfile.to_string_lossy().to_string();
+                }
+            }
+        }
+
+        // Convert back to &str for the function call
+        let mut full_args_str: Vec<&str> = full_args.iter().map(|s| s.as_str()).collect();
+        full_args_str.extend_from_slice(&[
             "--metadata",
             "--output-dir",
             temp_dir.path().to_str().unwrap(),
         ]);
-        run_beaker_command_with_env(&full_args, &scenario.env_vars)
+        run_beaker_command_with_env(&full_args_str, &scenario.env_vars)
     };
 
     let test_duration = start_time.elapsed();
