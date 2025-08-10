@@ -75,8 +75,16 @@ jobs:
         # Check that stamp files were created
         ls -la test_stamps/
 
-        # Check that output files were created
-        ls -la example_crop.jpg example_cutout.png
+        # Copy test image back for verification builds
+        cp ../../../example.jpg .
+
+        # Create sample outputs to verify the build works after testing
+        echo "Creating verification outputs..."
+        make example_cutout.png
+        make example_bounding-box.jpg
+
+        # Check that output files can be created
+        ls -la example_cutout.png example_bounding-box.jpg
 
         # Check that depfiles were created
         ls -la *.d

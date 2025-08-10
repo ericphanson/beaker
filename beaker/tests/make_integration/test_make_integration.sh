@@ -121,10 +121,10 @@ export BEAKER_STAMP_DIR="./stamps_alt"
 make -f Makefile.alt_model test_model_changes
 
 echo ""
-echo "=== Cleaning up ==="
+echo "=== Cleaning up (preserving stamp directory for CI verification) ==="
 make clean
 make -f Makefile.alt_model clean
-rm -rf "$BEAKER_STAMP_DIR"
+# Don't remove BEAKER_STAMP_DIR - let CI verify it exists
 rm -rf "./stamps_alt"
 rm -f "$TEST_IMG"
 
