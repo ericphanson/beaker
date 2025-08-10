@@ -1,0 +1,24 @@
+[workspace]
+resolver = "2"
+members = [
+    "beaker",
+    "beaker-stamp",
+    "beaker-stamp-derive"
+]
+
+[workspace.dependencies]
+beaker-stamp = { path = "beaker-stamp" }
+beaker-stamp-derive = { path = "beaker-stamp-derive" }
+
+# ───────────────────────────────────────────────────────────────
+# Profiles (moved from beaker/Cargo.toml for workspace compatibility)
+# ───────────────────────────────────────────────────────────────
+[profile.release]
+lto            = true
+codegen-units  = 1
+panic          = "abort"
+strip          = true
+rpath          = true
+
+[profile.dev]
+rpath = true

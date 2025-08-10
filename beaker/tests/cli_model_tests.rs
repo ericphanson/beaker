@@ -168,8 +168,8 @@ fn test_cli_model_url_without_checksum() {
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     // Print output for debugging
-    println!("STDOUT: {}", stdout);
-    println!("STDERR: {}", stderr);
+    println!("STDOUT: {stdout}");
+    println!("STDERR: {stderr}");
 
     // Should succeed (or fail gracefully with network/model issues)
     // We expect a warning about checksum verification being skipped

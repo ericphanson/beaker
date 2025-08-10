@@ -6,7 +6,6 @@ use crate::cutout_postprocessing::{
 use crate::cutout_preprocessing::preprocess_image_for_isnet_v2;
 use crate::model_access::{ModelAccess, ModelInfo};
 use crate::onnx_session::ModelSource;
-use crate::output_manager::OutputManager;
 use crate::shared_metadata::IoTiming;
 use anyhow::Result;
 use image::GenericImageView;
@@ -197,6 +196,7 @@ impl ModelProcessor for CutoutProcessor {
         image_path: &Path,
         config: &Self::Config,
         model_info: &crate::onnx_session::ModelInfo,
+        output_manager: &crate::output_manager::OutputManager,
     ) -> Result<Self::Result> {
         let start_time = Instant::now();
         let mut io_timing = IoTiming::new();
@@ -234,11 +234,11 @@ impl ModelProcessor for CutoutProcessor {
         // Extract binary mask data for metadata (threshold at 128)
         let raw_mask_data = extract_binary_mask_data(&mask);
 
-        // Generate output paths using OutputManager
-        let output_manager = OutputManager::new(config, image_path);
-        let output_path = output_manager.generate_main_output_path("cutout", "png")?;
+        // Generate output paths using OutputManager (tracking enabled by default)
+        let output_path =
+            output_manager.generate_main_output_path_with_tracking("cutout", "png", true)?;
         let mask_path = if config.save_mask {
-            Some(output_manager.generate_auxiliary_output("mask", "png")?)
+            Some(output_manager.generate_auxiliary_output_with_tracking("mask", "png", true)?)
         } else {
             None
         };
@@ -263,6 +263,7 @@ impl ModelProcessor for CutoutProcessor {
             fs::create_dir_all(parent)?;
         }
         io_timing.time_save_operation(|| Ok(cutout_result.save(&output_path)?))?;
+
         debug!(
             "{} Cutout saved to: {}",
             symbols::completed_successfully(),
@@ -274,6 +275,7 @@ impl ModelProcessor for CutoutProcessor {
                 fs::create_dir_all(parent)?;
             }
             io_timing.time_save_operation(|| Ok(mask.save(mask_path_val)?))?;
+
             debug!(
                 "{} Mask saved to: {}",
                 symbols::completed_successfully(),

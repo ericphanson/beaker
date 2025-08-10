@@ -1,0 +1,57 @@
+# Test Makefile for beaker Make compatibility with alternative model
+# Tests that changing model parameters causes rebuilds
+
+# Test images and outputs
+TEST_IMG := example.jpg
+DETECT_DEFAULT_OUTPUT := example_crop.jpg
+DETECT_ALT_OUTPUT := example-2-birds_crop.jpg
+
+# Beaker binary
+BEAKER := ../../../target/release/beaker
+
+# Test targets
+.PHONY: all test_model_changes clean test_confidence_change
+
+all: $(DETECT_DEFAULT_OUTPUT) $(DETECT_ALT_OUTPUT)
+
+# Detection with default configuration
+$(DETECT_DEFAULT_OUTPUT): $(TEST_IMG)
+	@echo "Building detection with default confidence from $<"
+	$(BEAKER) detect $< --confidence 0.25 --crop head --metadata --depfile $@.d
+
+# Detection with alternative input (creates different output name)
+$(DETECT_ALT_OUTPUT): example-2-birds.jpg
+	@echo "Building detection with alternative input from $<"
+	$(BEAKER) detect $< --confidence 0.25 --crop head --metadata --depfile $@.d
+
+# Test confidence change by creating a temporary target
+test_confidence_change: example_crop_high_conf.stamp
+
+example_crop_high_conf.stamp: $(TEST_IMG)
+	@echo "Building detection with high confidence"
+	$(BEAKER) detect $< --confidence 0.8 --crop head --metadata --depfile example_crop.jpg.d
+	@# Create marker file to track this specific build
+	@echo "high-confidence-build" > $@
+
+# Include dependency files if they exist
+-include $(DETECT_DEFAULT_OUTPUT).d
+-include $(DETECT_ALT_OUTPUT).d
+
+# Test that model parameter changes trigger rebuilds
+test_model_changes: clean
+	@echo "=== Testing model parameter change handling ==="
+	@echo "1. Build with default image"
+	$(MAKE) -f Makefile.alt_model $(DETECT_DEFAULT_OUTPUT)
+	@echo "2. Build with alternative image"
+	$(MAKE) -f Makefile.alt_model $(DETECT_ALT_OUTPUT)
+	@echo "3. Rebuild default (should do nothing)"
+	$(MAKE) -f Makefile.alt_model $(DETECT_DEFAULT_OUTPUT)
+	@echo "4. Rebuild alternative (should do nothing)"
+	$(MAKE) -f Makefile.alt_model $(DETECT_ALT_OUTPUT)
+	@echo "=== Model parameter test complete ==="
+
+clean:
+	rm -f $(DETECT_DEFAULT_OUTPUT) $(DETECT_ALT_OUTPUT)
+	rm -f $(DETECT_DEFAULT_OUTPUT).d $(DETECT_ALT_OUTPUT).d
+	rm -f example_crop_high_conf.stamp
+	rm -f *.beaker.toml *.beaker.json

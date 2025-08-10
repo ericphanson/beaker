@@ -10,12 +10,16 @@ onnxruntime-libs
 # Rust build artifacts
 beaker/target/
 beaker/Cargo.lock
+target/
 example-raw.rw2
 beaker/*-notes.md
 
 # Beaker output files - test artifacts that should not be committed
 *.beaker.toml
 *.beaker.json
+
+# Stamp files - test artifacts that should not be committed
+*.stamp
 
 # Image files in beaker directory - examples should be at top-level
 beaker/*.jpg

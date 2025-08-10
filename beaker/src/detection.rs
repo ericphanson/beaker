@@ -166,10 +166,10 @@ fn handle_image_outputs_with_timing(
     image_path: &Path,
     config: &DetectionConfig,
     io_timing: &mut IoTiming,
+    output_manager: &OutputManager,
 ) -> Result<(Option<String>, Vec<DetectionWithPath>)> {
     let source_path = image_path;
     let output_ext = get_output_extension(source_path);
-    let output_manager = OutputManager::new(config, source_path);
 
     let mut detections_with_paths = Vec::new();
 
@@ -186,11 +186,12 @@ fn handle_image_outputs_with_timing(
                 continue; // Skip this detection if its class is not in crop_classes
             }
 
-            let crop_filename = output_manager.generate_numbered_output(
+            let crop_filename = output_manager.generate_numbered_output_with_tracking(
                 "crop",
                 i + 1,
                 detections.len(),
                 output_ext,
+                true,
             )?;
 
             // Time the crop creation and save
@@ -224,7 +225,11 @@ fn handle_image_outputs_with_timing(
     // Create bounding box image if requested
     let mut bounding_box_path = None;
     if config.bounding_box && !detections.is_empty() {
-        let bbox_filename = output_manager.generate_auxiliary_output("bounding-box", output_ext)?;
+        let bbox_filename = output_manager.generate_auxiliary_output_with_tracking(
+            "bounding-box",
+            output_ext,
+            true,
+        )?;
 
         // Time the bounding box image save
         io_timing
@@ -272,6 +277,7 @@ impl ModelProcessor for DetectionProcessor {
         image_path: &Path,
         config: &Self::Config,
         model_info: &crate::onnx_session::ModelInfo,
+        output_manager: &crate::output_manager::OutputManager,
     ) -> Result<Self::Result> {
         let processing_start = Instant::now();
         let mut io_timing = IoTiming::new();
@@ -333,6 +339,7 @@ impl ModelProcessor for DetectionProcessor {
             image_path,
             config,
             &mut io_timing,
+            output_manager,
         )?;
 
         Ok(DetectionResult {
