@@ -6,6 +6,9 @@ Train YOLOv8n model for bird head detection on M1 MacBook Pro with Comet.ml trac
 
 import os
 
+os.environ["COMET_EVAL_LOG_IMAGE_PREDICTIONS"] = (
+    "false"  # Disable image logging to Comet.ml
+)
 import comet_ml
 import torch
 import torch.nn as nn
