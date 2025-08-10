@@ -201,10 +201,11 @@ impl ModelProcessor for CutoutProcessor {
         // Extract binary mask data for metadata (threshold at 128)
         let raw_mask_data = extract_binary_mask_data(&mask);
 
-        // Generate output paths using OutputManager
-        let output_path = output_manager.generate_main_output_path("cutout", "png")?;
+        // Generate output paths using OutputManager (tracking enabled by default)
+        let output_path =
+            output_manager.generate_main_output_path_with_tracking("cutout", "png", true)?;
         let mask_path = if config.save_mask {
-            Some(output_manager.generate_auxiliary_output("mask", "png")?)
+            Some(output_manager.generate_auxiliary_output_with_tracking("mask", "png", true)?)
         } else {
             None
         };
@@ -230,9 +231,6 @@ impl ModelProcessor for CutoutProcessor {
         }
         io_timing.time_save_operation(|| Ok(cutout_result.save(&output_path)?))?;
 
-        // Track the main output as produced
-        output_manager.track_output(output_path.clone());
-
         debug!(
             "{} Cutout saved to: {}",
             symbols::completed_successfully(),
@@ -244,9 +242,6 @@ impl ModelProcessor for CutoutProcessor {
                 fs::create_dir_all(parent)?;
             }
             io_timing.time_save_operation(|| Ok(mask.save(mask_path_val)?))?;
-
-            // Track the mask output as produced
-            output_manager.track_output(mask_path_val.clone());
 
             debug!(
                 "{} Mask saved to: {}",

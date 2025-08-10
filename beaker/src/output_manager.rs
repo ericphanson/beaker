@@ -141,38 +141,47 @@ impl<'a> OutputManager<'a> {
         Ok(output_path)
     }
 
-    /// Generate main output path and track it as produced
-    pub fn generate_and_track_main_output(
+    /// Generate main output path with optional tracking (default: track=true)
+    pub fn generate_main_output_path_with_tracking(
         &self,
         default_suffix: &str,
         extension: &str,
+        track: bool,
     ) -> Result<PathBuf> {
         let path = self.generate_main_output_path(default_suffix, extension)?;
-        self.track_output(path.clone());
+        if track {
+            self.track_output(path.clone());
+        }
         Ok(path)
     }
 
-    /// Generate numbered output path and track it as produced
-    pub fn generate_and_track_numbered_output(
+    /// Generate numbered output path with optional tracking (default: track=true)
+    pub fn generate_numbered_output_with_tracking(
         &self,
         base_suffix: &str,
         index: usize,
         total: usize,
         extension: &str,
+        track: bool,
     ) -> Result<PathBuf> {
         let path = self.generate_numbered_output(base_suffix, index, total, extension)?;
-        self.track_output(path.clone());
+        if track {
+            self.track_output(path.clone());
+        }
         Ok(path)
     }
 
-    /// Generate auxiliary output path and track it as produced
-    pub fn generate_and_track_auxiliary_output(
+    /// Generate auxiliary output path with optional tracking (default: track=true)
+    pub fn generate_auxiliary_output_with_tracking(
         &self,
         suffix: &str,
         extension: &str,
+        track: bool,
     ) -> Result<PathBuf> {
         let path = self.generate_auxiliary_output(suffix, extension)?;
-        self.track_output(path.clone());
+        if track {
+            self.track_output(path.clone());
+        }
         Ok(path)
     }
 
@@ -213,8 +222,8 @@ impl<'a> OutputManager<'a> {
 
         save_metadata(&metadata, &metadata_path)?;
 
-        // Track the metadata file as an output
-        self.track_output(metadata_path.clone());
+        // Note: Do not track metadata file as output.
+        // Per invariant: shared TOML should never be a prerequisite of earlier targets.
 
         debug!("📋 Saved complete metadata to: {}", metadata_path.display());
 

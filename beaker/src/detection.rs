@@ -159,19 +159,17 @@ fn handle_image_outputs_with_timing(
                 continue; // Skip this detection if its class is not in crop_classes
             }
 
-            let crop_filename = output_manager.generate_numbered_output(
+            let crop_filename = output_manager.generate_numbered_output_with_tracking(
                 "crop",
                 i + 1,
                 detections.len(),
                 output_ext,
+                true,
             )?;
 
             // Time the crop creation and save
             io_timing
                 .time_save_operation(|| create_square_crop(img, detection, &crop_filename, 0.1))?;
-
-            // Track this output as produced
-            output_manager.track_output(crop_filename.clone());
 
             debug!(
                 "{} Crop saved to: {}",
@@ -200,14 +198,15 @@ fn handle_image_outputs_with_timing(
     // Create bounding box image if requested
     let mut bounding_box_path = None;
     if config.bounding_box && !detections.is_empty() {
-        let bbox_filename = output_manager.generate_auxiliary_output("bounding-box", output_ext)?;
+        let bbox_filename = output_manager.generate_auxiliary_output_with_tracking(
+            "bounding-box",
+            output_ext,
+            true,
+        )?;
 
         // Time the bounding box image save
         io_timing
             .time_save_operation(|| save_bounding_box_image(img, detections, &bbox_filename))?;
-
-        // Track this output as produced
-        output_manager.track_output(bbox_filename.clone());
 
         debug!(
             "{} Bounding box image saved to: {}",

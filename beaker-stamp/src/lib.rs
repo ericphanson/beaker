@@ -47,7 +47,14 @@ pub mod canonical_json {
 pub mod paths {
     use std::path::PathBuf;
     /// OS-appropriate cache dir: .../beaker/stamps
+    /// Can be overridden with BEAKER_STAMP_DIR environment variable
     pub fn stamp_dir() -> PathBuf {
+        if let Ok(custom_dir) = std::env::var("BEAKER_STAMP_DIR") {
+            let p = PathBuf::from(custom_dir);
+            std::fs::create_dir_all(&p).ok();
+            return p;
+        }
+
         let base = directories::BaseDirs::new().expect("dirs");
         let mut p = base.cache_dir().to_path_buf();
         p.push("beaker");
