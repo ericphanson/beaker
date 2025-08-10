@@ -52,6 +52,4 @@ jobs:
 
     - name: Run comprehensive Make integration tests
       working-directory: beaker/tests/make_integration
-      run: |
-        chmod +x test_make_integration.sh
-        ./test_make_integration.sh
+      run: ./test_make_integration.sh
