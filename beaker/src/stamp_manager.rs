@@ -31,22 +31,6 @@ pub fn generate_model_hash_from_path(model_path: &Path) -> Result<String> {
     }
 }
 
-/// Create stamp file if content has changed
-///
-/// This is a legacy function that duplicates beaker-stamp functionality.
-/// New code should use beaker_stamp::write_cfg_stamp directly.
-pub fn create_or_update_stamp(stamp_type: &str, hash: &str, content: &str) -> Result<PathBuf> {
-    let stamps_dir = beaker_stamp::paths::stamp_dir();
-
-    let stamp_filename = format!("{stamp_type}-{hash}.stamp");
-    let stamp_path = stamps_dir.join(stamp_filename);
-
-    beaker_stamp::write::write_atomic_if_changed(&stamp_path, content.as_bytes())
-        .map_err(|e| anyhow!("Failed to write stamp file: {}", e))?;
-
-    Ok(stamp_path)
-}
-
 /// Generate all stamps for any model run using beaker-stamp
 pub fn generate_stamps_for_model<T: beaker_stamp::Stamp>(
     model_name: &str,
@@ -57,20 +41,23 @@ pub fn generate_stamps_for_model<T: beaker_stamp::Stamp>(
     let config_stamp = write_cfg_stamp(model_name, config)
         .map_err(|e| anyhow!("Failed to write {} config stamp: {}", model_name, e))?;
 
-    // Generate tool stamp
+    // Generate tool stamp using beaker-stamp directly
     let tool_hash = generate_tool_hash();
-    let tool_content = format!("tool:{tool_hash}");
-    let tool_stamp = create_or_update_stamp("tool", &tool_hash, &tool_content)?;
+    let tool_filename = format!("tool-{tool_hash}.stamp");
+    let tool_stamp = beaker_stamp::paths::stamp_dir().join(tool_filename);
+    let tool_content = format!("tool:{tool_hash}\n").into_bytes();
+    beaker_stamp::write::write_atomic_if_changed(&tool_stamp, &tool_content)
+        .map_err(|e| anyhow!("Failed to write tool stamp: {}", e))?;
 
-    // Generate model stamp if model file exists
+    // Generate model stamp if model file exists using beaker-stamp directly
     let model_stamp = if let Some(model_path) = model_path {
         let model_hash = generate_model_hash_from_path(model_path)?;
-        let model_content = format!("model-{model_name}:{model_hash}");
-        Some(create_or_update_stamp(
-            &format!("model-{model_name}"),
-            &model_hash,
-            &model_content,
-        )?)
+        let model_filename = format!("model-{model_name}-{model_hash}.stamp");
+        let model_stamp_path = beaker_stamp::paths::stamp_dir().join(model_filename);
+        let model_content = format!("model-{model_name}:{model_hash}\n").into_bytes();
+        beaker_stamp::write::write_atomic_if_changed(&model_stamp_path, &model_content)
+            .map_err(|e| anyhow!("Failed to write model stamp: {}", e))?;
+        Some(model_stamp_path)
     } else {
         None
     };
@@ -177,9 +164,12 @@ mod tests {
         // Use a unique stamp type to avoid conflicts
         let stamp_type = format!("test-{}", std::process::id());
         let hash = "abcd1234";
-        let content = "test content";
+        let content = format!("{stamp_type}:{hash}\n");
 
-        let stamp_path = create_or_update_stamp(&stamp_type, hash, content).unwrap();
+        let stamp_filename = format!("{stamp_type}-{hash}.stamp");
+        let stamp_path = beaker_stamp::paths::stamp_dir().join(stamp_filename);
+
+        beaker_stamp::write::write_atomic_if_changed(&stamp_path, content.as_bytes()).unwrap();
 
         assert!(stamp_path.exists());
         assert_eq!(fs::read_to_string(&stamp_path).unwrap(), content);
@@ -192,10 +182,13 @@ mod tests {
     fn test_stamp_file_preserves_mtime_when_unchanged() {
         let stamp_type = format!("test-preserve-{}", std::process::id());
         let hash = "efgh5678";
-        let content = "preserve test content";
+        let content = format!("{stamp_type}:{hash}\n");
+
+        let stamp_filename = format!("{stamp_type}-{hash}.stamp");
+        let stamp_path = beaker_stamp::paths::stamp_dir().join(stamp_filename);
 
         // Create initial stamp
-        let stamp_path = create_or_update_stamp(&stamp_type, hash, content).unwrap();
+        beaker_stamp::write::write_atomic_if_changed(&stamp_path, content.as_bytes()).unwrap();
         let initial_metadata = fs::metadata(&stamp_path).unwrap();
         let initial_modified = initial_metadata.modified().unwrap();
 
@@ -203,8 +196,7 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(10));
 
         // Create stamp again with same content
-        let stamp_path2 = create_or_update_stamp(&stamp_type, hash, content).unwrap();
-        assert_eq!(stamp_path, stamp_path2);
+        beaker_stamp::write::write_atomic_if_changed(&stamp_path, content.as_bytes()).unwrap();
 
         let final_metadata = fs::metadata(&stamp_path).unwrap();
         let final_modified = final_metadata.modified().unwrap();

@@ -104,8 +104,10 @@ jobs:
         echo "Binary information:"
         Get-ChildItem target/${{ matrix.target }}/release/beaker.exe | Format-Table Name, Length
 
-    - name: Copy example image to current directory
-      run: cp example.jpg ./
+    - name: Verify example images exist
+      run: |
+        ls -la example*.jpg
+        echo "Example images found in repository root"
 
     - name: Test CLI help (Unix)
       if: runner.os != 'Windows'
@@ -172,8 +174,10 @@ jobs:
         ./target/${{ matrix.target }}/release/beaker.exe detect example.jpg --confidence 0.5 --device cpu --metadata
         echo "Execution provider testing complete"
 
-    - name: Copy second test image
-      run: cp example-2-birds.jpg ./
+    - name: Verify all test images exist
+      run: |
+        ls -la example*.jpg
+        echo "All test images found in repository root"
 
     - name: Pre-download models for testing (Unix)
       if: runner.os != 'Windows'

@@ -11,7 +11,7 @@ CUTOUT_OUTPUT="$TEST_DIR/example_cutout.png"
 DETECT_OUTPUT="$TEST_DIR/example_bounding-box.jpg"
 
 # Use isolated stamp directory for testing (concurrency safe)
-export BEAKER_STAMP_DIR="$TEST_DIR/stamps"
+export BEAKER_STAMP_DIR="$TEST_DIR/test_stamps"
 
 echo "=== Make Integration Test ==="
 echo "Test directory: $TEST_DIR"
