@@ -249,7 +249,7 @@ mod tests {
             base: BaseModelConfig {
                 sources: vec!["test.jpg".to_string()],
                 device: "cpu".to_string(),
-                output_dir,
+                output_dir: output_dir.clone(),
                 depfile: None,
                 skip_metadata: false,
                 strict: true,
@@ -261,6 +261,7 @@ mod tests {
             model_path: None,
             model_url: None,
             model_checksum: None,
+            output_dir, // Add the stamped output_dir field
         }
     }
 

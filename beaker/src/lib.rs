@@ -22,3 +22,6 @@ pub mod shared_metadata;
 pub mod stamp_manager;
 pub mod yolo_postprocessing;
 pub mod yolo_preprocessing;
+
+#[cfg(test)]
+mod proc_macro_stamp_tests;

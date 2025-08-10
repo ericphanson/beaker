@@ -8,6 +8,7 @@
 //! The design separates CLI concerns (argument parsing, help text, validation) from
 //! business logic (processing parameters, feature flags, internal state).
 
+use beaker_stamp_derive::Stamp as DeriveStamp;
 use clap::Parser;
 use clap_verbosity_flag::Verbosity;
 use serde::Serialize;
@@ -187,31 +188,42 @@ pub struct DetectCommand {
 
 /// Internal configuration for detection processing
 ///
-/// **IMPORTANT**: This struct must be kept in sync with generate_detection_config_hash().
-/// When adding new fields that affect byte-level output:
-/// 1. Add the field to the hash computation in stamp_manager.rs
-/// 2. Update tests in stamp_manager.rs
+/// **IMPORTANT**: Fields marked with #[stamp] affect byte-level output and are included
+/// in stamp hash generation. When adding new fields:
+/// 1. Add #[stamp] if the field affects actual image bytes produced
+/// 2. Update tests in stamp_manager.rs to verify stamp changes
 /// 3. Consider if the field should be included in serialized config
 ///
 /// Only include parameters that affect the actual image bytes produced,
 /// not metadata-only or performance-related settings.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, DeriveStamp)]
 pub struct DetectionConfig {
     #[serde(skip)]
     pub base: BaseModelConfig,
+    #[stamp]
     pub confidence: f32,
+    #[stamp]
     pub iou_threshold: f32,
+    #[stamp]
     pub crop_classes: HashSet<DetectionClass>,
+    #[stamp]
     pub bounding_box: bool,
     /// CLI-provided model path override
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[stamp]
     pub model_path: Option<String>,
     /// CLI-provided model URL override
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[stamp]
     pub model_url: Option<String>,
     /// CLI-provided model checksum override
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[stamp]
     pub model_checksum: Option<String>,
+    /// Output directory (affects output file paths, extracted from base for stamping)
+    #[serde(skip)]
+    #[stamp]
+    pub output_dir: Option<String>,
 }
 
 /// CLI command for cutout processing (only command-specific arguments)
@@ -264,35 +276,49 @@ pub struct CutoutCommand {
 
 /// Internal configuration for cutout processing
 ///
-/// **IMPORTANT**: This struct must be kept in sync with generate_cutout_config_hash().
-/// When adding new fields that affect byte-level output:
-/// 1. Add the field to the hash computation in stamp_manager.rs
-/// 2. Update tests in stamp_manager.rs
+/// **IMPORTANT**: Fields marked with #[stamp] affect byte-level output and are included
+/// in stamp hash generation. When adding new fields:
+/// 1. Add #[stamp] if the field affects actual image bytes produced
+/// 2. Update tests in stamp_manager.rs to verify stamp changes
 /// 3. Consider if the field should be included in serialized config
 ///
 /// Only include parameters that affect the actual image bytes produced,
 /// not metadata-only or performance-related settings.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, DeriveStamp)]
 pub struct CutoutConfig {
     #[serde(skip)]
     pub base: BaseModelConfig,
+    #[stamp]
     pub post_process_mask: bool,
+    #[stamp]
     pub alpha_matting: bool,
+    #[stamp]
     pub alpha_matting_foreground_threshold: u8,
+    #[stamp]
     pub alpha_matting_background_threshold: u8,
+    #[stamp]
     pub alpha_matting_erode_size: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[stamp]
     pub background_color: Option<[u8; 4]>,
+    #[stamp]
     pub save_mask: bool,
     /// CLI-provided model path override
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[stamp]
     pub model_path: Option<String>,
     /// CLI-provided model URL override
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[stamp]
     pub model_url: Option<String>,
     /// CLI-provided model checksum override
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[stamp]
     pub model_checksum: Option<String>,
+    /// Output directory (affects output file paths, extracted from base for stamping)
+    #[serde(skip)]
+    #[stamp]
+    pub output_dir: Option<String>,
 }
 
 // Conversion traits from CLI commands to internal configurations
@@ -321,6 +347,7 @@ impl DetectionConfig {
             None => HashSet::new(), // No cropping if not specified
         };
 
+        let output_dir = base.output_dir.clone(); // Clone before move
         Ok(Self {
             base,
             confidence: cmd.confidence,
@@ -330,6 +357,7 @@ impl DetectionConfig {
             model_path: cmd.model_path,
             model_url: cmd.model_url,
             model_checksum: cmd.model_checksum,
+            output_dir, // Use the cloned value
         })
     }
 }
@@ -340,6 +368,7 @@ impl CutoutConfig {
         let mut base: BaseModelConfig = global.into();
         base.sources = cmd.sources; // Add sources from command
 
+        let output_dir = base.output_dir.clone(); // Clone before move
         Self {
             base,
             post_process_mask: cmd.post_process,
@@ -352,6 +381,7 @@ impl CutoutConfig {
             model_path: cmd.model_path,
             model_url: cmd.model_url,
             model_checksum: cmd.model_checksum,
+            output_dir, // Use the cloned value
         }
     }
 }
@@ -504,6 +534,7 @@ mod tests {
             model_path: None,
             model_url: None,
             model_checksum: None,
+            output_dir: Some("/tmp".to_string()), // Add the stamped output_dir
         };
 
         // Test field access through base config

@@ -44,9 +44,6 @@ pub trait ModelResult {
     /// Get file I/O timing information
     fn get_io_timing(&self) -> crate::shared_metadata::IoTiming;
 
-    /// Get list of files actually created (for depfile generation)
-    fn get_created_files(&self) -> Vec<std::path::PathBuf>;
-
     /// Get mask entry for cutout results (only applicable for cutout tools)
     fn get_mask_entry(&self) -> Option<crate::mask_encoding::MaskEntry> {
         None
@@ -412,7 +409,7 @@ fn generate_stamps_for_tool<P: ModelProcessor>(
 
 /// Generate a depfile for a single processed image
 fn generate_depfile_for_image<P: ModelProcessor>(
-    result: &P::Result,
+    _result: &P::Result,
     _config: &P::Config,
     image_path: &Path,
     depfile_path: &str,
@@ -423,11 +420,6 @@ fn generate_depfile_for_image<P: ModelProcessor>(
 
     // Input files are just the source image
     let inputs = vec![image_path.to_path_buf()];
-
-    // Track outputs from result in the main OutputManager
-    for output_file in result.get_created_files() {
-        output_manager.track_output(output_file);
-    }
 
     // Use OutputManager as single source of truth for all outputs
     let outputs = output_manager.get_produced_outputs();
