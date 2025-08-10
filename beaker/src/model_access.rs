@@ -81,7 +81,7 @@ fn test_model_basic_functionality(model_path: &Path) -> Result<()> {
     let config = SessionConfig { device: "cpu" };
 
     match create_onnx_session(model_source, &config) {
-        Ok((_session, model_info)) => {
+        Ok((_session, model_info, _cache_stats)) => {
             log::info!(
                 "{} Model loaded successfully - basic functionality test passed",
                 symbols::completed_successfully()
@@ -436,7 +436,11 @@ fn download_with_concurrency_protection(
 }
 
 /// Download model without checksum verification (for CLI URLs without checksums)
-pub fn download_model_without_verification(model_info: &ModelInfo) -> Result<PathBuf> {
+pub fn download_model_without_verification(
+    model_info: &ModelInfo,
+) -> Result<(PathBuf, Option<crate::shared_metadata::OnnxCacheStats>)> {
+    use std::time::Instant;
+
     let cache_dir = get_cache_dir()?;
     let model_path = cache_dir.join(&model_info.filename);
     let lock_path = cache_dir.join(format!("{}.lock", model_info.filename));
@@ -448,8 +452,22 @@ pub fn download_model_without_verification(model_info: &ModelInfo) -> Result<Pat
         symbols::warning()
     );
 
+    // Collect general ONNX cache info (single traversal) - we're using download cache here
+    let mut onnx_cache_stats = crate::shared_metadata::OnnxCacheStats::default();
+    if let Ok((count, size_mb)) = crate::shared_metadata::get_cache_info(&cache_dir) {
+        onnx_cache_stats.cached_models_count = Some(count);
+        onnx_cache_stats.cached_models_size_mb = Some(size_mb);
+    }
+
+    let download_start_time = Instant::now();
+
     // Handle concurrent downloads with lock file
     download_with_concurrency_protection(&model_path, &lock_path, model_info)?;
+
+    // Record download timing and cache miss
+    let download_time_ms = download_start_time.elapsed().as_secs_f64() * 1000.0;
+    onnx_cache_stats.model_cache_hit = Some(false);
+    onnx_cache_stats.download_time_ms = Some(download_time_ms);
 
     // Validate model file size (but skip checksum verification)
     validate_model_file_size(&model_path)?;
@@ -462,15 +480,28 @@ pub fn download_model_without_verification(model_info: &ModelInfo) -> Result<Pat
         crate::color_utils::symbols::completed_successfully()
     );
 
-    Ok(model_path)
+    Ok((model_path, Some(onnx_cache_stats)))
 }
-pub fn get_or_download_model(model_info: &ModelInfo) -> Result<PathBuf> {
+pub fn get_or_download_model(
+    model_info: &ModelInfo,
+) -> Result<(PathBuf, Option<crate::shared_metadata::OnnxCacheStats>)> {
+    use std::time::Instant;
+
     let cache_dir = get_cache_dir()?;
     let model_path = cache_dir.join(&model_info.filename);
     let lock_path = cache_dir.join(format!("{}.lock", model_info.filename));
 
     log::debug!("🗂️  Cache directory: {}", cache_dir.display());
     log::debug!("📄 Model path: {}", model_path.display());
+
+    // Collect general ONNX cache info (single traversal) - we're using download cache here
+    let mut onnx_cache_stats = crate::shared_metadata::OnnxCacheStats::default();
+    if let Ok((count, size_mb)) = crate::shared_metadata::get_cache_info(&cache_dir) {
+        onnx_cache_stats.cached_models_count = Some(count);
+        onnx_cache_stats.cached_models_size_mb = Some(size_mb);
+    }
+
+    let download_start_time = Instant::now();
 
     // Check if model already exists and has correct checksum
     if model_path.exists() {
@@ -499,7 +530,8 @@ pub fn get_or_download_model(model_info: &ModelInfo) -> Result<PathBuf> {
                             crate::color_utils::symbols::completed_successfully(),
                             model_info.filename
                         );
-                        return Ok(model_path);
+                        onnx_cache_stats.model_cache_hit = Some(true);
+                        return Ok((model_path, Some(onnx_cache_stats)));
                     }
                     Ok(false) => {
                         // Get detailed info about the file for debugging
@@ -537,8 +569,14 @@ pub fn get_or_download_model(model_info: &ModelInfo) -> Result<PathBuf> {
             );
         }
     }
+
     // Handle concurrent downloads with lock file
     download_with_concurrency_protection(&model_path, &lock_path, model_info)?;
+
+    // Record download timing and cache miss
+    let download_time_ms = download_start_time.elapsed().as_secs_f64() * 1000.0;
+    onnx_cache_stats.model_cache_hit = Some(false);
+    onnx_cache_stats.download_time_ms = Some(download_time_ms);
 
     // Verify the downloaded model
     log::debug!(
@@ -587,7 +625,7 @@ pub fn get_or_download_model(model_info: &ModelInfo) -> Result<PathBuf> {
         crate::color_utils::symbols::completed_successfully()
     );
 
-    Ok(model_path)
+    Ok((model_path, Some(onnx_cache_stats)))
 }
 
 /// CLI model information provided by user arguments
@@ -667,7 +705,9 @@ impl RuntimeModelInfo {
 
 /// Get or download a model using RuntimeModelInfo (supports env var overrides).
 /// This now properly uses owned strings without memory leaks.
-pub fn get_or_download_runtime_model(model_info: RuntimeModelInfo) -> Result<PathBuf> {
+pub fn get_or_download_runtime_model(
+    model_info: RuntimeModelInfo,
+) -> Result<(PathBuf, Option<crate::shared_metadata::OnnxCacheStats>)> {
     let model_info = model_info.to_model_info();
     get_or_download_model(&model_info)
 }
@@ -677,7 +717,13 @@ pub fn get_or_download_runtime_model(model_info: RuntimeModelInfo) -> Result<Pat
 pub trait ModelAccess {
     /// Get the model source with CLI arguments and environment variable overrides.
     /// CLI arguments take priority over environment variables.
-    fn get_model_source_with_cli<'a>(cli_model_info: &CliModelInfo) -> Result<ModelSource<'a>>
+    /// Returns (ModelSource, OnnxCacheStats) where OnnxCacheStats emerge from cache operations.
+    fn get_model_source_with_cli<'a>(
+        cli_model_info: &CliModelInfo,
+    ) -> Result<(
+        ModelSource<'a>,
+        Option<crate::shared_metadata::OnnxCacheStats>,
+    )>
     where
         Self: Sized,
     {
@@ -711,7 +757,10 @@ pub trait ModelAccess {
 }
 
 /// Generic implementation of model access that handles env var checking and fallbacks.
-pub fn get_model_source_with_env_override<T: ModelAccess>() -> Result<ModelSource<'static>> {
+pub fn get_model_source_with_env_override<T: ModelAccess>() -> Result<(
+    ModelSource<'static>,
+    Option<crate::shared_metadata::OnnxCacheStats>,
+)> {
     // Check if user has specified a runtime model path via environment variable
     if let Ok(model_path) = std::env::var(T::get_env_var_name()) {
         log::debug!(
@@ -730,7 +779,8 @@ pub fn get_model_source_with_env_override<T: ModelAccess>() -> Result<ModelSourc
             ));
         }
 
-        return Ok(ModelSource::FilePath(model_path));
+        // For custom model paths: no cache traversal needed since we don't use download cache
+        return Ok((ModelSource::FilePath(model_path.clone()), None));
     }
 
     // Check if we should download from a remote source
@@ -762,20 +812,27 @@ pub fn get_model_source_with_env_override<T: ModelAccess>() -> Result<ModelSourc
             }
         }
 
-        if let Ok(download_path) = get_or_download_runtime_model(runtime_model_info) {
+        if let Ok((download_path, download_cache_stats)) =
+            get_or_download_runtime_model(runtime_model_info)
+        {
             let path_str = download_path
                 .to_str()
                 .ok_or_else(|| anyhow::anyhow!("Downloaded model path is not valid UTF-8"))?;
 
             log::debug!("📥 Using downloaded model: {path_str}");
-            return Ok(ModelSource::FilePath(path_str.to_string()));
+            return Ok((
+                ModelSource::FilePath(path_str.to_string()),
+                download_cache_stats,
+            ));
         }
     }
 
     // Default: use embedded bytes if available
     if let Some(embedded_bytes) = T::get_embedded_bytes() {
         log::debug!("📦 Using embedded model bytes");
-        return Ok(ModelSource::EmbeddedBytes(embedded_bytes));
+
+        // For embedded models: no cache traversal needed since we don't use download cache
+        return Ok((ModelSource::EmbeddedBytes(embedded_bytes), None));
     }
 
     // If no embedded bytes and no download info, we can't provide a model
@@ -788,7 +845,10 @@ pub fn get_model_source_with_env_override<T: ModelAccess>() -> Result<ModelSourc
 /// Generic implementation of model access that handles CLI arguments, env var checking and fallbacks.
 pub fn get_model_source_with_cli_and_env_override<T: ModelAccess>(
     cli_model_info: &CliModelInfo,
-) -> Result<ModelSource<'static>> {
+) -> Result<(
+    ModelSource<'static>,
+    Option<crate::shared_metadata::OnnxCacheStats>,
+)> {
     // First, validate CLI arguments
     cli_model_info.validate()?;
 
@@ -811,7 +871,8 @@ pub fn get_model_source_with_cli_and_env_override<T: ModelAccess>(
         // Test model functionality for new models
         test_model_basic_functionality(&path)?;
 
-        return Ok(ModelSource::FilePath(model_path.clone()));
+        // For custom model paths: no cache traversal needed since we don't use download cache
+        return Ok((ModelSource::FilePath(model_path.clone()), None));
     }
 
     // Priority 2: CLI-provided model URL
@@ -851,13 +912,14 @@ pub fn get_model_source_with_cli_and_env_override<T: ModelAccess>(
         };
 
         // Handle download with or without checksum verification
-        let download_path = if cli_model_info_for_download.md5_checksum == "skip_verification" {
-            // Download without checksum verification
-            download_model_without_verification(&cli_model_info_for_download)?
-        } else {
-            // Download with checksum verification
-            get_or_download_model(&cli_model_info_for_download)?
-        };
+        let (download_path, download_cache_stats) =
+            if cli_model_info_for_download.md5_checksum == "skip_verification" {
+                // Download without checksum verification
+                download_model_without_verification(&cli_model_info_for_download)?
+            } else {
+                // Download with checksum verification
+                get_or_download_model(&cli_model_info_for_download)?
+            };
 
         // Test model functionality for newly downloaded models
         test_model_basic_functionality(&download_path)?;
@@ -867,7 +929,10 @@ pub fn get_model_source_with_cli_and_env_override<T: ModelAccess>(
             .ok_or_else(|| anyhow!("Downloaded model path is not valid UTF-8"))?;
 
         log::info!("📥 Using CLI-downloaded model: {path_str}");
-        return Ok(ModelSource::FilePath(path_str.to_string()));
+        return Ok((
+            ModelSource::FilePath(path_str.to_string()),
+            download_cache_stats,
+        ));
     }
 
     // Priority 3: Fall back to existing environment variable and default behavior
