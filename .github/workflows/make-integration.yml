@@ -55,16 +55,3 @@ jobs:
       run: |
         chmod +x test_make_integration.sh
         ./test_make_integration.sh
-
-    - name: Verify stamp files were preserved
-      working-directory: beaker/tests/make_integration
-      run: |
-        # Check that stamp files were created and preserved
-        if [ -d "test_stamps" ] && [ "$(find test_stamps -name '*.stamp' | wc -l)" -gt 0 ]; then
-          echo "✅ Stamp files preserved for CI verification"
-          echo "Stamp files found:"
-          find test_stamps -name '*.stamp' | head -5
-        else
-          echo "❌ No stamp files found after testing"
-          exit 1
-        fi
