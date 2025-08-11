@@ -59,6 +59,8 @@ pub struct DetectionResult {
     pub detections: Vec<DetectionWithPath>,
     #[serde(skip_serializing)]
     pub io_timing: IoTiming,
+    pub input_img_width: u32,
+    pub input_img_height: u32,
 }
 
 #[derive(Serialize, Clone)]
@@ -146,6 +148,13 @@ fn handle_image_outputs_with_timing(
 
     let mut detections_with_paths = Vec::new();
 
+    let total_per_class =
+        detections
+            .iter()
+            .fold(std::collections::HashMap::new(), |mut acc, detection| {
+                *acc.entry(detection.class_name.clone()).or_insert(0) += 1;
+                acc
+            });
     // Create crops if requested
     if !config.crop_classes.is_empty() && !detections.is_empty() {
         for (i, detection) in detections.iter().enumerate() {
@@ -159,10 +168,15 @@ fn handle_image_outputs_with_timing(
                 continue; // Skip this detection if its class is not in crop_classes
             }
 
+            let suffix = format!("crop_{}", detection.class_name);
+            let total_count = total_per_class
+                .get(&detection.class_name)
+                .cloned()
+                .unwrap_or(1); // Default to 1 if not found
             let crop_filename = output_manager.generate_numbered_output_with_tracking(
-                "crop",
+                &suffix,
                 i + 1,
-                detections.len(),
+                total_count,
                 output_ext,
                 true,
             )?;
@@ -266,7 +280,51 @@ impl ModelProcessor for DetectionProcessor {
         );
 
         // Preprocess the image
-        let model_size = 640; // Standard YOLO input size
+        // Query the model size from the session:
+        let input_md = &session.inputs[0];
+
+        let dimensions = match &input_md.input_type {
+            ort::value::ValueType::Tensor {
+                ty: _,
+                shape,
+                dimension_symbols: _,
+            } => shape.to_vec(),
+            _ => {
+                debug!(
+                    "Unexpected input type: {:?}. Defaulting to 640x640",
+                    input_md.input_type
+                );
+                vec![1, 3, 640, 640] // Default to 1 batch, 3 channels, 640x640
+            }
+        };
+
+        debug!("Input: {}, shape: {:?}", input_md.name, dimensions);
+        let model_size = dimensions[3] as u32; // Assuming square input, use width
+
+        let output_dimensions = match &session.outputs[0].output_type {
+            ort::value::ValueType::Tensor {
+                ty,
+                shape,
+                dimension_symbols: _,
+            } => {
+                debug!(
+                    "Output: {}, type: {:?}, shape: {:?}",
+                    session.outputs[0].name, ty, shape
+                );
+                shape.to_vec()
+            }
+            _ => {
+                debug!(
+                    "Unexpected output type for {}. Defaulting to 1x1x1x1",
+                    session.outputs[0].name
+                );
+                vec![1, 1, 1, 1]
+            }
+        };
+
+        let legacy_model = output_dimensions[1] < 8; // Check if legacy model based on output channels
+        debug!("Output dimensions: {output_dimensions:?}, legacy model: {legacy_model}");
+
         let input_tensor = preprocess_image(&img, model_size)?;
 
         // Run inference using ORT v2 API with timing
@@ -294,7 +352,7 @@ impl ModelProcessor for DetectionProcessor {
             orig_width,
             orig_height,
             model_size,
-            true, // is_legacy_head_model = true for backward compatibility
+            legacy_model, // Pass legacy model flag
         )?;
 
         debug!(
@@ -320,6 +378,8 @@ impl ModelProcessor for DetectionProcessor {
             bounding_box_path,
             detections: detections_with_paths,
             io_timing,
+            input_img_width: orig_width,
+            input_img_height: orig_height,
         })
     }
 

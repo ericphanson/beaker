@@ -69,7 +69,7 @@ fn get_test_scenarios() -> Vec<TestScenario> {
             ],
             expected_files: vec![
                 "example.beaker.toml",
-                "example_crop.jpg",
+                "example_crop_head.jpg",
                 "example_bounding-box.jpg",
             ],
             metadata_checks: vec![
@@ -80,7 +80,7 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                     toml::Value::from(vec!["Head"]),
                 ),
                 MetadataCheck::ConfigValue("detect", "bounding_box", toml::Value::from(true)),
-                MetadataCheck::OutputCreated("example_crop.jpg"),
+                MetadataCheck::OutputCreated("example_crop_head.jpg"),
                 MetadataCheck::OutputCreated("example_bounding-box.jpg"),
                 MetadataCheck::ExitCode("detect", 0),
                 MetadataCheck::CoreResultsField("detect", "detections"),
@@ -234,6 +234,17 @@ fn get_test_scenarios() -> Vec<TestScenario> {
             ],
             env_vars: vec![("BEAKER_DEBUG", "true")],
         },
+        TestScenario {
+            name: "multi_detect",
+            tool: "detect",
+            args: vec!["--model-url", "https://github.com/ericphanson/beaker/releases/download/bird-multi-detector-v0.1.1/bird-multi-detector.onnx", "--model-checksum", "fdb82477739fb065cf7c6d68b9aa2800", "--crop", "all", "--bounding-box", "../example.jpg"],
+            expected_files: vec!["example.beaker.toml", "example_crop_beak.jpg", "example_crop_head.jpg", "example_crop_eye.jpg", "example_crop_bird.jpg", "example_bounding-box.jpg"],
+            metadata_checks: vec![
+                MetadataCheck::ExitCode("detect", 0),
+            ],
+            env_vars: vec![("BEAKER_DEBUG", "true")],
+        },
+
     ]
 }
 
@@ -250,4 +261,5 @@ generate_metadata_tests! {
     "cutout_with_alpha_matting_and_mask",
     "multi_tool_sequential_processing",
     "cutout_with_env_vars_and_metadata",
+    "multi_detect",
 }

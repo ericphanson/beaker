@@ -66,6 +66,8 @@ pub struct CutoutResult {
     // Store raw mask data for metadata encoding
     #[serde(skip)]
     pub raw_mask_data: Option<(Vec<u8>, u32, u32)>, // (mask_data, width, height)
+    pub input_img_width: u32,  // Original input image width
+    pub input_img_height: u32, // Original input image height
 }
 
 /// Extract binary mask data from a GrayImage by thresholding at 128
@@ -260,6 +262,8 @@ impl ModelProcessor for CutoutProcessor {
             mask_path: mask_path.map(|p| p.to_string_lossy().to_string()),
             io_timing,
             raw_mask_data: Some(raw_mask_data),
+            input_img_width: original_size.0,
+            input_img_height: original_size.1,
         };
 
         Ok(cutout_result)

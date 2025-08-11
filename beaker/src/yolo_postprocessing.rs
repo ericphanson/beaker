@@ -143,7 +143,7 @@ pub fn postprocess_output(
                 });
             }
         } else {
-            // New multi-class model (class 0 = bird, 1 = head, 2 = eyes, 3 = beak)
+            // New multi-class model (class 0 = bird, 1 = head, 2 = eye, 3 = beak)
             // Find the class with highest confidence
             let mut max_confidence = 0.0;
             let mut best_class_id = 0;
@@ -172,7 +172,7 @@ pub fn postprocess_output(
                 let class_name = match best_class_id {
                     0 => "bird",
                     1 => "head",
-                    2 => "eyes",
+                    2 => "eye",
                     3 => "beak",
                     _ => "unknown",
                 }
@@ -193,6 +193,10 @@ pub fn postprocess_output(
 
     // Apply Non-Maximum Suppression
     let nms_detections = nms(detections, iou_threshold);
+
+    // Sort detections by confidence in descending order
+    let mut nms_detections = nms_detections;
+    nms_detections.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap());
 
     Ok(nms_detections)
 }

@@ -19,7 +19,7 @@ use std::collections::HashSet;
 pub enum DetectionClass {
     Bird,
     Head,
-    Eyes,
+    Eye,
     Beak,
 }
 
@@ -30,7 +30,7 @@ impl std::str::FromStr for DetectionClass {
         match s.to_lowercase().as_str() {
             "bird" => Ok(DetectionClass::Bird),
             "head" => Ok(DetectionClass::Head),
-            "eyes" => Ok(DetectionClass::Eyes),
+            "eye" => Ok(DetectionClass::Eye),
             "beak" => Ok(DetectionClass::Beak),
             _ => Err(format!("Unknown detection class: {s}")),
         }
@@ -43,7 +43,7 @@ impl DetectionClass {
         match self {
             DetectionClass::Bird => "bird",
             DetectionClass::Head => "head",
-            DetectionClass::Eyes => "eyes",
+            DetectionClass::Eye => "eye",
             DetectionClass::Beak => "beak",
         }
     }
@@ -53,7 +53,7 @@ impl DetectionClass {
         vec![
             DetectionClass::Bird,
             DetectionClass::Head,
-            DetectionClass::Eyes,
+            DetectionClass::Eye,
             DetectionClass::Beak,
         ]
     }
@@ -164,7 +164,7 @@ pub struct DetectCommand {
     #[arg(long, default_value = "0.45")]
     pub iou_threshold: f32,
 
-    /// Classes to crop as comma-separated list (bird,head,eyes,beak) or 'all' for all classes.
+    /// Classes to crop as comma-separated list (bird,head,eye,beak) or 'all' for all classes.
     /// Leave empty to disable cropping.
     #[arg(long, value_name = "CLASSES")]
     pub crop: Option<String>,
