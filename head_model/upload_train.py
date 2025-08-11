@@ -449,7 +449,7 @@ def create_release(version, model_path):
 - **Dataset**: CUB-200-2011 (bird head parts)
 {epochs_info}- **Training Images**: {training_info["train_images"]}
 - **Validation Images**: {training_info["val_images"]}
-- **Classes**: 1 (bird_head)
+- **Classes**: 4
 
 {files_section}
 """
