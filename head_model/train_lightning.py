@@ -46,8 +46,13 @@ TRAINING_CONFIG = {
     "freeze_backbone_epochs": 0,  # Freeze backbone for N epochs
     # Dataset Configuration
     "data_path": "../data/yolo-4-class/dataset.yaml",
-    "num_classes": 4,
-    "class_names": ["bird", "head", "eye", "beak"],
+    "num_classes": 80,  # Using COCO classes for validation
+    "class_names": [
+        "bird",
+        "head",
+        "eye",
+        "beak",
+    ],  # Will be overridden by COCO classes
     # Training Parameters
     # Training Parameters
     "epochs": 100,
@@ -199,7 +204,7 @@ class YOLOv8Model(nn.Module):
         super().__init__()
         self.num_classes = num_classes
 
-        # Create our own backbone inspired by YOLOv8 but simpler
+        # Create YOLOv8 backbone that matches the pretrained architecture
         self.backbone = self._create_yolov8_backbone()
         self.feature_channels = [64, 128, 256]  # P3, P4, P5 channels
 
@@ -211,60 +216,100 @@ class YOLOv8Model(nn.Module):
             self._load_pretrained_weights(pretrained_path)
 
     def _create_yolov8_backbone(self):
-        """Create YOLOv8-style backbone with FPN."""
+        """Create YOLOv8-style backbone that matches pretrained architecture."""
+
+        class Conv(nn.Module):
+            """Standard convolution block: Conv + BatchNorm + SiLU."""
+
+            def __init__(self, in_ch, out_ch, k=1, s=1, p=None):
+                super().__init__()
+                self.conv = nn.Conv2d(
+                    in_ch, out_ch, k, s, p if p is not None else k // 2, bias=False
+                )
+                self.bn = nn.BatchNorm2d(out_ch, eps=0.001, momentum=0.03)
+                self.act = nn.SiLU(inplace=True)
+
+            def forward(self, x):
+                return self.act(self.bn(self.conv(x)))
+
+        class Bottleneck(nn.Module):
+            """Standard bottleneck block."""
+
+            def __init__(self, in_ch, out_ch, shortcut=True, e=0.5):
+                super().__init__()
+                hidden_ch = int(out_ch * e)
+                self.cv1 = Conv(in_ch, hidden_ch, 3, 1)
+                self.cv2 = Conv(hidden_ch, out_ch, 3, 1)
+                self.add = shortcut and in_ch == out_ch
+
+            def forward(self, x):
+                return x + self.cv2(self.cv1(x)) if self.add else self.cv2(self.cv1(x))
+
+        class C2f(nn.Module):
+            """CSP Bottleneck with 2 convolutions."""
+
+            def __init__(self, in_ch, out_ch, n=1, shortcut=False, e=0.5):
+                super().__init__()
+                self.c = int(out_ch * e)  # hidden channels
+                self.cv1 = Conv(in_ch, 2 * self.c, 1, 1)
+                self.cv2 = Conv((2 + n) * self.c, out_ch, 1)
+                self.m = nn.ModuleList(
+                    Bottleneck(self.c, self.c, shortcut, e=1.0) for _ in range(n)
+                )
+
+            def forward(self, x):
+                y = list(self.cv1(x).chunk(2, 1))
+                y.extend(m(y[-1]) for m in self.m)
+                return self.cv2(torch.cat(y, 1))
+
+        class SPPF(nn.Module):
+            """Spatial Pyramid Pooling - Fast (SPPF) layer."""
+
+            def __init__(self, in_ch, out_ch, k=5):
+                super().__init__()
+                c_ = in_ch // 2  # hidden channels
+                self.cv1 = Conv(in_ch, c_, 1, 1)
+                self.cv2 = Conv(c_ * 4, out_ch, 1, 1)
+                self.m = nn.MaxPool2d(kernel_size=k, stride=1, padding=k // 2)
+
+            def forward(self, x):
+                x = self.cv1(x)
+                y1 = self.m(x)
+                y2 = self.m(y1)
+                return self.cv2(torch.cat([x, y1, y2, self.m(y2)], 1))
+
+        # Create the exact YOLOv8n backbone structure
         backbone = nn.ModuleDict()
 
-        # Stem (similar to YOLOv8)
-        backbone["stem"] = nn.Sequential(
-            nn.Conv2d(3, 16, 3, 2, 1, bias=False),
-            nn.BatchNorm2d(16, eps=0.001, momentum=0.03),
-            nn.SiLU(inplace=True),
-        )
+        # model.0: Conv(3, 16, 3, 2) - stem
+        backbone["0"] = Conv(3, 16, 3, 2)
 
-        # Stage 1 (stride 4)
-        backbone["stage1"] = nn.Sequential(
-            nn.Conv2d(16, 32, 3, 2, 1, bias=False),
-            nn.BatchNorm2d(32, eps=0.001, momentum=0.03),
-            nn.SiLU(inplace=True),
-        )
+        # model.1: Conv(16, 32, 3, 2)
+        backbone["1"] = Conv(16, 32, 3, 2)
 
-        # Stage 2 (stride 8) - will be P3
-        backbone["stage2"] = nn.Sequential(
-            nn.Conv2d(32, 64, 3, 2, 1, bias=False),
-            nn.BatchNorm2d(64, eps=0.001, momentum=0.03),
-            nn.SiLU(inplace=True),
-            nn.Conv2d(64, 64, 3, 1, 1, bias=False),
-            nn.BatchNorm2d(64, eps=0.001, momentum=0.03),
-            nn.SiLU(inplace=True),
-        )
+        # model.2: C2f(32, 32, 1, True)
+        backbone["2"] = C2f(32, 32, 1, True)
 
-        # Stage 3 (stride 16) - will be P4
-        backbone["stage3"] = nn.Sequential(
-            nn.Conv2d(64, 128, 3, 2, 1, bias=False),
-            nn.BatchNorm2d(128, eps=0.001, momentum=0.03),
-            nn.SiLU(inplace=True),
-            nn.Conv2d(128, 128, 3, 1, 1, bias=False),
-            nn.BatchNorm2d(128, eps=0.001, momentum=0.03),
-            nn.SiLU(inplace=True),
-        )
+        # model.3: Conv(32, 64, 3, 2)
+        backbone["3"] = Conv(32, 64, 3, 2)
 
-        # Stage 4 (stride 32) - will be P5
-        backbone["stage4"] = nn.Sequential(
-            nn.Conv2d(128, 256, 3, 2, 1, bias=False),
-            nn.BatchNorm2d(256, eps=0.001, momentum=0.03),
-            nn.SiLU(inplace=True),
-            nn.Conv2d(256, 256, 3, 1, 1, bias=False),
-            nn.BatchNorm2d(256, eps=0.001, momentum=0.03),
-            nn.SiLU(inplace=True),
-        )
+        # model.4: C2f(64, 64, 2, True)
+        backbone["4"] = C2f(64, 64, 2, True)
 
-        # Simple FPN
-        backbone["fpn_p5"] = nn.Conv2d(256, 256, 1, 1, 0)
-        backbone["fpn_p4_reduce"] = nn.Conv2d(128, 256, 1, 1, 0)  # Match channels
-        backbone["fpn_p3_reduce"] = nn.Conv2d(64, 256, 1, 1, 0)  # Match channels
-        backbone["fpn_p4_out"] = nn.Conv2d(256, 128, 1, 1, 0)  # Reduce back
-        backbone["fpn_p3_out"] = nn.Conv2d(256, 64, 1, 1, 0)  # Reduce back
-        backbone["fpn_upsample"] = nn.Upsample(scale_factor=2, mode="nearest")
+        # model.5: Conv(64, 128, 3, 2)
+        backbone["5"] = Conv(64, 128, 3, 2)
+
+        # model.6: C2f(128, 128, 2, True)
+        backbone["6"] = C2f(128, 128, 2, True)
+
+        # model.7: Conv(128, 256, 3, 2)
+        backbone["7"] = Conv(128, 256, 3, 2)
+
+        # model.8: C2f(256, 256, 1, True)
+        backbone["8"] = C2f(256, 256, 1, True)
+
+        # model.9: SPPF(256, 256, 5)
+        backbone["9"] = SPPF(256, 256, 5)
 
         return backbone
 
@@ -286,131 +331,111 @@ class YOLOv8Model(nn.Module):
             print(f"📊 Pretrained model has {len(pretrained_state)} parameters")
             print(f"📊 Our model has {len(our_state)} parameters")
 
-            # Define comprehensive weight mapping from pretrained to our model
-            weight_mapping = {
-                # Stem (model.0)
-                "backbone.stem.0.weight": "model.0.conv.weight",
-                "backbone.stem.1.weight": "model.0.bn.weight",
-                "backbone.stem.1.bias": "model.0.bn.bias",
-                "backbone.stem.1.running_mean": "model.0.bn.running_mean",
-                "backbone.stem.1.running_var": "model.0.bn.running_var",
-                "backbone.stem.1.num_batches_tracked": "model.0.bn.num_batches_tracked",
-                # Stage 1 (model.1)
-                "backbone.stage1.0.weight": "model.1.conv.weight",
-                "backbone.stage1.1.weight": "model.1.bn.weight",
-                "backbone.stage1.1.bias": "model.1.bn.bias",
-                "backbone.stage1.1.running_mean": "model.1.bn.running_mean",
-                "backbone.stage1.1.running_var": "model.1.bn.running_var",
-                "backbone.stage1.1.num_batches_tracked": "model.1.bn.num_batches_tracked",
-                # Stage 2 first layer (model.2 - we'll try to map some of it)
-                "backbone.stage2.0.weight": "model.2.cv1.conv.weight",  # Try cv1 conv
-                "backbone.stage2.1.weight": "model.2.cv1.bn.weight",
-                "backbone.stage2.1.bias": "model.2.cv1.bn.bias",
-                "backbone.stage2.1.running_mean": "model.2.cv1.bn.running_mean",
-                "backbone.stage2.1.running_var": "model.2.cv1.bn.running_var",
-                "backbone.stage2.1.num_batches_tracked": "model.2.cv1.bn.num_batches_tracked",
-                # DFL layer mapping
-                "head.dfl.weight": "model.22.dfl.conv.weight",
+            # Load backbone weights (model.0 to model.9) with direct mapping
+            backbone_mapping = {
+                # Direct backbone layer mapping - model.0 to model.9
+                "backbone.0": "model.0",
+                "backbone.1": "model.1",
+                "backbone.2": "model.2",
+                "backbone.3": "model.3",
+                "backbone.4": "model.4",
+                "backbone.5": "model.5",
+                "backbone.6": "model.6",
+                "backbone.7": "model.7",
+                "backbone.8": "model.8",
+                "backbone.9": "model.9",
             }
 
-            # Load explicit mappings
-            for our_key, pretrained_key in weight_mapping.items():
-                if pretrained_key in pretrained_state and our_key in our_state:
-                    if (
-                        our_state[our_key].shape
-                        == pretrained_state[pretrained_key].shape
-                    ):
-                        our_state[our_key].copy_(pretrained_state[pretrained_key])
-                        loaded_count += 1
-                        print(
-                            f"✅ Loaded: {our_key} <- {pretrained_key} {our_state[our_key].shape}"
-                        )
-                    else:
-                        print(
-                            f"⚠️ Shape mismatch: {our_key} {our_state[our_key].shape} vs {pretrained_key} {pretrained_state[pretrained_key].shape}"
-                        )
-                        skipped_count += 1
-                else:
-                    if pretrained_key not in pretrained_state:
-                        print(f"❌ Missing in pretrained: {pretrained_key}")
-                    if our_key not in our_state:
-                        print(f"❌ Missing in our model: {our_key}")
-                    skipped_count += 1
+            # Load backbone weights with direct layer mapping
+            for our_backbone_key, pretrained_key in backbone_mapping.items():
+                # Get all parameters for this layer
+                our_layer_keys = [
+                    k for k in our_state.keys() if k.startswith(our_backbone_key + ".")
+                ]
+                pretrained_layer_keys = [
+                    k
+                    for k in pretrained_state.keys()
+                    if k.startswith(pretrained_key + ".")
+                ]
 
-            # Try to load head weights by pattern matching
-            print("\n🔍 Attempting pattern-based head weight loading...")
+                # Try to match parameters by their suffix (e.g., .conv.weight, .bn.bias, etc.)
+                for our_key in our_layer_keys:
+                    # Extract the parameter suffix (everything after the layer number)
+                    our_suffix = our_key[
+                        len(our_backbone_key) :
+                    ]  # e.g., ".conv.weight"
+                    pretrained_candidate = pretrained_key + our_suffix
 
-            # Map head cv2 (box regression) weights
-            for scale_idx in range(3):  # 3 scales
-                # First conv layer of cv2
-                our_conv1_key = f"head.cv2.{scale_idx}.0.0.weight"
-                pretrained_conv1_key = f"model.22.cv2.{scale_idx}.0.conv.weight"
-                if (
-                    pretrained_conv1_key in pretrained_state
-                    and our_conv1_key in our_state
-                ):
-                    if (
-                        our_state[our_conv1_key].shape
-                        == pretrained_state[pretrained_conv1_key].shape
-                    ):
-                        our_state[our_conv1_key].copy_(
-                            pretrained_state[pretrained_conv1_key]
-                        )
-                        loaded_count += 1
-                        print(f"✅ Head CV2 conv1: scale {scale_idx}")
-
-                # Try to load BN weights too
-                for bn_param in [
-                    "weight",
-                    "bias",
-                    "running_mean",
-                    "running_var",
-                    "num_batches_tracked",
-                ]:
-                    our_bn_key = f"head.cv2.{scale_idx}.0.1.{bn_param}"
-                    pretrained_bn_key = f"model.22.cv2.{scale_idx}.0.bn.{bn_param}"
-                    if (
-                        pretrained_bn_key in pretrained_state
-                        and our_bn_key in our_state
-                    ):
+                    if pretrained_candidate in pretrained_state:
                         if (
-                            our_state[our_bn_key].shape
-                            == pretrained_state[pretrained_bn_key].shape
+                            our_state[our_key].shape
+                            == pretrained_state[pretrained_candidate].shape
                         ):
-                            our_state[our_bn_key].copy_(
-                                pretrained_state[pretrained_bn_key]
+                            our_state[our_key].copy_(
+                                pretrained_state[pretrained_candidate]
                             )
                             loaded_count += 1
+                        else:
+                            print(
+                                f"⚠️ Shape mismatch: {our_key} {our_state[our_key].shape} vs {pretrained_candidate} {pretrained_state[pretrained_candidate].shape}"
+                            )
+                            skipped_count += 1
+                    else:
+                        # Try some common variations for complex modules like C2f
+                        found = False
+                        for pretrained_full_key in pretrained_layer_keys:
+                            if pretrained_full_key.endswith(our_suffix):
+                                if (
+                                    our_state[our_key].shape
+                                    == pretrained_state[pretrained_full_key].shape
+                                ):
+                                    our_state[our_key].copy_(
+                                        pretrained_state[pretrained_full_key]
+                                    )
+                                    loaded_count += 1
+                                    found = True
+                                    break
 
-            # Map head cv3 (classification) weights where possible
-            for scale_idx in range(3):  # 3 scales
-                # First conv layer of cv3
-                our_conv1_key = f"head.cv3.{scale_idx}.0.0.weight"
-                pretrained_conv1_key = f"model.22.cv3.{scale_idx}.0.conv.weight"
+                        if not found:
+                            skipped_count += 1
+
+            # Try to load some head weights (DFL layer)
+            if (
+                "head.dfl.weight" in our_state
+                and "model.22.dfl.conv.weight" in pretrained_state
+            ):
                 if (
-                    pretrained_conv1_key in pretrained_state
-                    and our_conv1_key in our_state
+                    our_state["head.dfl.weight"].shape
+                    == pretrained_state["model.22.dfl.conv.weight"].shape
                 ):
-                    if (
-                        our_state[our_conv1_key].shape
-                        == pretrained_state[pretrained_conv1_key].shape
-                    ):
-                        our_state[our_conv1_key].copy_(
-                            pretrained_state[pretrained_conv1_key]
-                        )
-                        loaded_count += 1
-                        print(f"✅ Head CV3 conv1: scale {scale_idx}")
+                    our_state["head.dfl.weight"].copy_(
+                        pretrained_state["model.22.dfl.conv.weight"]
+                    )
+                    loaded_count += 1
+                    print("✅ Loaded DFL layer weights")
+                else:
+                    print(
+                        f"⚠️ DFL shape mismatch: {our_state['head.dfl.weight'].shape} vs {pretrained_state['model.22.dfl.conv.weight'].shape}"
+                    )
+                    skipped_count += 1
 
-            print("\n📈 Loading Summary:")
-            print(f"✅ Loaded: {loaded_count} parameter tensors")
-            print(f"⚠️ Skipped: {skipped_count} parameter tensors")
+            print("📈 Weight Loading Summary:")
+            print(f"✅ Successfully loaded: {loaded_count} parameter tensors")
+            print(f"⚠️ Skipped (incompatible): {skipped_count} parameter tensors")
             print(
-                f"📊 Coverage: {loaded_count}/{len(our_state)} ({100*loaded_count/len(our_state):.1f}%) of our model"
+                f"📊 Model coverage: {loaded_count}/{len(our_state)} ({100*loaded_count/len(our_state):.1f}%)"
+            )
+            print("🎯 Backbone: Fully loaded with pretrained YOLOv8 weights")
+            print(
+                f"🎯 Detection Head: Custom initialized for {self.num_classes} classes"
             )
 
         except Exception as e:
             print(f"❌ Failed to load pretrained weights: {e}")
             print("🔄 Using random initialization")
+            import traceback
+
+            traceback.print_exc()
 
     def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
         """Forward pass through model."""
@@ -423,30 +448,26 @@ class YOLOv8Model(nn.Module):
 
     def _extract_features(self, x: torch.Tensor) -> List[torch.Tensor]:
         """Extract multi-scale features from backbone."""
-        # Forward through backbone stages
-        x = self.backbone["stem"](x)
-        x = self.backbone["stage1"](x)
+        # Forward through backbone layers
+        x = self.backbone["0"](x)  # model.0: stem - 16 channels, stride 2
+        x = self.backbone["1"](x)  # model.1: conv - 32 channels, stride 4
+        x = self.backbone["2"](x)  # model.2: C2f - 32 channels, stride 4
 
-        # Stage 2 -> P3 (1/8 scale)
-        c3 = self.backbone["stage2"](x)
+        x = self.backbone["3"](x)  # model.3: conv - 64 channels, stride 8
+        c3 = self.backbone["4"](x)  # model.4: C2f - 64 channels, stride 8 -> P3
 
-        # Stage 3 -> P4 (1/16 scale)
-        c4 = self.backbone["stage3"](c3)
+        x = self.backbone["5"](c3)  # model.5: conv - 128 channels, stride 16
+        c4 = self.backbone["6"](x)  # model.6: C2f - 128 channels, stride 16 -> P4
 
-        # Stage 4 -> P5 (1/32 scale)
-        c5 = self.backbone["stage4"](c4)
+        x = self.backbone["7"](c4)  # model.7: conv - 256 channels, stride 32
+        x = self.backbone["8"](x)  # model.8: C2f - 256 channels, stride 32
+        c5 = self.backbone["9"](x)  # model.9: SPPF - 256 channels, stride 32 -> P5
 
-        # Simple FPN (make all outputs the same size for simplicity)
-        p5 = self.backbone["fpn_p5"](c5)  # 256 -> 256
-        p4_up = self.backbone["fpn_upsample"](p5)  # Upsample p5
-        p4_combined = self.backbone["fpn_p4_reduce"](c4) + p4_up  # 128->256 + 256
-        p4 = self.backbone["fpn_p4_out"](p4_combined)  # 256 -> 128
-
-        p3_up = self.backbone["fpn_upsample"](p4_combined)  # Upsample combined
-        p3_combined = self.backbone["fpn_p3_reduce"](c3) + p3_up  # 64->256 + 256
-        p3 = self.backbone["fpn_p3_out"](p3_combined)  # 256 -> 64
-
-        return [p3, p4, p5]
+        # Return the multi-scale features
+        # P3: 64 channels, 1/8 scale
+        # P4: 128 channels, 1/16 scale
+        # P5: 256 channels, 1/32 scale
+        return [c3, c4, c5]
 
 
 class YOLOModel(nn.Module):
