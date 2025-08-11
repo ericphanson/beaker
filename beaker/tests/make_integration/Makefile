@@ -6,8 +6,8 @@ TEST_IMG := example.jpg
 CUTOUT_OUTPUT := example_cutout.png
 DETECT_OUTPUT := example_bounding-box.jpg
 
-# Beaker binary (use cargo run in development)
-BEAKER := ../../../target/release/beaker
+# Beaker binary (use cargo run in development, or from environment)
+BEAKER ?= ../../../target/release/beaker
 
 # Test targets
 .PHONY: all test_incremental clean detect-confidence-0.3 detect-with-metadata cutout-with-metadata
@@ -17,9 +17,9 @@ detect-confidence-0.3:
 	$(BEAKER) detect $(TEST_IMG) --confidence 0.3 --crop bird --depfile example_crop_03.jpg.d
 
 # Test targets with metadata for integration testing
-detect-with-metadata: example_crop.jpg
+detect-with-metadata: example_crop_head.jpg
 
-example_crop.jpg: $(TEST_IMG)
+example_crop_head.jpg: $(TEST_IMG)
 	@echo "Building detection with metadata from $<"
 	$(BEAKER) detect $< --confidence 0.5 --crop head --metadata --depfile $@.d
 
@@ -40,7 +40,7 @@ $(DETECT_OUTPUT): $(TEST_IMG)
 # Include dependency files if they exist
 -include $(CUTOUT_OUTPUT).d
 -include $(DETECT_OUTPUT).d
--include example_crop.jpg.d
+-include example_crop_head.jpg.d
 
 # Test incremental behavior
 test_incremental: clean
@@ -59,6 +59,8 @@ clean:
 	rm -f $(CUTOUT_OUTPUT).d $(DETECT_OUTPUT).d
 	rm -f example_crop.jpg
 	rm -f example_crop.jpg.d
+	rm -f example_crop_head.jpg
+	rm -f example_crop_head.jpg.d
 	rm -f example_crop_03.jpg example_crop_03.jpg.d
 	rm -f example_bbox.jpg example_bbox.jpg.d
 	rm -f *.beaker.toml *.beaker.json
