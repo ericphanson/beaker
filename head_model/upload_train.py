@@ -21,7 +21,7 @@ Usage:
     uv run python release.py
 
     # Specify model and version (creates tag: bird-multi-detector-v1.2.0)
-    uv run python release.py --model runs/detect/best_model/weights/best.pt --version 1.2.0
+    uv run python release.py --model runs/multi-detect/best_model/weights/best.pt --version 1.2.0
 
     # Specify just the model (will prompt for version)
     uv run python release.py --model my_custom_model.pt
@@ -193,13 +193,13 @@ def generate_onnx_model(model_path, output_dir=None):
 
 def get_model_path():
     """Find available model files and let user choose."""
-    # Search for all .pt files in runs/detect subdirectories
+    # Search for all .pt files in runs/multi-detect subdirectories
     available_models = []
 
-    # Check if runs/detect exists
+    # Check if runs/multi-detect exists
     runs_detect = Path("runs/multi-detect")
     if runs_detect.exists():
-        # Find all subdirectories in runs/detect
+        # Find all subdirectories in runs/multi-detect
         for run_dir in runs_detect.iterdir():
             if run_dir.is_dir():
                 weights_dir = run_dir / "weights"
@@ -259,8 +259,8 @@ def get_model_path():
 def collect_run_assets(model_path):
     """Collect all assets from the training run directory, including only the selected model."""
     # Get the run directory from the model path
-    # Model path should be like: runs/detect/run_name/weights/best.pt
-    if "runs/detect" in str(model_path):
+    # Model path should be like: runs/multi-detect/run_name/weights/best.pt
+    if "runs/multi-detect" in str(model_path):
         run_dir = model_path.parent.parent  # Go up from weights/ to run directory
     else:
         # If not from a training run, just return the model file itself
@@ -304,7 +304,7 @@ def collect_run_assets(model_path):
 def get_training_info(model_path):
     """Extract training information from args.yaml and dataset configuration."""
     # Get the run directory from the model path
-    if "runs/detect" in str(model_path):
+    if "runs/multi-detect" in str(model_path):
         run_dir = model_path.parent.parent  # Go up from weights/ to run directory
         args_file = run_dir / "args.yaml"
     else:
@@ -599,7 +599,7 @@ def main():
         if not model_path:
             print("❌ No trained models found!")
             print("   Searched in:")
-            print("   - runs/detect/*/weights/*.pt")
+            print("   - runs/multi-detect/*/weights/*.pt")
             print("   - models/*.pt")
             print("   - *.pt")
             print("\n   Train a model first using: uv run python train.py")
