@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Release script for bird-head-detector models.
+Release script for bird-multi-detector models.
 
 This script:
 1. Checks if the repository is clean (no uncommitted changes)
 2. Shows existing tags/versions
 3. Finds available model files or uses specified model
 4. Prompts for a new version number (or uses provided version)
-5. Creates a git tag with format 'bird-head-detector-v{version}'
+5. Creates a git tag with format 'bird-multi-detector-v{version}'
 6. Uploads the selected model as a GitHub release asset
 7. Pushes everything to the remote repository
 
@@ -20,7 +20,7 @@ Usage:
     # Interactive mode - choose from available models
     uv run python release.py
 
-    # Specify model and version (creates tag: bird-head-detector-v1.2.0)
+    # Specify model and version (creates tag: bird-multi-detector-v1.2.0)
     uv run python release.py --model runs/detect/best_model/weights/best.pt --version 1.2.0
 
     # Specify just the model (will prompt for version)
@@ -370,12 +370,12 @@ def create_release(version, model_path):
     """Create a GitHub release with the model and training assets."""
     print(f"🚀 Creating release {version}...")
 
-    # Ensure version starts with 'bird-head-detector-v'
-    if not version.startswith("bird-head-detector-"):
+    # Ensure version starts with 'bird-multi-detector-v'
+    if not version.startswith("bird-multi-detector-"):
         if version.startswith("v"):
-            version = f"bird-head-detector-{version}"
+            version = f"bird-multi-detector-{version}"
         else:
-            version = f"bird-head-detector-v{version}"
+            version = f"bird-multi-detector-v{version}"
 
     # Create git tag
     print(f"📝 Creating git tag: {version}")
@@ -414,11 +414,11 @@ def create_release(version, model_path):
     files_section = "## Files\n"
     if model_files:
         files_section += "### Model Weights\n"
-        files_section += "- `bird-head-detector.pt`: Trained model weights (PyTorch)\n"
+        files_section += "- `bird-multi-detector.pt`: Trained model weights (PyTorch)\n"
 
     if onnx_files:
         files_section += (
-            "- `bird-head-detector.onnx`: Trained model weights (ONNX format)\n"
+            "- `bird-multi-detector.onnx`: Trained model weights (ONNX format)\n"
         )
 
     if plot_files:
@@ -493,16 +493,16 @@ def create_release(version, model_path):
             for asset in assets:
                 if asset.suffix == ".pt":
                     # Create renamed copy of PT file
-                    renamed_pt = temp_path / "bird-head-detector.pt"
+                    renamed_pt = temp_path / "bird-multi-detector.pt"
                     renamed_pt.write_bytes(asset.read_bytes())
                     upload_files.append(str(renamed_pt))
-                    print(f"   📝 Renaming {asset.name} → bird-head-detector.pt")
+                    print(f"   📝 Renaming {asset.name} → bird-multi-detector.pt")
                 elif asset.suffix == ".onnx":
                     # Create renamed copy of ONNX file
-                    renamed_onnx = temp_path / "bird-head-detector.onnx"
+                    renamed_onnx = temp_path / "bird-multi-detector.onnx"
                     renamed_onnx.write_bytes(asset.read_bytes())
                     upload_files.append(str(renamed_onnx))
-                    print(f"   📝 Renaming {asset.name} → bird-head-detector.onnx")
+                    print(f"   📝 Renaming {asset.name} → bird-multi-detector.onnx")
                 else:
                     upload_files.append(str(asset))
 
@@ -526,9 +526,9 @@ def create_release(version, model_path):
         for asset in assets:
             size_mb = asset.stat().st_size / (1024 * 1024)
             if asset.suffix == ".pt":
-                print(f"   - bird-head-detector.pt ({size_mb:.1f} MB)")
+                print(f"   - bird-multi-detector.pt ({size_mb:.1f} MB)")
             elif asset.suffix == ".onnx":
-                print(f"   - bird-head-detector.onnx ({size_mb:.1f} MB)")
+                print(f"   - bird-multi-detector.onnx ({size_mb:.1f} MB)")
             else:
                 print(f"   - {asset.name} ({size_mb:.1f} MB)")
     else:
@@ -661,13 +661,13 @@ def main():
             print("   Use semantic versioning (e.g., 1.0.0)")
             sys.exit(1)
 
-        # Normalize version (add 'bird-head-detector-v' prefix if missing)
-        if version.startswith("bird-head-detector-"):
+        # Normalize version (add 'bird-multi-detector-v' prefix if missing)
+        if version.startswith("bird-multi-detector-"):
             normalized_version = version
         elif version.startswith("v"):
-            normalized_version = f"bird-head-detector-{version}"
+            normalized_version = f"bird-multi-detector-{version}"
         else:
-            normalized_version = f"bird-head-detector-v{version}"
+            normalized_version = f"bird-multi-detector-v{version}"
 
         if normalized_version in existing_tags:
             print(f"❌ Version {normalized_version} already exists!")
@@ -687,13 +687,13 @@ def main():
                 )
                 continue
 
-            # Normalize version (add 'bird-head-detector-v' prefix if missing)
-            if version.startswith("bird-head-detector-"):
+            # Normalize version (add 'bird-multi-detector-v' prefix if missing)
+            if version.startswith("bird-multi-detector-"):
                 normalized_version = version
             elif version.startswith("v"):
-                normalized_version = f"bird-head-detector-{version}"
+                normalized_version = f"bird-multi-detector-{version}"
             else:
-                normalized_version = f"bird-head-detector-v{version}"
+                normalized_version = f"bird-multi-detector-v{version}"
 
             if normalized_version in existing_tags:
                 print(f"   Version {normalized_version} already exists!")
