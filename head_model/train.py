@@ -374,7 +374,7 @@ def main():
         iou=TRAINING_CONFIG["iou"],
         max_det=TRAINING_CONFIG["max_det"],
         plots=TRAINING_CONFIG["plots"],
-        amp=True,
+        amp=False,
         save_json=True,
         save_period=1,
     )
