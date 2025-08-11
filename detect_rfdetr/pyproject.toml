@@ -1,0 +1,11 @@
+[project]
+name = "detect-rfdetr"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "rfdetr[onnxexport]>=1.2.1",
+    "pillow>=10.0.0",
+    "numpy>=1.24.0",
+]

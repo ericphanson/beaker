@@ -114,7 +114,7 @@ TRAINING_CONFIG = {
 
 
 class YOLOv8Head(nn.Module):
-    """YOLOv8 detection head with DFL (Distribution Focal Loss)."""
+    """YOLOv8 detection head that exactly matches Ultralytics architecture."""
 
     def __init__(
         self,
@@ -126,42 +126,40 @@ class YOLOv8Head(nn.Module):
             in_channels = [64, 128, 256]
         super().__init__()
         self.num_classes = num_classes
-        self.reg_max = reg_max  # DFL regression range
+        self.reg_max = reg_max
         self.in_channels = in_channels
 
-        # Box regression heads (cv2) - predicts 4 * reg_max values per anchor
-        self.cv2 = nn.ModuleList(
-            [
+        # Box regression heads (cv2) - outputs reg_max * 4 = 64 channels
+        self.cv2 = nn.ModuleList()
+        for ch in in_channels:
+            self.cv2.append(
                 nn.Sequential(
                     self._make_conv(ch, 64, 3),
                     self._make_conv(64, 64, 3),
-                    nn.Conv2d(64, 4 * reg_max, 1, 1, 0),
+                    nn.Conv2d(64, 4 * reg_max, 1, 1, 0),  # 64 channels output
                 )
-                for ch in in_channels
-            ]
-        )
+            )
 
-        # Classification heads (cv3) - predicts num_classes per anchor
-        self.cv3 = nn.ModuleList(
-            [
+        # Classification heads (cv3) - outputs num_classes
+        self.cv3 = nn.ModuleList()
+        for ch in in_channels:
+            # Use the same intermediate channel calculation as Ultralytics
+            intermediate_ch = max(ch // 4, 16, num_classes)
+            self.cv3.append(
                 nn.Sequential(
-                    self._make_conv(ch, max(16, ch // 4, reg_max * 4), 3),
-                    self._make_conv(
-                        max(16, ch // 4, reg_max * 4), max(16, ch // 4, reg_max * 4), 3
-                    ),
-                    nn.Conv2d(max(16, ch // 4, reg_max * 4), num_classes, 1, 1, 0),
+                    self._make_conv(ch, intermediate_ch, 3),
+                    self._make_conv(intermediate_ch, intermediate_ch, 3),
+                    nn.Conv2d(intermediate_ch, num_classes, 1, 1, 0),
                 )
-                for ch in in_channels
-            ]
-        )
+            )
 
-        # DFL layer for converting distribution to bbox coordinates
+        # DFL layer - exactly matches Ultralytics
         self.dfl = nn.Conv2d(reg_max, 1, 1, 1, 0, bias=False)
-        # Initialize DFL weights
+        # Initialize DFL weights like Ultralytics
         self.dfl.weight.data.fill_(1.0 / reg_max)
 
     def _make_conv(self, in_ch: int, out_ch: int, k: int) -> nn.Module:
-        """Create a convolutional block."""
+        """Create a convolutional block that matches Ultralytics Conv."""
         return nn.Sequential(
             nn.Conv2d(in_ch, out_ch, k, 1, k // 2, bias=False),
             nn.BatchNorm2d(out_ch, eps=0.001, momentum=0.03),
@@ -169,30 +167,18 @@ class YOLOv8Head(nn.Module):
         )
 
     def forward(self, features: list[torch.Tensor]) -> list[torch.Tensor]:
-        """Forward pass through detection head."""
+        """Forward pass through detection head - returns raw format matching Ultralytics."""
         outputs = []
         for i, feat in enumerate(features):
-            # Box regression with DFL
+            # Box regression - outputs [batch, 64, h, w] (raw DFL format)
             box_output = self.cv2[i](feat)
-            b, _, h, w = box_output.shape
-            box_output = box_output.view(b, 4, self.reg_max, h, w)
 
-            # Apply DFL to each of the 4 bbox components
-            box_final = []
-            for bbox_idx in range(4):
-                # Apply DFL to one bbox component at a time
-                bbox_component = box_output[:, bbox_idx]  # [b, reg_max, h, w]
-                bbox_coord = self.dfl(bbox_component)  # [b, 1, h, w]
-                box_final.append(bbox_coord)
-
-            box_final = torch.cat(box_final, dim=1)  # [b, 4, h, w]
-
-            # Classification
+            # Classification - outputs [batch, num_classes, h, w]
             cls_output = self.cv3[i](feat)
 
-            # Combine box and classification outputs
-            # Format: [batch, 4 + num_classes, height, width]
-            output = torch.cat([box_final, cls_output], dim=1)
+            # Combine outputs: [batch, 64 + num_classes, h, w]
+            # This matches Ultralytics raw format: reg_max*4 + num_classes
+            output = torch.cat([box_output, cls_output], dim=1)
             outputs.append(output)
 
         return outputs
@@ -200,23 +186,22 @@ class YOLOv8Head(nn.Module):
     def forward_with_dfl(
         self, features: list[torch.Tensor]
     ) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
-        """Forward pass returning both final outputs and raw DFL distributions for loss computation."""
+        """Forward pass returning both final outputs and raw DFL for loss computation."""
         outputs = []
         dfl_outputs = []
 
         for i, feat in enumerate(features):
-            # Box regression with DFL
-            box_output = self.cv2[i](feat)  # [b, 4*reg_max, h, w]
+            # Box regression with raw DFL output
+            box_output = self.cv2[i](feat)  # [batch, 64, h, w]
+            dfl_outputs.append(box_output)  # Store raw for loss
+
+            # Apply DFL to get final box coordinates
             b, _, h, w = box_output.shape
             box_reshaped = box_output.view(b, 4, self.reg_max, h, w)
 
-            # Store raw DFL output for loss computation
-            dfl_outputs.append(box_output)
-
-            # Apply DFL to each of the 4 bbox components
+            # Apply DFL to each bbox coordinate
             box_final = []
             for bbox_idx in range(4):
-                # Apply DFL to one bbox component at a time
                 bbox_component = box_reshaped[:, bbox_idx]  # [b, reg_max, h, w]
                 bbox_coord = self.dfl(bbox_component)  # [b, 1, h, w]
                 box_final.append(bbox_coord)
@@ -226,8 +211,7 @@ class YOLOv8Head(nn.Module):
             # Classification
             cls_output = self.cv3[i](feat)
 
-            # Combine box and classification outputs
-            # Format: [batch, 4 + num_classes, height, width]
+            # Combine: [batch, 4 + num_classes, h, w]
             output = torch.cat([box_final, cls_output], dim=1)
             outputs.append(output)
 
@@ -235,7 +219,7 @@ class YOLOv8Head(nn.Module):
 
 
 class YOLOv8Model(nn.Module):
-    """YOLOv8 model with pretrained backbone and custom head."""
+    """YOLOv8 model with pretrained backbone, neck/FPN, and custom head."""
 
     def __init__(self, num_classes: int = 4, pretrained_path: str | None = None):
         super().__init__()
@@ -243,7 +227,10 @@ class YOLOv8Model(nn.Module):
 
         # Create YOLOv8 backbone that matches the pretrained architecture
         self.backbone = self._create_yolov8_backbone()
-        self.feature_channels = [64, 128, 256]  # P3, P4, P5 channels
+
+        # Create YOLOv8 neck/FPN that matches Ultralytics exactly
+        self.neck = self._create_yolov8_neck()
+        self.feature_channels = [64, 128, 256]  # P3, P4, P5 channels after FPN
 
         # Custom detection head for our classes
         self.head = YOLOv8Head(num_classes, self.feature_channels)
@@ -350,6 +337,104 @@ class YOLOv8Model(nn.Module):
 
         return backbone
 
+    def _create_yolov8_neck(self):
+        """Create YOLOv8 neck/FPN that exactly matches Ultralytics architecture."""
+
+        class Conv(nn.Module):
+            """Standard convolution block: Conv + BatchNorm + SiLU."""
+
+            def __init__(self, in_ch, out_ch, k=1, s=1, p=None):
+                super().__init__()
+                self.conv = nn.Conv2d(
+                    in_ch, out_ch, k, s, p if p is not None else k // 2, bias=False
+                )
+                self.bn = nn.BatchNorm2d(out_ch, eps=0.001, momentum=0.03)
+                self.act = nn.SiLU(inplace=True)
+
+            def forward(self, x):
+                return self.act(self.bn(self.conv(x)))
+
+        class Bottleneck(nn.Module):
+            """Standard bottleneck block."""
+
+            def __init__(self, in_ch, out_ch, shortcut=True, e=0.5):
+                super().__init__()
+                hidden_ch = int(out_ch * e)
+                self.cv1 = Conv(in_ch, hidden_ch, 3, 1)
+                self.cv2 = Conv(hidden_ch, out_ch, 3, 1)
+                self.add = shortcut and in_ch == out_ch
+
+            def forward(self, x):
+                return x + self.cv2(self.cv1(x)) if self.add else self.cv2(self.cv1(x))
+
+        class C2f(nn.Module):
+            """CSP Bottleneck with 2 convolutions."""
+
+            def __init__(self, in_ch, out_ch, n=1, shortcut=False, e=0.5):
+                super().__init__()
+                self.c = int(out_ch * e)  # hidden channels
+                self.cv1 = Conv(in_ch, 2 * self.c, 1, 1)
+                self.cv2 = Conv((2 + n) * self.c, out_ch, 1)
+                self.m = nn.ModuleList(
+                    Bottleneck(self.c, self.c, shortcut, e=1.0) for _ in range(n)
+                )
+
+            def forward(self, x):
+                y = list(self.cv1(x).chunk(2, 1))
+                y.extend(m(y[-1]) for m in self.m)
+                return self.cv2(torch.cat(y, 1))
+
+        class Concat(nn.Module):
+            """Concatenate tensors along specified dimension."""
+
+            def __init__(self, dimension=1):
+                super().__init__()
+                self.d = dimension
+
+            def forward(self, x):
+                return torch.cat(x, self.d)
+
+        # Create the exact YOLOv8n neck structure (model.10 to model.21)
+        neck = nn.ModuleDict()
+
+        # model.10: Upsample (2x)
+        neck["10"] = nn.Upsample(scale_factor=2, mode="nearest")
+
+        # model.11: Concat
+        neck["11"] = Concat(dimension=1)
+
+        # model.12: C2f(384, 128, 1, False) - P5 + P4 -> P4_out
+        neck["12"] = C2f(384, 128, 1, False)
+
+        # model.13: Upsample (2x)
+        neck["13"] = nn.Upsample(scale_factor=2, mode="nearest")
+
+        # model.14: Concat
+        neck["14"] = Concat(dimension=1)
+
+        # model.15: C2f(192, 64, 1, False) - P4 + P3 -> P3_out
+        neck["15"] = C2f(192, 64, 1, False)
+
+        # model.16: Conv(64, 64, 3, 2) - P3 downsample
+        neck["16"] = Conv(64, 64, 3, 2)
+
+        # model.17: Concat
+        neck["17"] = Concat(dimension=1)
+
+        # model.18: C2f(192, 128, 1, False) - P3_down + P4 -> P4_out
+        neck["18"] = C2f(192, 128, 1, False)
+
+        # model.19: Conv(128, 128, 3, 2) - P4 downsample
+        neck["19"] = Conv(128, 128, 3, 2)
+
+        # model.20: Concat
+        neck["20"] = Concat(dimension=1)
+
+        # model.21: C2f(384, 256, 1, False) - P4_down + P5 -> P5_out
+        neck["21"] = C2f(384, 256, 1, False)
+
+        return neck
+
     def _load_pretrained_weights(self, checkpoint_path: str):
         """Load compatible weights from pretrained YOLOv8."""
         try:
@@ -436,7 +521,192 @@ class YOLOv8Model(nn.Module):
                         if not found:
                             skipped_count += 1
 
-            # Try to load some head weights (DFL layer)
+            # Load neck/FPN weights if num_classes matches (80 for COCO)
+            if self.num_classes == 80:
+                print("🎯 Loading pretrained neck/FPN weights...")
+
+                # Neck layer mapping - model.10 to model.21
+                neck_mapping = {
+                    # Upsample layers don't have learnable parameters
+                    "neck.12": "model.12",  # C2f(384, 128, 1, False)
+                    "neck.15": "model.15",  # C2f(192, 64, 1, False)
+                    "neck.16": "model.16",  # Conv(64, 64, 3, 2)
+                    "neck.18": "model.18",  # C2f(192, 128, 1, False)
+                    "neck.19": "model.19",  # Conv(128, 128, 3, 2)
+                    "neck.21": "model.21",  # C2f(384, 256, 1, False)
+                }
+
+                for our_neck_key, pretrained_key in neck_mapping.items():
+                    # Get all parameters for this layer
+                    our_layer_keys = [
+                        k for k in our_state.keys() if k.startswith(our_neck_key + ".")
+                    ]
+                    pretrained_layer_keys = [
+                        k
+                        for k in pretrained_state.keys()
+                        if k.startswith(pretrained_key + ".")
+                    ]
+
+                    # Try to match parameters by their suffix
+                    for our_key in our_layer_keys:
+                        our_suffix = our_key[len(our_neck_key) :]
+                        pretrained_candidate = pretrained_key + our_suffix
+
+                        if pretrained_candidate in pretrained_state:
+                            if (
+                                our_state[our_key].shape
+                                == pretrained_state[pretrained_candidate].shape
+                            ):
+                                our_state[our_key].copy_(
+                                    pretrained_state[pretrained_candidate]
+                                )
+                                loaded_count += 1
+                            else:
+                                print(
+                                    f"⚠️ Neck shape mismatch: {our_key} {our_state[our_key].shape} vs {pretrained_candidate} {pretrained_state[pretrained_candidate].shape}"
+                                )
+                                skipped_count += 1
+                        else:
+                            # Try some common variations for complex modules like C2f
+                            found = False
+                            for pretrained_full_key in pretrained_layer_keys:
+                                if pretrained_full_key.endswith(our_suffix):
+                                    if (
+                                        our_state[our_key].shape
+                                        == pretrained_state[pretrained_full_key].shape
+                                    ):
+                                        our_state[our_key].copy_(
+                                            pretrained_state[pretrained_full_key]
+                                        )
+                                        loaded_count += 1
+                                        found = True
+                                        break
+
+                            if not found:
+                                skipped_count += 1
+
+            # Try to load head weights if num_classes matches (80 for COCO)
+            if self.num_classes == 80:
+                print("🎯 Loading pretrained head weights for 80 classes...")
+
+                # Load CV2 (box regression) weights
+                for i in range(3):  # 3 scales
+                    for layer_idx in range(3):  # 3 layers in each cv2
+                        if layer_idx < 2:  # Conv layers with bn
+                            our_prefix = f"head.cv2.{i}.{layer_idx}"
+                            ultra_prefix = f"model.22.cv2.{i}.{layer_idx}"
+
+                            # Load conv, bn, and act weights
+                            conv_mappings = [
+                                (
+                                    f"{our_prefix}.conv.weight",
+                                    f"{ultra_prefix}.conv.weight",
+                                ),
+                                (
+                                    f"{our_prefix}.bn.weight",
+                                    f"{ultra_prefix}.bn.weight",
+                                ),
+                                (f"{our_prefix}.bn.bias", f"{ultra_prefix}.bn.bias"),
+                                (
+                                    f"{our_prefix}.bn.running_mean",
+                                    f"{ultra_prefix}.bn.running_mean",
+                                ),
+                                (
+                                    f"{our_prefix}.bn.running_var",
+                                    f"{ultra_prefix}.bn.running_var",
+                                ),
+                            ]
+
+                            for our_key, ultra_key in conv_mappings:
+                                if (
+                                    our_key in our_state
+                                    and ultra_key in pretrained_state
+                                ):
+                                    if (
+                                        our_state[our_key].shape
+                                        == pretrained_state[ultra_key].shape
+                                    ):
+                                        our_state[our_key].copy_(
+                                            pretrained_state[ultra_key]
+                                        )
+                                        loaded_count += 1
+                                    else:
+                                        skipped_count += 1
+                        else:  # Final conv layer (no bn)
+                            our_key = f"head.cv2.{i}.{layer_idx}.weight"
+                            ultra_key = f"model.22.cv2.{i}.{layer_idx}.weight"
+
+                            if our_key in our_state and ultra_key in pretrained_state:
+                                if (
+                                    our_state[our_key].shape
+                                    == pretrained_state[ultra_key].shape
+                                ):
+                                    our_state[our_key].copy_(
+                                        pretrained_state[ultra_key]
+                                    )
+                                    loaded_count += 1
+                                else:
+                                    skipped_count += 1
+
+                # Load CV3 (classification) weights
+                for i in range(3):  # 3 scales
+                    for layer_idx in range(3):  # 3 layers in each cv3
+                        if layer_idx < 2:  # Conv layers with bn
+                            our_prefix = f"head.cv3.{i}.{layer_idx}"
+                            ultra_prefix = f"model.22.cv3.{i}.{layer_idx}"
+
+                            conv_mappings = [
+                                (
+                                    f"{our_prefix}.conv.weight",
+                                    f"{ultra_prefix}.conv.weight",
+                                ),
+                                (
+                                    f"{our_prefix}.bn.weight",
+                                    f"{ultra_prefix}.bn.weight",
+                                ),
+                                (f"{our_prefix}.bn.bias", f"{ultra_prefix}.bn.bias"),
+                                (
+                                    f"{our_prefix}.bn.running_mean",
+                                    f"{ultra_prefix}.bn.running_mean",
+                                ),
+                                (
+                                    f"{our_prefix}.bn.running_var",
+                                    f"{ultra_prefix}.bn.running_var",
+                                ),
+                            ]
+
+                            for our_key, ultra_key in conv_mappings:
+                                if (
+                                    our_key in our_state
+                                    and ultra_key in pretrained_state
+                                ):
+                                    if (
+                                        our_state[our_key].shape
+                                        == pretrained_state[ultra_key].shape
+                                    ):
+                                        our_state[our_key].copy_(
+                                            pretrained_state[ultra_key]
+                                        )
+                                        loaded_count += 1
+                                    else:
+                                        skipped_count += 1
+                        else:  # Final conv layer (no bn)
+                            our_key = f"head.cv3.{i}.{layer_idx}.weight"
+                            ultra_key = f"model.22.cv3.{i}.{layer_idx}.weight"
+
+                            if our_key in our_state and ultra_key in pretrained_state:
+                                if (
+                                    our_state[our_key].shape
+                                    == pretrained_state[ultra_key].shape
+                                ):
+                                    our_state[our_key].copy_(
+                                        pretrained_state[ultra_key]
+                                    )
+                                    loaded_count += 1
+                                else:
+                                    skipped_count += 1
+
+            # Load DFL layer weights
             if (
                 "head.dfl.weight" in our_state
                 and "model.22.dfl.conv.weight" in pretrained_state
@@ -476,35 +746,74 @@ class YOLOv8Model(nn.Module):
 
     def forward(self, x: torch.Tensor) -> list[torch.Tensor]:
         """Forward pass through model."""
-        # Extract multi-scale features
-        features = self._extract_features(x)
+        # Extract multi-scale features through backbone + neck
+        features = self._extract_features_with_neck(x)
 
         # Pass through custom detection head
         outputs = self.head(features)
         return outputs
 
-    def _extract_features(self, x: torch.Tensor) -> list[torch.Tensor]:
-        """Extract multi-scale features from backbone."""
-        # Forward through backbone layers
+    def _extract_features_with_neck(self, x: torch.Tensor) -> list[torch.Tensor]:
+        """Extract multi-scale features from backbone + neck/FPN."""
+        # Forward through backbone layers to get P3, P4, P5
         x = self.backbone["0"](x)  # model.0: stem - 16 channels, stride 2
         x = self.backbone["1"](x)  # model.1: conv - 32 channels, stride 4
         x = self.backbone["2"](x)  # model.2: C2f - 32 channels, stride 4
 
         x = self.backbone["3"](x)  # model.3: conv - 64 channels, stride 8
-        c3 = self.backbone["4"](x)  # model.4: C2f - 64 channels, stride 8 -> P3
+        p3 = self.backbone["4"](x)  # model.4: C2f - 64 channels, stride 8 -> P3
 
-        x = self.backbone["5"](c3)  # model.5: conv - 128 channels, stride 16
-        c4 = self.backbone["6"](x)  # model.6: C2f - 128 channels, stride 16 -> P4
+        x = self.backbone["5"](p3)  # model.5: conv - 128 channels, stride 16
+        p4 = self.backbone["6"](x)  # model.6: C2f - 128 channels, stride 16 -> P4
 
-        x = self.backbone["7"](c4)  # model.7: conv - 256 channels, stride 32
+        x = self.backbone["7"](p4)  # model.7: conv - 256 channels, stride 32
         x = self.backbone["8"](x)  # model.8: C2f - 256 channels, stride 32
-        c5 = self.backbone["9"](x)  # model.9: SPPF - 256 channels, stride 32 -> P5
+        p5 = self.backbone["9"](x)  # model.9: SPPF - 256 channels, stride 32 -> P5
 
-        # Return the multi-scale features
-        # P3: 64 channels, 1/8 scale
-        # P4: 128 channels, 1/16 scale
-        # P5: 256 channels, 1/32 scale
-        return [c3, c4, c5]
+        # Forward through neck/FPN to get final feature maps
+        # Top-down path
+        # model.10: Upsample P5
+        up1 = self.neck["10"](p5)  # [1, 256, 40, 40]
+
+        # model.11: Concat [up1, P4]
+        concat1 = self.neck["11"]([up1, p4])  # [1, 384, 40, 40]
+
+        # model.12: C2f
+        c2f1 = self.neck["12"](concat1)  # [1, 128, 40, 40]
+
+        # model.13: Upsample
+        up2 = self.neck["13"](c2f1)  # [1, 128, 80, 80]
+
+        # model.14: Concat [up2, P3]
+        concat2 = self.neck["14"]([up2, p3])  # [1, 192, 80, 80]
+
+        # model.15: C2f -> P3_out
+        p3_out = self.neck["15"](concat2)  # [1, 64, 80, 80]
+
+        # Bottom-up path
+        # model.16: Conv (downsample P3_out)
+        down1 = self.neck["16"](p3_out)  # [1, 64, 40, 40]
+
+        # model.17: Concat [down1, c2f1]
+        concat3 = self.neck["17"]([down1, c2f1])  # [1, 192, 40, 40]
+
+        # model.18: C2f -> P4_out
+        p4_out = self.neck["18"](concat3)  # [1, 128, 40, 40]
+
+        # model.19: Conv (downsample P4_out)
+        down2 = self.neck["19"](p4_out)  # [1, 128, 20, 20]
+
+        # model.20: Concat [down2, P5]
+        concat4 = self.neck["20"]([down2, p5])  # [1, 384, 20, 20]
+
+        # model.21: C2f -> P5_out
+        p5_out = self.neck["21"](concat4)  # [1, 256, 20, 20]
+
+        # Return the final FPN features for detection
+        # P3_out: 64 channels, 1/8 scale
+        # P4_out: 128 channels, 1/16 scale
+        # P5_out: 256 channels, 1/32 scale
+        return [p3_out, p4_out, p5_out]
 
 
 class YOLOModel(nn.Module):
@@ -1353,7 +1662,7 @@ class YOLOLightningModule(L.LightningModule):
         # Forward pass with DFL outputs
         if hasattr(self.model.head, "forward_with_dfl"):
             predictions, dfl_predictions = self.model.head.forward_with_dfl(
-                self.model._extract_features(batch["images"])
+                self.model._extract_features_with_neck(batch["images"])
             )
             loss_dict = self.criterion(predictions, batch["targets"], dfl_predictions)
         else:
