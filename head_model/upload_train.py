@@ -450,23 +450,6 @@ def create_release(version, model_path):
 - **Validation Images**: {training_info["val_images"]}
 - **Classes**: 1 (bird_head)
 
-## Usage
-Download the model files and use with the Rust inference tool:
-
-**Using the Rust tool (recommended):**
-```bash
-cd beaker
-cargo build --release
-./target/release/beaker head your_image.jpg --confidence 0.25
-```
-
-**ONNX model (for production deployment):**
-```bash
-# Use with ONNX runtime or other frameworks that support ONNX
-# Model input: [1, 3, 640, 640] (NCHW format)
-# Model output: [1, 84, 8400] (detection results)
-```
-
 {files_section}
 """
 
