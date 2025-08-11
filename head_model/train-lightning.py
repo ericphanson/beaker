@@ -26,6 +26,8 @@ from lightning.pytorch.loggers import CometLogger
 from PIL import Image, ImageOps
 from torch.utils.data import DataLoader, Dataset
 from torchvision.transforms.functional import to_tensor
+from torchvision.ops import nms, box_convert
+from torchmetrics.detection import MeanAveragePrecision
 
 # Suppress some warnings
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -875,9 +877,12 @@ class YOLOLightningModule(L.LightningModule):
         # Loss
         self.criterion = YOLOLoss(config["num_classes"], config)
 
-        # Metrics storage
-        self.val_predictions = []
-        self.val_targets = []
+        # Metrics - mAP calculation
+        self.val_map = MeanAveragePrecision(
+            box_format="cxcywh",  # YOLO format
+            iou_type="bbox",
+            class_metrics=True,
+        )
 
         # Freeze backbone if specified
         self.freeze_epochs = config.get("freeze_backbone_epochs", 0)
@@ -900,6 +905,141 @@ class YOLOLightningModule(L.LightningModule):
         for param in self.model.backbone.parameters():
             param.requires_grad = True
         print("🔥 Unfroze backbone parameters")
+
+    def _postprocess_predictions(
+        self, predictions: List[torch.Tensor], img_sizes: torch.Tensor
+    ) -> List[Dict[str, torch.Tensor]]:
+        """Post-process predictions with NMS."""
+        batch_size = img_sizes.shape[0]
+        processed_predictions = []
+
+        for batch_idx in range(batch_size):
+            # Collect all detections for this image
+            all_boxes = []
+            all_scores = []
+            all_labels = []
+
+            # Process each scale
+            for scale_idx, pred in enumerate(predictions):
+                # pred shape: [batch, 3, h, w, num_classes + 5]
+                b, num_anchors, h, w, _ = pred.shape
+                pred_batch = pred[batch_idx]  # [3, h, w, num_classes + 5]
+
+                # Reshape for processing
+                pred_batch = pred_batch.view(-1, self.config["num_classes"] + 5)
+
+                # Extract components
+                box_pred = pred_batch[:, :4]  # x, y, w, h (center format)
+                obj_pred = pred_batch[:, 4]  # objectness
+                cls_pred = pred_batch[:, 5:]  # class predictions
+
+                # Apply objectness threshold
+                obj_mask = obj_pred > self.config["conf_threshold"]
+                if not obj_mask.any():
+                    continue
+
+                # Filter predictions
+                boxes = box_pred[obj_mask]
+                obj_scores = obj_pred[obj_mask]
+                cls_scores = cls_pred[obj_mask]
+
+                # Get class predictions
+                class_scores, class_labels = torch.max(cls_scores, dim=1)
+                final_scores = obj_scores * class_scores
+
+                # Convert boxes from center format to corner format for NMS
+                # boxes are in normalized coordinates [0, 1]
+                img_size = img_sizes[batch_idx][0].item()  # Assume square images
+                boxes_corner = box_convert(boxes, "cxcywh", "xyxy")
+                boxes_corner *= img_size  # Scale to image size
+
+                all_boxes.append(boxes_corner)
+                all_scores.append(final_scores)
+                all_labels.append(class_labels)
+
+            if not all_boxes:
+                # No detections
+                processed_predictions.append(
+                    {
+                        "boxes": torch.zeros((0, 4), device=predictions[0].device),
+                        "scores": torch.zeros(0, device=predictions[0].device),
+                        "labels": torch.zeros(
+                            0, dtype=torch.long, device=predictions[0].device
+                        ),
+                    }
+                )
+                continue
+
+            # Concatenate all detections
+            all_boxes = torch.cat(all_boxes, dim=0)
+            all_scores = torch.cat(all_scores, dim=0)
+            all_labels = torch.cat(all_labels, dim=0)
+
+            # Apply NMS
+            keep_indices = nms(all_boxes, all_scores, self.config["iou_threshold"])
+
+            # Limit detections
+            max_det = self.config["max_det"]
+            if len(keep_indices) > max_det:
+                # Keep top scoring detections
+                keep_indices = keep_indices[:max_det]
+
+            # Final predictions for this image
+            final_boxes = all_boxes[keep_indices]
+            final_scores = all_scores[keep_indices]
+            final_labels = all_labels[keep_indices]
+
+            # Convert back to normalized coordinates for mAP calculation
+            final_boxes /= img_size
+            # Convert back to center format for mAP
+            final_boxes = box_convert(final_boxes, "xyxy", "cxcywh")
+
+            processed_predictions.append(
+                {
+                    "boxes": final_boxes,
+                    "scores": final_scores,
+                    "labels": final_labels,
+                }
+            )
+
+        return processed_predictions
+
+    def _prepare_targets_for_map(
+        self, targets: torch.Tensor, batch_size: int
+    ) -> List[Dict[str, torch.Tensor]]:
+        """Prepare ground truth targets for mAP calculation."""
+        target_list = []
+
+        for batch_idx in range(batch_size):
+            # Filter targets for this batch
+            batch_mask = targets[:, 0] == batch_idx
+            batch_targets = targets[batch_mask]
+
+            if len(batch_targets) == 0:
+                # No targets for this image
+                target_list.append(
+                    {
+                        "boxes": torch.zeros((0, 4), device=targets.device),
+                        "labels": torch.zeros(
+                            0, dtype=torch.long, device=targets.device
+                        ),
+                    }
+                )
+                continue
+
+            # Extract boxes and labels
+            # targets format: [batch_idx, class, x, y, w, h]
+            boxes = batch_targets[:, 2:6]  # x, y, w, h (center format)
+            labels = batch_targets[:, 1].long()  # class labels
+
+            target_list.append(
+                {
+                    "boxes": boxes,
+                    "labels": labels,
+                }
+            )
+
+        return target_list
 
     def on_train_epoch_start(self):
         """Called at the start of each training epoch."""
@@ -946,9 +1086,23 @@ class YOLOLightningModule(L.LightningModule):
         """Validation step."""
         images = batch["images"]
         targets = batch["targets"]
+        img_sizes = batch["img_sizes"]
 
         # Forward pass
         predictions = self(images)
+
+        # Reshape predictions for post-processing
+        # predictions are List[Tensor] with shape [batch, (nc+5)*3, h, w]
+        # We need to reshape to [batch, 3, h, w, nc+5]
+        reshaped_preds = []
+        for pred in predictions:
+            b, c, h, w = pred.shape
+            pred_reshaped = (
+                pred.view(b, 3, self.config["num_classes"] + 5, h, w)
+                .permute(0, 1, 3, 4, 2)
+                .contiguous()
+            )
+            reshaped_preds.append(pred_reshaped)
 
         # Compute loss
         loss_dict = self.criterion(predictions, targets)
@@ -965,26 +1119,36 @@ class YOLOLightningModule(L.LightningModule):
             if loss_key in loss_dict:
                 self.log(f"val/{loss_key}", loss_dict[loss_key], on_epoch=True)
 
-        # Store predictions for mAP calculation
-        # Note: This is simplified - you'd want proper NMS and evaluation
-        self.val_predictions.extend(predictions)
-        self.val_targets.extend([targets])
+        # Post-process predictions for mAP calculation
+        processed_preds = self._postprocess_predictions(reshaped_preds, img_sizes)
+        target_list = self._prepare_targets_for_map(targets, images.shape[0])
+
+        # Update mAP metric
+        self.val_map.update(processed_preds, target_list)
 
         return loss_dict["loss"]
 
     def on_validation_epoch_end(self):
         """Compute validation metrics."""
-        if self.val_predictions:
-            # Simplified mAP calculation - replace with proper implementation
-            mAP50 = torch.tensor(0.5)  # Placeholder
-            mAP50_95 = torch.tensor(0.3)  # Placeholder
+        # Compute mAP
+        map_dict = self.val_map.compute()
 
-            self.log("val/mAP50", mAP50, on_epoch=True, prog_bar=True)
-            self.log("val/mAP50-95", mAP50_95, on_epoch=True)
+        # Log overall mAP metrics
+        self.log("val/mAP50", map_dict["map_50"], on_epoch=True, prog_bar=True)
+        self.log("val/mAP50-95", map_dict["map"], on_epoch=True, prog_bar=True)
 
-        # Clear stored predictions
-        self.val_predictions.clear()
-        self.val_targets.clear()
+        # Log per-class mAP if available
+        if "map_per_class" in map_dict and len(self.config["class_names"]) > 1:
+            for i, class_name in enumerate(self.config["class_names"]):
+                if i < len(map_dict["map_per_class"]):
+                    self.log(
+                        f"val/mAP50_{class_name}",
+                        map_dict["map_per_class"][i],
+                        on_epoch=True,
+                    )
+
+        # Reset metric for next epoch
+        self.val_map.reset()
 
     def configure_optimizers(self):
         """Configure optimizer and scheduler."""
