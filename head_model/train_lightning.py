@@ -9,7 +9,6 @@ import random
 import shutil
 import warnings
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
 
 import lightning as L
 import numpy as np
@@ -23,12 +22,12 @@ from lightning.pytorch.callbacks import (
     ModelCheckpoint,
 )
 from lightning.pytorch.loggers import CometLogger
+from lightning.pytorch.utilities import rank_zero_only
 from PIL import Image, ImageOps
 from torch.utils.data import DataLoader, Dataset
-from torchvision.transforms.functional import to_tensor
-from torchvision.ops import nms, box_convert
 from torchmetrics.detection import MeanAveragePrecision
-from lightning.pytorch.utilities import rank_zero_only
+from torchvision.ops import box_convert, nms
+from torchvision.transforms.functional import to_tensor
 
 # Suppress some warnings
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -120,9 +119,11 @@ class YOLOv8Head(nn.Module):
     def __init__(
         self,
         num_classes: int,
-        in_channels: List[int] = [64, 128, 256],
+        in_channels: list[int] = None,
         reg_max: int = 16,
     ):
+        if in_channels is None:
+            in_channels = [64, 128, 256]
         super().__init__()
         self.num_classes = num_classes
         self.reg_max = reg_max  # DFL regression range
@@ -167,7 +168,7 @@ class YOLOv8Head(nn.Module):
             nn.SiLU(inplace=True),
         )
 
-    def forward(self, features: List[torch.Tensor]) -> List[torch.Tensor]:
+    def forward(self, features: list[torch.Tensor]) -> list[torch.Tensor]:
         """Forward pass through detection head."""
         outputs = []
         for i, feat in enumerate(features):
@@ -196,11 +197,47 @@ class YOLOv8Head(nn.Module):
 
         return outputs
 
+    def forward_with_dfl(
+        self, features: list[torch.Tensor]
+    ) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
+        """Forward pass returning both final outputs and raw DFL distributions for loss computation."""
+        outputs = []
+        dfl_outputs = []
+
+        for i, feat in enumerate(features):
+            # Box regression with DFL
+            box_output = self.cv2[i](feat)  # [b, 4*reg_max, h, w]
+            b, _, h, w = box_output.shape
+            box_reshaped = box_output.view(b, 4, self.reg_max, h, w)
+
+            # Store raw DFL output for loss computation
+            dfl_outputs.append(box_output)
+
+            # Apply DFL to each of the 4 bbox components
+            box_final = []
+            for bbox_idx in range(4):
+                # Apply DFL to one bbox component at a time
+                bbox_component = box_reshaped[:, bbox_idx]  # [b, reg_max, h, w]
+                bbox_coord = self.dfl(bbox_component)  # [b, 1, h, w]
+                box_final.append(bbox_coord)
+
+            box_final = torch.cat(box_final, dim=1)  # [b, 4, h, w]
+
+            # Classification
+            cls_output = self.cv3[i](feat)
+
+            # Combine box and classification outputs
+            # Format: [batch, 4 + num_classes, height, width]
+            output = torch.cat([box_final, cls_output], dim=1)
+            outputs.append(output)
+
+        return outputs, dfl_outputs
+
 
 class YOLOv8Model(nn.Module):
     """YOLOv8 model with pretrained backbone and custom head."""
 
-    def __init__(self, num_classes: int = 4, pretrained_path: Optional[str] = None):
+    def __init__(self, num_classes: int = 4, pretrained_path: str | None = None):
         super().__init__()
         self.num_classes = num_classes
 
@@ -437,7 +474,7 @@ class YOLOv8Model(nn.Module):
 
             traceback.print_exc()
 
-    def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
+    def forward(self, x: torch.Tensor) -> list[torch.Tensor]:
         """Forward pass through model."""
         # Extract multi-scale features
         features = self._extract_features(x)
@@ -446,7 +483,7 @@ class YOLOv8Model(nn.Module):
         outputs = self.head(features)
         return outputs
 
-    def _extract_features(self, x: torch.Tensor) -> List[torch.Tensor]:
+    def _extract_features(self, x: torch.Tensor) -> list[torch.Tensor]:
         """Extract multi-scale features from backbone."""
         # Forward through backbone layers
         x = self.backbone["0"](x)  # model.0: stem - 16 channels, stride 2
@@ -483,7 +520,7 @@ class YOLOModel(nn.Module):
         self.backbone = self.model.backbone
         self.head = self.model.head
 
-    def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
+    def forward(self, x: torch.Tensor) -> list[torch.Tensor]:
         """Forward pass."""
         return self.model(x)
 
@@ -502,9 +539,9 @@ class YOLODataset(Dataset):
         split: str = "train",
         img_size: int = 640,
         multiscale: bool = False,
-        img_sizes: Optional[List[int]] = None,
+        img_sizes: list[int] | None = None,
         augment: bool = True,
-        config: Optional[Dict] = None,
+        config: dict | None = None,
     ):
         self.data_dir = Path(data_dir)
         self.split = split
@@ -518,7 +555,7 @@ class YOLODataset(Dataset):
         self.img_dir = self.data_dir / split / "images"
         self.label_dir = self.data_dir / split / "labels"
 
-        self.img_paths = sorted(list(self.img_dir.glob("*.jpg")))
+        self.img_paths = sorted(self.img_dir.glob("*.jpg"))
         self.label_paths = [self.label_dir / (p.stem + ".txt") for p in self.img_paths]
 
         print(f"Loaded {len(self.img_paths)} {split} images from {self.img_dir}")
@@ -526,7 +563,7 @@ class YOLODataset(Dataset):
     def __len__(self) -> int:
         return len(self.img_paths)
 
-    def __getitem__(self, idx: int) -> Dict[str, Union[torch.Tensor, str]]:
+    def __getitem__(self, idx: int) -> dict[str, torch.Tensor | str]:
         """Get a sample."""
         # Dynamic image size for multi-scale training
         if self.multiscale and self.split == "train":
@@ -543,7 +580,7 @@ class YOLODataset(Dataset):
 
     def _get_single_sample(
         self, idx: int, img_size: int
-    ) -> Dict[str, Union[torch.Tensor, str]]:
+    ) -> dict[str, torch.Tensor | str]:
         """Get a single image sample."""
         # Load image
         img_path = self.img_paths[idx]
@@ -577,7 +614,7 @@ class YOLODataset(Dataset):
 
     def _get_mosaic_sample(
         self, idx: int, img_size: int
-    ) -> Dict[str, Union[torch.Tensor, str]]:
+    ) -> dict[str, torch.Tensor | str]:
         """Get a mosaic augmented sample (4 images combined)."""
         # Select 3 additional random images
         indices = [idx] + random.choices(range(len(self.img_paths)), k=3)
@@ -652,7 +689,7 @@ class YOLODataset(Dataset):
         if not label_path.exists():
             return torch.zeros((0, 5))
 
-        with open(label_path, "r") as f:
+        with open(label_path) as f:
             lines = f.read().strip().split("\n")
 
         if not lines or lines == [""]:
@@ -670,7 +707,7 @@ class YOLODataset(Dataset):
 
     def _apply_augmentations(
         self, image: Image.Image, labels: torch.Tensor
-    ) -> Tuple[Image.Image, torch.Tensor]:
+    ) -> tuple[Image.Image, torch.Tensor]:
         """Apply data augmentations."""
         # HSV augmentation
         if random.random() < 0.5:
@@ -723,7 +760,7 @@ class YOLODataset(Dataset):
 
     def _letterbox(
         self, image: Image.Image, labels: torch.Tensor, size: int
-    ) -> Tuple[Image.Image, torch.Tensor, Tuple[int, int]]:
+    ) -> tuple[Image.Image, torch.Tensor, tuple[int, int]]:
         """Letterbox resize while maintaining aspect ratio."""
         w, h = image.size
 
@@ -762,7 +799,7 @@ class YOLODataset(Dataset):
         return targets
 
 
-def collate_fn(batch: List[Dict]) -> Dict[str, Union[torch.Tensor, List]]:
+def collate_fn(batch: list[dict]) -> dict[str, torch.Tensor | list]:
     """Custom collate function for YOLO data with MixUp support."""
     # Handle variable image sizes by finding the max size and padding
     max_size = max(item["img_size"][0].item() for item in batch)
@@ -812,7 +849,7 @@ def collate_fn(batch: List[Dict]) -> Dict[str, Union[torch.Tensor, List]]:
 class YOLOv8Loss(nn.Module):
     """YOLOv8 loss function with distribution focal loss (DFL) and anchor-free design."""
 
-    def __init__(self, num_classes: int, config: Dict):
+    def __init__(self, num_classes: int, config: dict):
         super().__init__()
         self.num_classes = num_classes
         self.config = config
@@ -820,6 +857,7 @@ class YOLOv8Loss(nn.Module):
         # Loss gains
         self.box_gain = config.get("box_loss_gain", 7.5)
         self.cls_gain = config.get("cls_loss_gain", 0.5)
+        self.dfl_gain = config.get("dfl_loss_gain", 1.5)  # DFL loss weight
 
         # DFL parameters
         self.reg_max = 16  # DFL regression range
@@ -831,15 +869,19 @@ class YOLOv8Loss(nn.Module):
         self.strides = torch.tensor([8.0, 16.0, 32.0])
 
     def forward(
-        self, predictions: List[torch.Tensor], targets: torch.Tensor
-    ) -> Dict[str, torch.Tensor]:
-        """Compute YOLOv8 loss."""
+        self,
+        predictions: list[torch.Tensor],
+        targets: torch.Tensor,
+        dfl_predictions: list[torch.Tensor] | None = None,
+    ) -> dict[str, torch.Tensor]:
+        """Compute YOLOv8 loss with optional DFL loss."""
         device = predictions[0].device
         self.strides = self.strides.to(device)
 
         # Initialize losses
         loss_box = torch.zeros(1, device=device)
         loss_cls = torch.zeros(1, device=device)
+        loss_dfl = torch.zeros(1, device=device)
 
         # Build targets for all scales
         target_boxes, target_classes, target_indices = self._build_targets(
@@ -885,18 +927,100 @@ class YOLOv8Loss(nn.Module):
                         box_loss = (1.0 - iou).mean()
                         loss_box += box_loss * self.box_gain
 
+                    # DFL loss (if DFL predictions are provided)
+                    if (
+                        dfl_predictions is not None
+                        and i < len(dfl_predictions)
+                        and len(t_boxes) > 0
+                    ):
+                        dfl_pred = dfl_predictions[i]  # [batch, 4*reg_max, h, w]
+                        dfl_loss = self._compute_dfl_loss(
+                            dfl_pred, t_boxes, indices, h, w, i
+                        )
+                        loss_dfl += dfl_loss * self.dfl_gain
+
         # Total loss
-        loss_total = loss_box + loss_cls
+        loss_total = loss_box + loss_cls + loss_dfl
 
         return {
             "loss": loss_total,
             "loss_box": loss_box,
             "loss_cls": loss_cls,
+            "loss_dfl": loss_dfl,
         }
+
+    def _compute_dfl_loss(
+        self,
+        dfl_pred: torch.Tensor,
+        target_boxes: torch.Tensor,
+        indices: torch.Tensor,
+        h: int,
+        w: int,
+        scale_idx: int,
+    ) -> torch.Tensor:
+        """Compute Distribution Focal Loss."""
+        device = dfl_pred.device
+
+        # Reshape DFL predictions: [batch, 4*reg_max, h, w] -> [batch*h*w, 4, reg_max]
+        dfl_pred = dfl_pred.permute(0, 2, 3, 1).contiguous()  # [batch, h, w, 4*reg_max]
+        dfl_pred = dfl_pred.view(-1, 4, self.reg_max)  # [batch*h*w, 4, reg_max]
+
+        # Get positive predictions
+        if len(indices) == 0:
+            return torch.zeros(1, device=device)
+
+        dfl_pred_pos = dfl_pred[indices]  # [num_pos, 4, reg_max]
+
+        # Convert target boxes to DFL targets
+        # target_boxes are in normalized xywh format, need to convert to grid coordinates
+        target_boxes_scaled = target_boxes.clone()
+        target_boxes_scaled[:, [0, 2]] *= w  # x, w scaled to grid width
+        target_boxes_scaled[:, [1, 3]] *= h  # y, h scaled to grid height
+
+        # Convert from center format to corner format for DFL
+        # xywh -> x1y1x2y2 (in grid coordinates)
+        x1 = target_boxes_scaled[:, 0] - target_boxes_scaled[:, 2] / 2
+        y1 = target_boxes_scaled[:, 1] - target_boxes_scaled[:, 3] / 2
+        x2 = target_boxes_scaled[:, 0] + target_boxes_scaled[:, 2] / 2
+        y2 = target_boxes_scaled[:, 1] + target_boxes_scaled[:, 3] / 2
+
+        # Stack to get [num_pos, 4] in x1y1x2y2 format
+        target_corners = torch.stack([x1, y1, x2, y2], dim=1)
+
+        # Convert corner coordinates to DFL distribution targets
+        dfl_targets = []
+        for corner_idx in range(4):
+            coord = target_corners[:, corner_idx]  # [num_pos]
+
+            # Clamp coordinates to valid range
+            coord = torch.clamp(coord, 0, self.reg_max - 1)
+
+            # Create distribution targets (simple approach: one-hot at rounded coordinate)
+            coord_int = coord.round().long()
+            coord_int = torch.clamp(coord_int, 0, self.reg_max - 1)
+
+            # Create one-hot targets
+            targets_onehot = torch.zeros(len(coord_int), self.reg_max, device=device)
+            targets_onehot.scatter_(1, coord_int.unsqueeze(1), 1.0)
+            dfl_targets.append(targets_onehot)
+
+        # Stack targets: [4, num_pos, reg_max] -> [num_pos, 4, reg_max]
+        dfl_targets = torch.stack(dfl_targets, dim=1)  # [num_pos, 4, reg_max]
+
+        # Compute cross entropy loss between predictions and targets
+        dfl_pred_flat = dfl_pred_pos.view(-1, self.reg_max)  # [num_pos*4, reg_max]
+        dfl_targets_flat = dfl_targets.view(-1, self.reg_max)  # [num_pos*4, reg_max]
+
+        # Apply softmax to predictions and compute cross entropy
+        dfl_loss = F.cross_entropy(
+            dfl_pred_flat, dfl_targets_flat.argmax(dim=1), reduction="mean"
+        )
+
+        return dfl_loss
 
     def _build_targets(
         self,
-        predictions: List[torch.Tensor],
+        predictions: list[torch.Tensor],
         targets: torch.Tensor,
         device: torch.device,
     ):
@@ -1015,7 +1139,7 @@ class YOLOv8Loss(nn.Module):
 class YOLOLightningModule(L.LightningModule):
     """Lightning module for YOLO training."""
 
-    def __init__(self, config: Dict):
+    def __init__(self, config: dict):
         super().__init__()
         self.save_hyperparameters(config)
         self.config = config
@@ -1026,11 +1150,9 @@ class YOLOLightningModule(L.LightningModule):
             if config.get("pretrained", True)
             else None
         )
-        self.model = YOLOModel(num_classes=config["num_classes"])
 
-        # Initialize with pretrained weights
-        if pretrained_path:
-            self.model.model = YOLOv8Model(config["num_classes"], pretrained_path)
+        # Use YOLOv8Model directly for DFL support
+        self.model = YOLOv8Model(config["num_classes"], pretrained_path)
 
         # Loss
         self.criterion = YOLOv8Loss(config["num_classes"], config)
@@ -1065,8 +1187,8 @@ class YOLOLightningModule(L.LightningModule):
             print("🔥 Unfroze backbone parameters")
 
     def _postprocess_predictions(
-        self, predictions: List[torch.Tensor], img_sizes: torch.Tensor
-    ) -> List[Dict[str, torch.Tensor]]:
+        self, predictions: list[torch.Tensor], img_sizes: torch.Tensor
+    ) -> list[dict[str, torch.Tensor]]:
         """Post-process YOLOv8 predictions with NMS."""
         batch_size = img_sizes.shape[0]
         processed_predictions = []
@@ -1182,7 +1304,7 @@ class YOLOLightningModule(L.LightningModule):
 
     def _prepare_targets_for_map(
         self, targets: torch.Tensor, batch_size: int
-    ) -> List[Dict[str, torch.Tensor]]:
+    ) -> list[dict[str, torch.Tensor]]:
         """Prepare ground truth targets for mAP calculation."""
         target_list = []
 
@@ -1223,13 +1345,20 @@ class YOLOLightningModule(L.LightningModule):
         if self.current_epoch == self.freeze_epochs and self.freeze_epochs > 0:
             self._unfreeze_backbone()
 
-    def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
+    def forward(self, x: torch.Tensor) -> list[torch.Tensor]:
         return self.model(x)
 
-    def training_step(self, batch: Dict, batch_idx: int) -> torch.Tensor:
-        """Training step."""
-        predictions = self(batch["images"])
-        loss_dict = self.criterion(predictions, batch["targets"])
+    def training_step(self, batch: dict, batch_idx: int) -> torch.Tensor:
+        """Training step with DFL loss computation."""
+        # Forward pass with DFL outputs
+        if hasattr(self.model.head, "forward_with_dfl"):
+            predictions, dfl_predictions = self.model.head.forward_with_dfl(
+                self.model._extract_features(batch["images"])
+            )
+            loss_dict = self.criterion(predictions, batch["targets"], dfl_predictions)
+        else:
+            predictions = self(batch["images"])
+            loss_dict = self.criterion(predictions, batch["targets"])
 
         # Log all losses at once
         self.log_dict(
@@ -1242,7 +1371,7 @@ class YOLOLightningModule(L.LightningModule):
 
         return loss_dict["loss"]
 
-    def validation_step(self, batch: Dict, batch_idx: int) -> torch.Tensor:
+    def validation_step(self, batch: dict, batch_idx: int) -> torch.Tensor:
         """Validation step."""
         predictions = self(batch["images"])
 
@@ -1328,19 +1457,19 @@ class YOLOLightningModule(L.LightningModule):
 class YOLODataModule(L.LightningDataModule):
     """Lightning data module for YOLO dataset."""
 
-    def __init__(self, config: Dict):
+    def __init__(self, config: dict):
         super().__init__()
         self.config = config
 
         # Load dataset configuration
-        with open(config["data_path"], "r") as f:
+        with open(config["data_path"]) as f:
             self.data_config = yaml.safe_load(f)
 
         self.data_dir = Path(self.data_config["path"])
         self.num_classes = self.data_config["nc"]
         self.class_names = self.data_config["names"]
 
-    def setup(self, stage: Optional[str] = None):
+    def setup(self, stage: str | None = None):
         """Setup datasets."""
         if stage == "fit" or stage is None:
             # Training dataset
@@ -1396,7 +1525,7 @@ class YOLODataModule(L.LightningDataModule):
 # ============================================================================
 
 
-def create_debug_dataset(config: Dict) -> str:
+def create_debug_dataset(config: dict) -> str:
     """Create debug dataset for quick testing."""
     debug_dir = Path("../data/yolo-4-class-debug")
 
@@ -1455,7 +1584,7 @@ def create_debug_dataset(config: Dict) -> str:
 
 
 @rank_zero_only
-def setup_comet_logger(config: Dict) -> Optional[CometLogger]:
+def setup_comet_logger(config: dict) -> CometLogger | None:
     """Setup Comet ML logger."""
     api_key = os.getenv("COMET_API_KEY")
     if not api_key:
