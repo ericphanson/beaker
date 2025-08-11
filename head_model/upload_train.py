@@ -216,8 +216,9 @@ def get_model_path():
             if path.is_file():
                 available_models.append(path)
 
-    # Remove duplicates and sort
-    available_models = sorted(set(available_models))
+    # Remove duplicates and sort by modification time
+    available_models = list(set(available_models))
+    available_models.sort(key=lambda p: p.stat().st_mtime, reverse=True)
 
     if not available_models:
         return None
