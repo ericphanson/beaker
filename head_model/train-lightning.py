@@ -42,6 +42,7 @@ TRAINING_CONFIG = {
     # Model Architecture
     "model_type": "yolov8n",  # yolov8n, yolov8s, yolov8m, yolov8l, yolov8x, yolov5n, yolov5s
     "pretrained": True,
+    "pretrained_checkpoint": "yolov8n.pt",  # Path to pretrained checkpoint
     "freeze_backbone_epochs": 0,  # Freeze backbone for N epochs
     # Dataset Configuration
     "data_path": "../data/yolo-4-class/dataset.yaml",
@@ -87,9 +88,9 @@ TRAINING_CONFIG = {
     "monitor_metric": "val/mAP50",
     "monitor_mode": "max",
     # System Configuration
-    "num_workers": 2,  # Reduced for stability
+    "num_workers": 0,  # Set to 0 to avoid multiprocessing issues
     "pin_memory": True,
-    "persistent_workers": True,
+    "persistent_workers": False,  # Disable when num_workers=0
     "precision": "16-mixed",  # 16-mixed, 32, bf16-mixed
     # Debug Configuration
     "debug_run": True,  # Set to True for quick testing
@@ -108,133 +109,362 @@ TRAINING_CONFIG = {
 # ============================================================================
 
 
-class YOLOHead(nn.Module):
-    """YOLO detection head."""
+class YOLOv8Head(nn.Module):
+    """YOLOv8 detection head with DFL (Distribution Focal Loss)."""
 
-    def __init__(self, num_classes: int, in_channels: int = 256):
+    def __init__(
+        self,
+        num_classes: int,
+        in_channels: List[int] = [64, 128, 256],
+        reg_max: int = 16,
+    ):
         super().__init__()
         self.num_classes = num_classes
+        self.reg_max = reg_max  # DFL regression range
         self.in_channels = in_channels
 
-        # Detection layers for 3 scales
-        self.detection_layers = nn.ModuleList(
+        # Box regression heads (cv2) - predicts 4 * reg_max values per anchor
+        self.cv2 = nn.ModuleList(
             [
-                self._make_detection_layer(in_channels)
-                for _ in range(3)  # 3 detection scales
+                nn.Sequential(
+                    self._make_conv(ch, 64, 3),
+                    self._make_conv(64, 64, 3),
+                    nn.Conv2d(64, 4 * reg_max, 1, 1, 0),
+                )
+                for ch in in_channels
             ]
         )
 
-    def _make_detection_layer(self, in_channels: int) -> nn.Module:
-        """Create a detection layer."""
-        # 5 = 4 bbox coords + 1 objectness
-        out_channels = (self.num_classes + 5) * 3  # 3 anchors per scale
+        # Classification heads (cv3) - predicts num_classes per anchor
+        self.cv3 = nn.ModuleList(
+            [
+                nn.Sequential(
+                    self._make_conv(ch, max(16, ch // 4, reg_max * 4), 3),
+                    self._make_conv(
+                        max(16, ch // 4, reg_max * 4), max(16, ch // 4, reg_max * 4), 3
+                    ),
+                    nn.Conv2d(max(16, ch // 4, reg_max * 4), num_classes, 1, 1, 0),
+                )
+                for ch in in_channels
+            ]
+        )
 
+        # DFL layer for converting distribution to bbox coordinates
+        self.dfl = nn.Conv2d(reg_max, 1, 1, 1, 0, bias=False)
+        # Initialize DFL weights
+        self.dfl.weight.data.fill_(1.0 / reg_max)
+
+    def _make_conv(self, in_ch: int, out_ch: int, k: int) -> nn.Module:
+        """Create a convolutional block."""
         return nn.Sequential(
-            nn.Conv2d(in_channels, in_channels, 3, 1, 1),
-            nn.BatchNorm2d(in_channels),
+            nn.Conv2d(in_ch, out_ch, k, 1, k // 2, bias=False),
+            nn.BatchNorm2d(out_ch, eps=0.001, momentum=0.03),
             nn.SiLU(inplace=True),
-            nn.Conv2d(in_channels, out_channels, 1, 1, 0),
         )
 
     def forward(self, features: List[torch.Tensor]) -> List[torch.Tensor]:
         """Forward pass through detection head."""
         outputs = []
         for i, feat in enumerate(features):
-            output = self.detection_layers[i](feat)
+            # Box regression with DFL
+            box_output = self.cv2[i](feat)
+            b, _, h, w = box_output.shape
+            box_output = box_output.view(b, 4, self.reg_max, h, w)
+
+            # Apply DFL to each of the 4 bbox components
+            box_final = []
+            for bbox_idx in range(4):
+                # Apply DFL to one bbox component at a time
+                bbox_component = box_output[:, bbox_idx]  # [b, reg_max, h, w]
+                bbox_coord = self.dfl(bbox_component)  # [b, 1, h, w]
+                box_final.append(bbox_coord)
+
+            box_final = torch.cat(box_final, dim=1)  # [b, 4, h, w]
+
+            # Classification
+            cls_output = self.cv3[i](feat)
+
+            # Combine box and classification outputs
+            # Format: [batch, 4 + num_classes, height, width]
+            output = torch.cat([box_final, cls_output], dim=1)
             outputs.append(output)
+
         return outputs
 
 
-class YOLOBackbone(nn.Module):
-    """Simple YOLO-style backbone with FPN."""
+class YOLOv8Model(nn.Module):
+    """YOLOv8 model with pretrained backbone and custom head."""
 
-    def __init__(self, in_channels: int = 3):
+    def __init__(self, num_classes: int = 4, pretrained_path: Optional[str] = None):
         super().__init__()
+        self.num_classes = num_classes
 
-        # Stem
-        self.stem = nn.Sequential(
-            nn.Conv2d(in_channels, 32, 6, 2, 2),
-            nn.BatchNorm2d(32),
+        # Create our own backbone inspired by YOLOv8 but simpler
+        self.backbone = self._create_yolov8_backbone()
+        self.feature_channels = [64, 128, 256]  # P3, P4, P5 channels
+
+        # Custom detection head for our classes
+        self.head = YOLOv8Head(num_classes, self.feature_channels)
+
+        # Load pretrained weights if available
+        if pretrained_path and os.path.exists(pretrained_path):
+            self._load_pretrained_weights(pretrained_path)
+
+    def _create_yolov8_backbone(self):
+        """Create YOLOv8-style backbone with FPN."""
+        backbone = nn.ModuleDict()
+
+        # Stem (similar to YOLOv8)
+        backbone["stem"] = nn.Sequential(
+            nn.Conv2d(3, 16, 3, 2, 1, bias=False),
+            nn.BatchNorm2d(16, eps=0.001, momentum=0.03),
             nn.SiLU(inplace=True),
         )
 
-        # Backbone stages
-        self.stage1 = self._make_stage(32, 64, 2)  # /4
-        self.stage2 = self._make_stage(64, 128, 2)  # /8
-        self.stage3 = self._make_stage(128, 256, 2)  # /16
-        self.stage4 = self._make_stage(256, 512, 2)  # /32
-
-        # FPN layers
-        self.p5_conv = nn.Conv2d(512, 256, 1, 1, 0)
-        self.p4_conv = nn.Conv2d(256, 256, 1, 1, 0)
-        self.p3_conv = nn.Conv2d(128, 256, 1, 1, 0)
-        self.p4_upsample = nn.Upsample(scale_factor=2, mode="nearest")
-        self.p3_upsample = nn.Upsample(scale_factor=2, mode="nearest")
-
-    def _make_stage(
-        self, in_channels: int, out_channels: int, stride: int
-    ) -> nn.Module:
-        """Create a backbone stage."""
-        return nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, 3, stride, 1),
-            nn.BatchNorm2d(out_channels),
-            nn.SiLU(inplace=True),
-            nn.Conv2d(out_channels, out_channels, 3, 1, 1),
-            nn.BatchNorm2d(out_channels),
+        # Stage 1 (stride 4)
+        backbone["stage1"] = nn.Sequential(
+            nn.Conv2d(16, 32, 3, 2, 1, bias=False),
+            nn.BatchNorm2d(32, eps=0.001, momentum=0.03),
             nn.SiLU(inplace=True),
         )
+
+        # Stage 2 (stride 8) - will be P3
+        backbone["stage2"] = nn.Sequential(
+            nn.Conv2d(32, 64, 3, 2, 1, bias=False),
+            nn.BatchNorm2d(64, eps=0.001, momentum=0.03),
+            nn.SiLU(inplace=True),
+            nn.Conv2d(64, 64, 3, 1, 1, bias=False),
+            nn.BatchNorm2d(64, eps=0.001, momentum=0.03),
+            nn.SiLU(inplace=True),
+        )
+
+        # Stage 3 (stride 16) - will be P4
+        backbone["stage3"] = nn.Sequential(
+            nn.Conv2d(64, 128, 3, 2, 1, bias=False),
+            nn.BatchNorm2d(128, eps=0.001, momentum=0.03),
+            nn.SiLU(inplace=True),
+            nn.Conv2d(128, 128, 3, 1, 1, bias=False),
+            nn.BatchNorm2d(128, eps=0.001, momentum=0.03),
+            nn.SiLU(inplace=True),
+        )
+
+        # Stage 4 (stride 32) - will be P5
+        backbone["stage4"] = nn.Sequential(
+            nn.Conv2d(128, 256, 3, 2, 1, bias=False),
+            nn.BatchNorm2d(256, eps=0.001, momentum=0.03),
+            nn.SiLU(inplace=True),
+            nn.Conv2d(256, 256, 3, 1, 1, bias=False),
+            nn.BatchNorm2d(256, eps=0.001, momentum=0.03),
+            nn.SiLU(inplace=True),
+        )
+
+        # Simple FPN
+        backbone["fpn_p5"] = nn.Conv2d(256, 256, 1, 1, 0)
+        backbone["fpn_p4_reduce"] = nn.Conv2d(128, 256, 1, 1, 0)  # Match channels
+        backbone["fpn_p3_reduce"] = nn.Conv2d(64, 256, 1, 1, 0)  # Match channels
+        backbone["fpn_p4_out"] = nn.Conv2d(256, 128, 1, 1, 0)  # Reduce back
+        backbone["fpn_p3_out"] = nn.Conv2d(256, 64, 1, 1, 0)  # Reduce back
+        backbone["fpn_upsample"] = nn.Upsample(scale_factor=2, mode="nearest")
+
+        return backbone
+
+    def _load_pretrained_weights(self, checkpoint_path: str):
+        """Load compatible weights from pretrained YOLOv8."""
+        try:
+            print(f"📦 Loading pretrained YOLOv8 weights from {checkpoint_path}")
+            checkpoint = torch.load(
+                checkpoint_path, map_location="cpu", weights_only=False
+            )
+            pretrained_model = checkpoint["model"].float()
+            pretrained_state = pretrained_model.state_dict()
+
+            # Load compatible weights
+            our_state = self.state_dict()
+            loaded_count = 0
+            skipped_count = 0
+
+            print(f"📊 Pretrained model has {len(pretrained_state)} parameters")
+            print(f"📊 Our model has {len(our_state)} parameters")
+
+            # Define comprehensive weight mapping from pretrained to our model
+            weight_mapping = {
+                # Stem (model.0)
+                "backbone.stem.0.weight": "model.0.conv.weight",
+                "backbone.stem.1.weight": "model.0.bn.weight",
+                "backbone.stem.1.bias": "model.0.bn.bias",
+                "backbone.stem.1.running_mean": "model.0.bn.running_mean",
+                "backbone.stem.1.running_var": "model.0.bn.running_var",
+                "backbone.stem.1.num_batches_tracked": "model.0.bn.num_batches_tracked",
+                # Stage 1 (model.1)
+                "backbone.stage1.0.weight": "model.1.conv.weight",
+                "backbone.stage1.1.weight": "model.1.bn.weight",
+                "backbone.stage1.1.bias": "model.1.bn.bias",
+                "backbone.stage1.1.running_mean": "model.1.bn.running_mean",
+                "backbone.stage1.1.running_var": "model.1.bn.running_var",
+                "backbone.stage1.1.num_batches_tracked": "model.1.bn.num_batches_tracked",
+                # Stage 2 first layer (model.2 - we'll try to map some of it)
+                "backbone.stage2.0.weight": "model.2.cv1.conv.weight",  # Try cv1 conv
+                "backbone.stage2.1.weight": "model.2.cv1.bn.weight",
+                "backbone.stage2.1.bias": "model.2.cv1.bn.bias",
+                "backbone.stage2.1.running_mean": "model.2.cv1.bn.running_mean",
+                "backbone.stage2.1.running_var": "model.2.cv1.bn.running_var",
+                "backbone.stage2.1.num_batches_tracked": "model.2.cv1.bn.num_batches_tracked",
+                # DFL layer mapping
+                "head.dfl.weight": "model.22.dfl.conv.weight",
+            }
+
+            # Load explicit mappings
+            for our_key, pretrained_key in weight_mapping.items():
+                if pretrained_key in pretrained_state and our_key in our_state:
+                    if (
+                        our_state[our_key].shape
+                        == pretrained_state[pretrained_key].shape
+                    ):
+                        our_state[our_key].copy_(pretrained_state[pretrained_key])
+                        loaded_count += 1
+                        print(
+                            f"✅ Loaded: {our_key} <- {pretrained_key} {our_state[our_key].shape}"
+                        )
+                    else:
+                        print(
+                            f"⚠️ Shape mismatch: {our_key} {our_state[our_key].shape} vs {pretrained_key} {pretrained_state[pretrained_key].shape}"
+                        )
+                        skipped_count += 1
+                else:
+                    if pretrained_key not in pretrained_state:
+                        print(f"❌ Missing in pretrained: {pretrained_key}")
+                    if our_key not in our_state:
+                        print(f"❌ Missing in our model: {our_key}")
+                    skipped_count += 1
+
+            # Try to load head weights by pattern matching
+            print("\n🔍 Attempting pattern-based head weight loading...")
+
+            # Map head cv2 (box regression) weights
+            for scale_idx in range(3):  # 3 scales
+                # First conv layer of cv2
+                our_conv1_key = f"head.cv2.{scale_idx}.0.0.weight"
+                pretrained_conv1_key = f"model.22.cv2.{scale_idx}.0.conv.weight"
+                if (
+                    pretrained_conv1_key in pretrained_state
+                    and our_conv1_key in our_state
+                ):
+                    if (
+                        our_state[our_conv1_key].shape
+                        == pretrained_state[pretrained_conv1_key].shape
+                    ):
+                        our_state[our_conv1_key].copy_(
+                            pretrained_state[pretrained_conv1_key]
+                        )
+                        loaded_count += 1
+                        print(f"✅ Head CV2 conv1: scale {scale_idx}")
+
+                # Try to load BN weights too
+                for bn_param in [
+                    "weight",
+                    "bias",
+                    "running_mean",
+                    "running_var",
+                    "num_batches_tracked",
+                ]:
+                    our_bn_key = f"head.cv2.{scale_idx}.0.1.{bn_param}"
+                    pretrained_bn_key = f"model.22.cv2.{scale_idx}.0.bn.{bn_param}"
+                    if (
+                        pretrained_bn_key in pretrained_state
+                        and our_bn_key in our_state
+                    ):
+                        if (
+                            our_state[our_bn_key].shape
+                            == pretrained_state[pretrained_bn_key].shape
+                        ):
+                            our_state[our_bn_key].copy_(
+                                pretrained_state[pretrained_bn_key]
+                            )
+                            loaded_count += 1
+
+            # Map head cv3 (classification) weights where possible
+            for scale_idx in range(3):  # 3 scales
+                # First conv layer of cv3
+                our_conv1_key = f"head.cv3.{scale_idx}.0.0.weight"
+                pretrained_conv1_key = f"model.22.cv3.{scale_idx}.0.conv.weight"
+                if (
+                    pretrained_conv1_key in pretrained_state
+                    and our_conv1_key in our_state
+                ):
+                    if (
+                        our_state[our_conv1_key].shape
+                        == pretrained_state[pretrained_conv1_key].shape
+                    ):
+                        our_state[our_conv1_key].copy_(
+                            pretrained_state[pretrained_conv1_key]
+                        )
+                        loaded_count += 1
+                        print(f"✅ Head CV3 conv1: scale {scale_idx}")
+
+            print("\n📈 Loading Summary:")
+            print(f"✅ Loaded: {loaded_count} parameter tensors")
+            print(f"⚠️ Skipped: {skipped_count} parameter tensors")
+            print(
+                f"📊 Coverage: {loaded_count}/{len(our_state)} ({100*loaded_count/len(our_state):.1f}%) of our model"
+            )
+
+        except Exception as e:
+            print(f"❌ Failed to load pretrained weights: {e}")
+            print("🔄 Using random initialization")
 
     def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
-        """Forward pass through backbone."""
-        # Stem and stages
-        x = self.stem(x)
-        c2 = self.stage1(x)
-        c3 = self.stage2(c2)
-        c4 = self.stage3(c3)
-        c5 = self.stage4(c4)
+        """Forward pass through model."""
+        # Extract multi-scale features
+        features = self._extract_features(x)
 
-        # FPN
-        p5 = self.p5_conv(c5)
-        p4 = self.p4_conv(c4) + self.p4_upsample(p5)
-        p3 = self.p3_conv(c3) + self.p3_upsample(p4)
+        # Pass through custom detection head
+        outputs = self.head(features)
+        return outputs
 
-        return [p3, p4, p5]  # Multi-scale features
+    def _extract_features(self, x: torch.Tensor) -> List[torch.Tensor]:
+        """Extract multi-scale features from backbone."""
+        # Forward through backbone stages
+        x = self.backbone["stem"](x)
+        x = self.backbone["stage1"](x)
+
+        # Stage 2 -> P3 (1/8 scale)
+        c3 = self.backbone["stage2"](x)
+
+        # Stage 3 -> P4 (1/16 scale)
+        c4 = self.backbone["stage3"](c3)
+
+        # Stage 4 -> P5 (1/32 scale)
+        c5 = self.backbone["stage4"](c4)
+
+        # Simple FPN (make all outputs the same size for simplicity)
+        p5 = self.backbone["fpn_p5"](c5)  # 256 -> 256
+        p4_up = self.backbone["fpn_upsample"](p5)  # Upsample p5
+        p4_combined = self.backbone["fpn_p4_reduce"](c4) + p4_up  # 128->256 + 256
+        p4 = self.backbone["fpn_p4_out"](p4_combined)  # 256 -> 128
+
+        p3_up = self.backbone["fpn_upsample"](p4_combined)  # Upsample combined
+        p3_combined = self.backbone["fpn_p3_reduce"](c3) + p3_up  # 64->256 + 256
+        p3 = self.backbone["fpn_p3_out"](p3_combined)  # 256 -> 64
+
+        return [p3, p4, p5]
 
 
 class YOLOModel(nn.Module):
-    """Complete YOLO model."""
+    """Complete YOLO model - legacy wrapper for compatibility."""
 
     def __init__(self, num_classes: int = 4):
         super().__init__()
         self.num_classes = num_classes
-        self.backbone = YOLOBackbone()
-        self.head = YOLOHead(num_classes)
+        # Use YOLOv8 model
+        self.model = YOLOv8Model(num_classes)
 
-        # Anchor sizes for 3 scales (small, medium, large)
-        self.register_buffer(
-            "anchors",
-            torch.tensor(
-                [
-                    [[10, 13], [16, 30], [33, 23]],  # Small objects (high resolution)
-                    [[30, 61], [62, 45], [59, 119]],  # Medium objects
-                    [
-                        [116, 90],
-                        [156, 198],
-                        [373, 326],
-                    ],  # Large objects (low resolution)
-                ],
-                dtype=torch.float32,
-            ),
-        )
-
-        # Grid strides for each scale
-        self.register_buffer("strides", torch.tensor([8, 16, 32], dtype=torch.float32))
+        # Legacy attributes for compatibility
+        self.backbone = self.model.backbone
+        self.head = self.model.head
 
     def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
         """Forward pass."""
-        features = self.backbone(x)
-        outputs = self.head(features)
-        return outputs
+        return self.model(x)
 
 
 # ============================================================================
@@ -558,8 +788,8 @@ def collate_fn(batch: List[Dict]) -> Dict[str, Union[torch.Tensor, List]]:
 # ============================================================================
 
 
-class YOLOLoss(nn.Module):
-    """YOLO loss function with focal loss and IoU-aware classification."""
+class YOLOv8Loss(nn.Module):
+    """YOLOv8 loss function with distribution focal loss (DFL) and anchor-free design."""
 
     def __init__(self, num_classes: int, config: Dict):
         super().__init__()
@@ -569,197 +799,138 @@ class YOLOLoss(nn.Module):
         # Loss gains
         self.box_gain = config.get("box_loss_gain", 7.5)
         self.cls_gain = config.get("cls_loss_gain", 0.5)
-        self.obj_gain = config.get("obj_loss_gain", 1.0)
 
-        # Focal loss
-        self.focal_gamma = config.get("focal_loss_gamma", 1.5)
-        self.label_smoothing = config.get("label_smoothing", 0.0)
-        self.eps = 1e-7
+        # DFL parameters
+        self.reg_max = 16  # DFL regression range
 
-        # BCE loss
+        # BCE loss for classification
         self.bce_cls = nn.BCEWithLogitsLoss(reduction="none")
-        self.bce_obj = nn.BCEWithLogitsLoss(reduction="none")
 
-        # Class names for per-class logging
-        self.class_names = config.get(
-            "class_names", [f"class_{i}" for i in range(num_classes)]
-        )
-
-        # IoU threshold for positive assignment
-        self.iou_t = 0.20  # IoU threshold for anchor assignment
-
-        # Anchor thresholds
-        self.anchor_t = 4.0  # Anchor multiple threshold
+        # Grid strides for each scale
+        self.strides = torch.tensor([8.0, 16.0, 32.0])
 
     def forward(
         self, predictions: List[torch.Tensor], targets: torch.Tensor
     ) -> Dict[str, torch.Tensor]:
-        """Compute YOLO loss."""
+        """Compute YOLOv8 loss."""
         device = predictions[0].device
+        self.strides = self.strides.to(device)
 
         # Initialize losses
         loss_box = torch.zeros(1, device=device)
         loss_cls = torch.zeros(1, device=device)
-        loss_obj = torch.zeros(1, device=device)
 
-        # Grid sizes for each scale
-        grid_sizes = [(pred.shape[2], pred.shape[3]) for pred in predictions]
-
-        # Build targets once for all scales
-        targets_all_scales = self._build_all_targets(targets, grid_sizes, device)
+        # Build targets for all scales
+        target_boxes, target_classes, target_indices = self._build_targets(
+            predictions, targets, device
+        )
 
         # Process each scale
         for i, pred in enumerate(predictions):
-            # pred shape: [batch, (nc+5)*3, h, w]
+            # pred shape: [batch, 4 + num_classes, h, w]
             b, c, h, w = pred.shape
-            pred = (
-                pred.view(b, 3, self.num_classes + 5, h, w)
-                .permute(0, 1, 3, 4, 2)
-                .contiguous()
-            )
 
-            # Extract predictions
-            pred_boxes = pred[..., :4]  # x, y, w, h
-            pred_obj = pred[..., 4]  # objectness
-            pred_cls = pred[..., 5:]  # classes
+            # Separate box and class predictions
+            pred_boxes = pred[:, :4]  # [batch, 4, h, w]
+            pred_classes = pred[:, 4:]  # [batch, num_classes, h, w]
+
+            # Reshape for processing
+            pred_boxes = (
+                pred_boxes.permute(0, 2, 3, 1).contiguous().view(-1, 4)
+            )  # [batch*h*w, 4]
+            pred_classes = (
+                pred_classes.permute(0, 2, 3, 1).contiguous().view(-1, self.num_classes)
+            )  # [batch*h*w, nc]
 
             # Get targets for this scale
-            scale_targets = targets_all_scales[i]
-            tobj, tcls, tbox, indices, anchors = scale_targets
+            if i < len(target_indices):
+                indices = target_indices[i]
+                if len(indices) > 0:
+                    # Get positive samples
+                    t_boxes = target_boxes[i]
+                    t_classes = target_classes[i]
 
-            # Objectness loss
-            obj_loss = self.bce_obj(pred_obj, tobj).mean()
-            loss_obj += obj_loss * self.obj_gain
+                    # Classification loss
+                    if len(t_classes) > 0:
+                        cls_targets = torch.zeros_like(pred_classes)
+                        cls_targets[indices, t_classes] = 1.0
+                        cls_loss = self.bce_cls(pred_classes, cls_targets).mean()
+                        loss_cls += cls_loss * self.cls_gain
 
-            # Only compute cls and box loss where we have positive targets
-            n_targets = indices[0].numel()
-            if n_targets > 0:
-                # Get positive predictions
-                ps_cls = pred_cls[indices]
-                ps_box = pred_boxes[indices]
-
-                # Classification loss with label smoothing
-                if self.num_classes > 1:
-                    t = torch.zeros_like(ps_cls, device=device)
-                    if len(tcls) > 0:
-                        t[range(n_targets), tcls] = 1.0
-
-                    # Apply label smoothing
-                    if self.label_smoothing > 0:
-                        t = (
-                            t * (1 - self.label_smoothing)
-                            + self.label_smoothing / self.num_classes
-                        )
-
-                    cls_loss = self._focal_loss(ps_cls, t)
-                    loss_cls += cls_loss * self.cls_gain
-
-                # Box regression loss (IoU loss)
-                if len(tbox) > 0:
-                    # Convert predictions to absolute coordinates
-                    pxy = ps_box[..., :2].sigmoid() * 2 - 0.5
-                    pwh = (ps_box[..., 2:4].sigmoid() * 2) ** 2 * anchors
-                    pbox = torch.cat((pxy, pwh), dim=-1)
-
-                    # IoU loss
-                    iou = self._bbox_iou(pbox, tbox, x1y1x2y2=False)
-                    box_loss = (1.0 - iou).mean()
-                    loss_box += box_loss * self.box_gain
+                    # Box regression loss (IoU loss)
+                    if len(t_boxes) > 0:
+                        pred_boxes_pos = pred_boxes[indices]
+                        iou = self._bbox_iou(pred_boxes_pos, t_boxes, x1y1x2y2=False)
+                        box_loss = (1.0 - iou).mean()
+                        loss_box += box_loss * self.box_gain
 
         # Total loss
-        loss_total = loss_box + loss_cls + loss_obj
+        loss_total = loss_box + loss_cls
 
         return {
             "loss": loss_total,
             "loss_box": loss_box,
             "loss_cls": loss_cls,
-            "loss_obj": loss_obj,
         }
 
-    def _build_all_targets(
+    def _build_targets(
         self,
+        predictions: List[torch.Tensor],
         targets: torch.Tensor,
-        grid_sizes: List[Tuple[int, int]],
         device: torch.device,
     ):
-        """Build targets for all scales."""
-        # Define anchor boxes for each scale (these should match the model)
-        anchors = [
-            [[10, 13], [16, 30], [33, 23]],  # Small objects (high resolution)
-            [[30, 61], [62, 45], [59, 119]],  # Medium objects
-            [[116, 90], [156, 198], [373, 326]],  # Large objects (low resolution)
-        ]
+        """Build targets for anchor-free YOLOv8."""
+        target_boxes = []
+        target_classes = []
+        target_indices = []
 
-        scale_targets = []
+        for scale_idx, pred in enumerate(predictions):
+            b, c, h, w = pred.shape
+            stride = self.strides[scale_idx]
 
-        for scale_idx, (h, w) in enumerate(grid_sizes):
-            # Initialize targets for this scale
-            batch_size = int(targets[:, 0].max() + 1) if len(targets) > 0 else 1
-            tobj = torch.zeros(
-                batch_size, 3, h, w, device=device
-            )  # 3 anchors per scale
-            tcls = []
-            tbox = []
-            indices = [[], [], [], []]  # batch, anchor, grid_y, grid_x
-            anch = []
+            # Initialize for this scale
+            scale_target_boxes = []
+            scale_target_classes = []
+            scale_indices = []
 
             if len(targets) > 0:
-                # Scale targets to grid
+                # Scale targets to current grid
                 gt = targets.clone()
-                gt[:, 2:6] *= torch.tensor([w, h, w, h], device=device)  # Scale to grid
+                gt[:, 2:6] *= torch.tensor([w, h, w, h], device=device) / stride
 
-                # Anchor selection
-                anchor_tensor = torch.tensor(
-                    anchors[scale_idx], device=device, dtype=torch.float32
-                )
-                na = anchor_tensor.shape[0]  # Number of anchors
-
-                for gi in range(len(gt)):
-                    gt_box = gt[gi]
+                for gt_box in gt:
                     batch_idx = int(gt_box[0])
                     cls = int(gt_box[1])
                     gx, gy, gw, gh = gt_box[2:6]
 
-                    # Check if target is within grid bounds
+                    # Check if target center is within grid bounds
                     if 0 <= gx < w and 0 <= gy < h:
-                        gi_int, gj_int = int(gx), int(gy)
+                        gi, gj = int(gx), int(gy)
 
-                        # Simple anchor assignment (assign to all anchors for now)
-                        for ai in range(na):
-                            indices[0].append(batch_idx)
-                            indices[1].append(ai)
-                            indices[2].append(gj_int)
-                            indices[3].append(gi_int)
-
-                            # Set objectness target
-                            tobj[batch_idx, ai, gj_int, gi_int] = 1.0
-
-                            # Classification target
-                            tcls.append(cls)
-
-                            # Box targets (relative to cell)
-                            tbox.append([gx - gi_int, gy - gj_int, gw, gh])
-                            anch.append(anchor_tensor[ai])
+                        # Add to targets
+                        flat_idx = batch_idx * h * w + gj * w + gi
+                        scale_indices.append(flat_idx)
+                        scale_target_classes.append(cls)
+                        scale_target_boxes.append([gx - gi, gy - gj, gw, gh])
 
             # Convert to tensors
-            indices = tuple(
-                torch.tensor(idx, device=device, dtype=torch.long) for idx in indices
-            )
-            tcls = (
-                torch.tensor(tcls, device=device, dtype=torch.long)
-                if tcls
-                else torch.zeros(0, device=device, dtype=torch.long)
-            )
-            tbox = (
-                torch.tensor(tbox, device=device, dtype=torch.float32)
-                if tbox
+            target_boxes.append(
+                torch.tensor(scale_target_boxes, device=device, dtype=torch.float32)
+                if scale_target_boxes
                 else torch.zeros((0, 4), device=device)
             )
-            anch = torch.stack(anch, 0) if anch else torch.zeros((0, 2), device=device)
+            target_classes.append(
+                torch.tensor(scale_target_classes, device=device, dtype=torch.long)
+                if scale_target_classes
+                else torch.zeros(0, device=device, dtype=torch.long)
+            )
+            target_indices.append(
+                torch.tensor(scale_indices, device=device, dtype=torch.long)
+                if scale_indices
+                else torch.zeros(0, device=device, dtype=torch.long)
+            )
 
-            scale_targets.append((tobj, tcls, tbox, indices, anch))
-
-        return scale_targets
+        return target_boxes, target_classes, target_indices
 
     def _bbox_iou(
         self,
@@ -814,19 +985,6 @@ class YOLOLoss(nn.Module):
 
         return inter / union
 
-    def _focal_loss(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        """Focal loss implementation."""
-        ce_loss = F.binary_cross_entropy_with_logits(pred, target, reduction="none")
-        p_t = torch.exp(-ce_loss)
-        focal_loss = (1 - p_t) ** self.focal_gamma * ce_loss
-        return focal_loss.mean()
-
-    def _smooth_bce(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        """Smooth BCE loss with label smoothing."""
-        if self.label_smoothing > 0:
-            target = target * (1 - self.label_smoothing) + self.label_smoothing / 2
-        return F.binary_cross_entropy_with_logits(pred, target, reduction="mean")
-
 
 # ============================================================================
 # LIGHTNING MODULE
@@ -842,14 +1000,19 @@ class YOLOLightningModule(L.LightningModule):
         self.config = config
 
         # Model
+        pretrained_path = (
+            config.get("pretrained_checkpoint")
+            if config.get("pretrained", True)
+            else None
+        )
         self.model = YOLOModel(num_classes=config["num_classes"])
 
-        # Load pretrained weights if specified
-        if config.get("pretrained", True) and config.get("model_type") == "yolov8n":
-            self._load_pretrained_weights()
+        # Initialize with pretrained weights
+        if pretrained_path:
+            self.model.model = YOLOv8Model(config["num_classes"], pretrained_path)
 
         # Loss
-        self.criterion = YOLOLoss(config["num_classes"], config)
+        self.criterion = YOLOv8Loss(config["num_classes"], config)
 
         # Metrics - mAP calculation
         self.val_map = MeanAveragePrecision(
@@ -866,27 +1029,24 @@ class YOLOLightningModule(L.LightningModule):
         # Automatic optimization
         self.automatic_optimization = True
 
-    def _load_pretrained_weights(self):
-        """Load pretrained weights (simplified - in practice you'd load actual pretrained YOLO weights)."""
-        # This is a placeholder - you'd implement actual weight loading here
-        print("📦 Loading pretrained weights...")
-
     def _freeze_backbone(self):
         """Freeze backbone parameters."""
-        for param in self.model.backbone.parameters():
-            param.requires_grad = False
-        print(f"🧊 Frozen backbone for {self.freeze_epochs} epochs")
+        if self.model.backbone is not None:
+            for param in self.model.backbone.parameters():
+                param.requires_grad = False
+            print(f"🧊 Frozen backbone for {self.freeze_epochs} epochs")
 
     def _unfreeze_backbone(self):
         """Unfreeze backbone parameters."""
-        for param in self.model.backbone.parameters():
-            param.requires_grad = True
-        print("🔥 Unfroze backbone parameters")
+        if self.model.backbone is not None:
+            for param in self.model.backbone.parameters():
+                param.requires_grad = True
+            print("🔥 Unfroze backbone parameters")
 
     def _postprocess_predictions(
         self, predictions: List[torch.Tensor], img_sizes: torch.Tensor
     ) -> List[Dict[str, torch.Tensor]]:
-        """Post-process predictions with NMS."""
+        """Post-process YOLOv8 predictions with NMS."""
         batch_size = img_sizes.shape[0]
         processed_predictions = []
 
@@ -895,20 +1055,64 @@ class YOLOLightningModule(L.LightningModule):
             all_detections = []
 
             # Process each scale
-            for pred in predictions:
-                # pred shape: [batch, 3, h, w, num_classes + 5]
-                pred_batch = pred[batch_idx]  # [3, h, w, num_classes + 5]
+            for scale_idx, pred in enumerate(predictions):
+                # pred shape: [batch, 4 + num_classes, h, w]
+                pred_batch = pred[batch_idx]  # [4 + num_classes, h, w]
 
-                # Reshape and extract
-                detections = pred_batch.view(-1, self.config["num_classes"] + 5)
+                # Extract boxes and classes
+                pred_boxes = pred_batch[:4]  # [4, h, w]
+                pred_classes = pred_batch[4:]  # [num_classes, h, w]
+
+                # Reshape to [h*w, 4] and [h*w, num_classes]
+                h, w = pred_boxes.shape[1], pred_boxes.shape[2]
+                boxes = pred_boxes.permute(1, 2, 0).contiguous().view(-1, 4)  # [h*w, 4]
+                classes = (
+                    pred_classes.permute(1, 2, 0)
+                    .contiguous()
+                    .view(-1, self.config["num_classes"])
+                )  # [h*w, nc]
+
+                # Get class scores and labels
+                class_scores, class_labels = torch.max(torch.sigmoid(classes), dim=1)
+
+                # Create grid coordinates for center point calculation
+                grid_y, grid_x = torch.meshgrid(
+                    torch.arange(h, device=pred.device),
+                    torch.arange(w, device=pred.device),
+                    indexing="ij",
+                )
+                grid = torch.stack([grid_x, grid_y], dim=-1).view(-1, 2).float()
+
+                # Convert box predictions to actual coordinates
+                # YOLOv8 predicts offsets from grid cells
+                stride = [8, 16, 32][scale_idx]
+                centers = (grid + 0.5) * stride  # Grid center points
+                boxes[:, :2] = (
+                    centers + boxes[:, :2] * stride
+                )  # Apply predicted offsets
+                boxes[:, 2:] = (
+                    torch.exp(boxes[:, 2:]) * stride
+                )  # Convert to width/height
 
                 # Apply confidence threshold
-                obj_scores = detections[:, 4]
-                conf_mask = obj_scores > self.config["conf_threshold"]
+                conf_mask = class_scores > self.config["conf_threshold"]
 
                 if conf_mask.any():
-                    filtered_dets = detections[conf_mask]
-                    all_detections.append(filtered_dets)
+                    filtered_boxes = boxes[conf_mask]
+                    filtered_scores = class_scores[conf_mask]
+                    filtered_labels = class_labels[conf_mask]
+
+                    # Convert to detection format [x, y, w, h, score, class]
+                    detections = torch.cat(
+                        [
+                            filtered_boxes,
+                            filtered_scores.unsqueeze(1),
+                            filtered_labels.unsqueeze(1).float(),
+                        ],
+                        dim=1,
+                    )
+
+                    all_detections.append(detections)
 
             if not all_detections:
                 # No detections
@@ -928,31 +1132,28 @@ class YOLOLightningModule(L.LightningModule):
 
             # Extract components
             boxes = all_dets[:, :4]  # x, y, w, h (center format)
-            obj_scores = all_dets[:, 4]
-            cls_scores = all_dets[:, 5:]
+            scores = all_dets[:, 4]
+            labels = all_dets[:, 5].long()
 
-            # Get best class per detection
-            class_scores, class_labels = torch.max(cls_scores, dim=1)
-            final_scores = obj_scores * class_scores
-
-            # Convert to corner format for NMS
+            # Convert to corner format for NMS and normalize
             img_size = img_sizes[batch_idx][0].item()
-            boxes_corner = box_convert(boxes, "cxcywh", "xyxy") * img_size
+            boxes_corner = box_convert(boxes, "cxcywh", "xyxy")
+            boxes_corner = boxes_corner / img_size  # Normalize to [0, 1]
 
             # Apply NMS
-            keep_indices = nms(boxes_corner, final_scores, self.config["iou_threshold"])
+            keep_indices = nms(
+                boxes_corner * img_size, scores, self.config["iou_threshold"]
+            )
 
             # Limit detections and convert back
             keep_indices = keep_indices[: self.config["max_det"]]
-            final_boxes = box_convert(
-                boxes_corner[keep_indices] / img_size, "xyxy", "cxcywh"
-            )
+            final_boxes = box_convert(boxes_corner[keep_indices], "xyxy", "cxcywh")
 
             processed_predictions.append(
                 {
                     "boxes": final_boxes,
-                    "scores": final_scores[keep_indices],
-                    "labels": class_labels[keep_indices],
+                    "scores": scores[keep_indices],
+                    "labels": labels[keep_indices],
                 }
             )
 
@@ -1024,14 +1225,6 @@ class YOLOLightningModule(L.LightningModule):
         """Validation step."""
         predictions = self(batch["images"])
 
-        # Reshape predictions for post-processing
-        reshaped_preds = [
-            pred.view(pred.shape[0], 3, self.config["num_classes"] + 5, *pred.shape[2:])
-            .permute(0, 1, 3, 4, 2)
-            .contiguous()
-            for pred in predictions
-        ]
-
         # Compute loss
         loss_dict = self.criterion(predictions, batch["targets"])
 
@@ -1044,9 +1237,7 @@ class YOLOLightningModule(L.LightningModule):
         )
 
         # Update mAP metric
-        processed_preds = self._postprocess_predictions(
-            reshaped_preds, batch["img_sizes"]
-        )
+        processed_preds = self._postprocess_predictions(predictions, batch["img_sizes"])
         target_list = self._prepare_targets_for_map(
             batch["targets"], batch["images"].shape[0]
         )
