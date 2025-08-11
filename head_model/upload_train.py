@@ -197,7 +197,7 @@ def get_model_path():
     available_models = []
 
     # Check if runs/detect exists
-    runs_detect = Path("runs/detect")
+    runs_detect = Path("runs/multi-detect")
     if runs_detect.exists():
         # Find all subdirectories in runs/detect
         for run_dir in runs_detect.iterdir():
