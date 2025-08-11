@@ -119,7 +119,7 @@ class YOLOv8Head(nn.Module):
     def __init__(
         self,
         num_classes: int,
-        in_channels: list[int] = None,
+        in_channels: list[int] | None = None,
         reg_max: int = 16,
     ):
         if in_channels is None:
