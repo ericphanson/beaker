@@ -1,7 +1,7 @@
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
+use std::{env, fs};
 use tempfile::TempDir;
 use toml::Value;
 
@@ -98,30 +98,10 @@ pub fn run_beaker_command(args: &[&str]) -> i32 {
 
 /// Run a beaker command with environment variables and return exit code
 pub fn run_beaker_command_with_env(args: &[&str], env_vars: &[(&str, &str)]) -> i32 {
-    use std::sync::Once;
-
-    static BUILD_ONCE: Once = Once::new();
-
-    // Build the binary once at the start of testing
-    BUILD_ONCE.call_once(|| {
-        let build_output = Command::new("cargo")
-            .args(["build"])
-            .current_dir(env!("CARGO_MANIFEST_DIR"))
-            .output()
-            .expect("Failed to build beaker");
-
-        if !build_output.status.success() {
-            panic!(
-                "Failed to build beaker: {}",
-                String::from_utf8_lossy(&build_output.stderr)
-            );
-        }
-    });
-
     // Run the built binary directly
-    let beaker_binary = Path::new(env!("CARGO_MANIFEST_DIR")).join("../target/debug/beaker");
+    let beaker_binary = env!("CARGO_BIN_EXE_beaker");
 
-    let output = Command::new(&beaker_binary)
+    let output = Command::new(beaker_binary)
         .args(args)
         .envs(env_vars.iter().map(|(k, v)| (*k, *v)))
         .current_dir(env!("CARGO_MANIFEST_DIR"))

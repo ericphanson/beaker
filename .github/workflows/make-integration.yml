@@ -1,0 +1,54 @@
+name: Make Integration Tests
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'beaker/**'
+      - 'beaker-stamp/**'
+      - 'beaker-stamp-derive/**'
+      - 'Cargo.toml'
+      - '.github/workflows/make-integration.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'beaker/**'
+      - 'beaker-stamp/**'
+      - 'beaker-stamp-derive/**'
+      - 'Cargo.toml'
+      - '.github/workflows/make-integration.yml'
+  workflow_dispatch:  # Allow manual triggering
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_LOG: "debug"
+  RUST_BACKTRACE: "1"
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  make-integration:
+    name: Make Integration Tests
+    runs-on: ubuntu-latest  # Run only on Linux to save CI resources
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install Make
+      run: sudo apt-get update && sudo apt-get install -y make
+
+    - name: Set up caching for ONNX models
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/onnx-models
+        key: onnx-models-${{ hashFiles('beaker/build.rs') }}
+        restore-keys: onnx-models-
+
+    - name: Build Beaker (Release)
+      run: cargo build --release
+
+    - name: Run Make integration tests
+      run: cargo test --release --test make_integration --verbose -- --nocapture

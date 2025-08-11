@@ -6,6 +6,7 @@ use std::{
     io::{self, Read},
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    thread::sleep,
 };
 
 fn fail(msg: impl AsRef<str>) -> ! {
@@ -266,6 +267,8 @@ fn make_integration_end_to_end() {
     // Test 3: Rebuild when input changes
     eprintln!("\nTest 3: Rebuild after input change");
     // touch example.jpg
+    // sleep 100ms to ensure timestamp changes
+    sleep(std::time::Duration::from_millis(100));
     _ = run_cmd("touch", ["example.jpg"], &td, &[], true);
 
     check_rebuilds("example_cutout.png", &td, &stamp_dir);
@@ -344,7 +347,8 @@ fn make_integration_end_to_end() {
     );
 
     if let Some(stamp) = first_stamp_file(&stamp_dir) {
-        // touch stamp
+        // touch stamp after 100ms to ensure timestamp changes
+        sleep(std::time::Duration::from_millis(100));
         _ = run_cmd("touch", [stamp], &td, &[], true);
         check_rebuilds("example_cutout.png", &td, &stamp_dir);
         pass("Stamp file dependency tracking");

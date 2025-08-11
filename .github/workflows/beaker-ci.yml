@@ -197,8 +197,9 @@ jobs:
         ./target/${{ matrix.target }}/release/beaker.exe cutout example.jpg --device ${{ matrix.device }} || echo "Pre-download may have failed but continuing with tests"
         echo "Model pre-download attempt completed"
 
-    - name: Run integration tests
-      run: cargo test --release --all --target ${{ matrix.target }} --verbose
+    # Run all tests except make_integration since it's slow
+    - name: Run regular integration tests
+      run: cargo test --release --all --target ${{ matrix.target }} --verbose -- --skip make_integration_end_to_end
 
     - name: Upload binary artifact
       uses: actions/upload-artifact@v4
