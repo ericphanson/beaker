@@ -21,11 +21,6 @@ def safe_view(t, *shape):
     return t.view(*shape) if t.is_contiguous() else t.reshape(*shape)
 
 
-torch.Tensor.safe_view = safe_view  # type: ignore[attr-defined]
-# save original implementation
-_orig_bn_forward = nn.BatchNorm2d.forward
-
-
 def _mps_safe_forward(self, input):
     # MPS requires contiguous input, CUDA/CPU ignore the copy flag
     if not input.is_contiguous():
@@ -33,8 +28,12 @@ def _mps_safe_forward(self, input):
     return _orig_bn_forward(self, input)
 
 
-# patch every existing and future BatchNorm2d
-nn.BatchNorm2d.forward = _mps_safe_forward
+if torch.backends.mps.is_available():
+    torch.Tensor.safe_view = safe_view  # type: ignore[attr-defined]
+    # save original implementation
+    _orig_bn_forward = nn.BatchNorm2d.forward
+    # patch every existing and future BatchNorm2d
+    nn.BatchNorm2d.forward = _mps_safe_forward
 
 # NMS prefilter patch will be applied later based on TRAINING_CONFIG
 
