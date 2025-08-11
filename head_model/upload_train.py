@@ -165,7 +165,7 @@ def generate_onnx_model(model_path, output_dir=None):
         print("   🚀 Exporting to ONNX format...")
         export_path = model.export(
             format="onnx",
-            imgsz=640,  # Standard input size
+            imgsz=960,  # may need changing based on training
             dynamic=False,  # Static input shape for better compatibility
             simplify=True,  # Simplify the ONNX model
             opset=11,  # ONNX opset 11 for good compatibility
