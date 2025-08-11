@@ -47,8 +47,5 @@ jobs:
         key: onnx-models-${{ hashFiles('beaker/build.rs') }}
         restore-keys: onnx-models-
 
-    - name: Build Beaker (Release)
-      run: cargo build --release
-
     - name: Run Make integration tests
       run: cargo test --release --test make_integration --verbose -- --nocapture

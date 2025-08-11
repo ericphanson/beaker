@@ -215,6 +215,20 @@ fn beaker_bin_path() -> PathBuf {
 
 #[test]
 fn make_integration_end_to_end() {
+    // Log which binary we are using with how long ago the binary was built
+    let built_time_ago = {
+        let metadata = fs::metadata(beaker_bin_path()).unwrap();
+        let modified = metadata.modified().unwrap();
+        let now = std::time::SystemTime::now();
+        now.duration_since(modified).unwrap()
+    };
+    let built_time_ago_secs = built_time_ago.as_secs_f64();
+    eprintln!(
+        "Using beaker binary: {}, built {:.1}s ago",
+        beaker_bin_path().display(),
+        built_time_ago_secs
+    );
+
     // Run everything as a single test to avoid parallelism races.
     let td = test_dir();
     if !td.exists() {
