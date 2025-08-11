@@ -290,8 +290,11 @@ def main():
         print("✅ MPS (Metal Performance Shaders) is available")
         device = "mps"  # Re-enable MPS for speed
         print("� Using MPS for accelerated training")
+    elif torch.cuda.is_available():
+        print("✅ CUDA is available")
+        device = "cuda"
     else:
-        print("❌ MPS not available, falling back to CPU")
+        print("❌ Falling back to CPU")
         device = "cpu"
 
     # Check if running in debug mode
