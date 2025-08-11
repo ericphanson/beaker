@@ -47,7 +47,6 @@ if torch.backends.cuda.is_built():
 TRAINING_CONFIG = {
     "model": "yolov8n",
     "model_file": "yolov8n.pt",
-    "model_yaml": "yolov8n.yaml",
     "data": "../data/yolo-4-class/dataset.yaml",
     "epochs": 100,
     "imgsz": 960,
@@ -332,7 +331,7 @@ def main():
 
     # Load a pretrained YOLO model
     print(f"📦 Loading {TRAINING_CONFIG['model']} pretrained model...")
-    model = YOLO(TRAINING_CONFIG["model_yaml"]).load(TRAINING_CONFIG["model_file"])
+    model = YOLO(TRAINING_CONFIG["model_file"])
 
     # Ensure model is on the intended device (important for MPS)
     try:
