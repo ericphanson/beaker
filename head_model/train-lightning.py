@@ -28,6 +28,7 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision.transforms.functional import to_tensor
 from torchvision.ops import nms, box_convert
 from torchmetrics.detection import MeanAveragePrecision
+from lightning.pytorch.utilities import rank_zero_only
 
 # Suppress some warnings
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -601,16 +602,8 @@ class YOLOLoss(nn.Module):
         loss_cls = torch.zeros(1, device=device)
         loss_obj = torch.zeros(1, device=device)
 
-        # Per-class losses for logging
-        per_class_losses = {
-            name: torch.zeros(1, device=device) for name in self.class_names
-        }
-
         # Grid sizes for each scale
-        grid_sizes = []
-        for pred in predictions:
-            _, _, h, w = pred.shape
-            grid_sizes.append((h, w))
+        grid_sizes = [(pred.shape[2], pred.shape[3]) for pred in predictions]
 
         # Build targets once for all scales
         targets_all_scales = self._build_all_targets(targets, grid_sizes, device)
@@ -661,19 +654,6 @@ class YOLOLoss(nn.Module):
                     cls_loss = self._focal_loss(ps_cls, t)
                     loss_cls += cls_loss * self.cls_gain
 
-                    # Per-class losses for logging
-                    for class_idx, class_name in enumerate(self.class_names):
-                        class_mask = (
-                            (tcls == class_idx)
-                            if len(tcls) > 0
-                            else torch.zeros(0, dtype=torch.bool, device=device)
-                        )
-                        if class_mask.any():
-                            class_loss = self._focal_loss(
-                                ps_cls[class_mask], t[class_mask]
-                            )
-                            per_class_losses[class_name] += class_loss * self.cls_gain
-
                 # Box regression loss (IoU loss)
                 if len(tbox) > 0:
                     # Convert predictions to absolute coordinates
@@ -689,18 +669,12 @@ class YOLOLoss(nn.Module):
         # Total loss
         loss_total = loss_box + loss_cls + loss_obj
 
-        result = {
+        return {
             "loss": loss_total,
             "loss_box": loss_box,
             "loss_cls": loss_cls,
             "loss_obj": loss_obj,
         }
-
-        # Add per-class losses
-        for class_name, class_loss in per_class_losses.items():
-            result[f"loss_cls_{class_name}"] = class_loss
-
-        return result
 
     def _build_all_targets(
         self,
@@ -889,6 +863,9 @@ class YOLOLightningModule(L.LightningModule):
         if self.freeze_epochs > 0:
             self._freeze_backbone()
 
+        # Automatic optimization
+        self.automatic_optimization = True
+
     def _load_pretrained_weights(self):
         """Load pretrained weights (simplified - in practice you'd load actual pretrained YOLO weights)."""
         # This is a placeholder - you'd implement actual weight loading here
@@ -915,49 +892,25 @@ class YOLOLightningModule(L.LightningModule):
 
         for batch_idx in range(batch_size):
             # Collect all detections for this image
-            all_boxes = []
-            all_scores = []
-            all_labels = []
+            all_detections = []
 
             # Process each scale
-            for scale_idx, pred in enumerate(predictions):
+            for pred in predictions:
                 # pred shape: [batch, 3, h, w, num_classes + 5]
-                b, num_anchors, h, w, _ = pred.shape
                 pred_batch = pred[batch_idx]  # [3, h, w, num_classes + 5]
 
-                # Reshape for processing
-                pred_batch = pred_batch.view(-1, self.config["num_classes"] + 5)
+                # Reshape and extract
+                detections = pred_batch.view(-1, self.config["num_classes"] + 5)
 
-                # Extract components
-                box_pred = pred_batch[:, :4]  # x, y, w, h (center format)
-                obj_pred = pred_batch[:, 4]  # objectness
-                cls_pred = pred_batch[:, 5:]  # class predictions
+                # Apply confidence threshold
+                obj_scores = detections[:, 4]
+                conf_mask = obj_scores > self.config["conf_threshold"]
 
-                # Apply objectness threshold
-                obj_mask = obj_pred > self.config["conf_threshold"]
-                if not obj_mask.any():
-                    continue
+                if conf_mask.any():
+                    filtered_dets = detections[conf_mask]
+                    all_detections.append(filtered_dets)
 
-                # Filter predictions
-                boxes = box_pred[obj_mask]
-                obj_scores = obj_pred[obj_mask]
-                cls_scores = cls_pred[obj_mask]
-
-                # Get class predictions
-                class_scores, class_labels = torch.max(cls_scores, dim=1)
-                final_scores = obj_scores * class_scores
-
-                # Convert boxes from center format to corner format for NMS
-                # boxes are in normalized coordinates [0, 1]
-                img_size = img_sizes[batch_idx][0].item()  # Assume square images
-                boxes_corner = box_convert(boxes, "cxcywh", "xyxy")
-                boxes_corner *= img_size  # Scale to image size
-
-                all_boxes.append(boxes_corner)
-                all_scores.append(final_scores)
-                all_labels.append(class_labels)
-
-            if not all_boxes:
+            if not all_detections:
                 # No detections
                 processed_predictions.append(
                     {
@@ -971,34 +924,35 @@ class YOLOLightningModule(L.LightningModule):
                 continue
 
             # Concatenate all detections
-            all_boxes = torch.cat(all_boxes, dim=0)
-            all_scores = torch.cat(all_scores, dim=0)
-            all_labels = torch.cat(all_labels, dim=0)
+            all_dets = torch.cat(all_detections, dim=0)
+
+            # Extract components
+            boxes = all_dets[:, :4]  # x, y, w, h (center format)
+            obj_scores = all_dets[:, 4]
+            cls_scores = all_dets[:, 5:]
+
+            # Get best class per detection
+            class_scores, class_labels = torch.max(cls_scores, dim=1)
+            final_scores = obj_scores * class_scores
+
+            # Convert to corner format for NMS
+            img_size = img_sizes[batch_idx][0].item()
+            boxes_corner = box_convert(boxes, "cxcywh", "xyxy") * img_size
 
             # Apply NMS
-            keep_indices = nms(all_boxes, all_scores, self.config["iou_threshold"])
+            keep_indices = nms(boxes_corner, final_scores, self.config["iou_threshold"])
 
-            # Limit detections
-            max_det = self.config["max_det"]
-            if len(keep_indices) > max_det:
-                # Keep top scoring detections
-                keep_indices = keep_indices[:max_det]
-
-            # Final predictions for this image
-            final_boxes = all_boxes[keep_indices]
-            final_scores = all_scores[keep_indices]
-            final_labels = all_labels[keep_indices]
-
-            # Convert back to normalized coordinates for mAP calculation
-            final_boxes /= img_size
-            # Convert back to center format for mAP
-            final_boxes = box_convert(final_boxes, "xyxy", "cxcywh")
+            # Limit detections and convert back
+            keep_indices = keep_indices[: self.config["max_det"]]
+            final_boxes = box_convert(
+                boxes_corner[keep_indices] / img_size, "xyxy", "cxcywh"
+            )
 
             processed_predictions.append(
                 {
                     "boxes": final_boxes,
-                    "scores": final_scores,
-                    "labels": final_labels,
+                    "scores": final_scores[keep_indices],
+                    "labels": class_labels[keep_indices],
                 }
             )
 
@@ -1052,136 +1006,105 @@ class YOLOLightningModule(L.LightningModule):
 
     def training_step(self, batch: Dict, batch_idx: int) -> torch.Tensor:
         """Training step."""
-        images = batch["images"]
-        targets = batch["targets"]
+        predictions = self(batch["images"])
+        loss_dict = self.criterion(predictions, batch["targets"])
 
-        # Forward pass
-        predictions = self(images)
-
-        # Compute loss
-        loss_dict = self.criterion(predictions, targets)
-
-        # Log losses
-        self.log(
-            "train/loss", loss_dict["loss"], on_step=True, on_epoch=True, prog_bar=True
+        # Log all losses at once
+        self.log_dict(
+            {f"train/{k}": v for k, v in loss_dict.items()},
+            on_step=True,
+            on_epoch=True,
+            prog_bar=True,
+            sync_dist=True,
         )
-        self.log("train/loss_box", loss_dict["loss_box"], on_step=True, on_epoch=True)
-        self.log("train/loss_cls", loss_dict["loss_cls"], on_step=True, on_epoch=True)
-        self.log("train/loss_obj", loss_dict["loss_obj"], on_step=True, on_epoch=True)
-
-        # Log per-class losses
-        for class_name in self.config["class_names"]:
-            loss_key = f"loss_cls_{class_name}"
-            if loss_key in loss_dict:
-                self.log(
-                    f"train/{loss_key}",
-                    loss_dict[loss_key],
-                    on_step=True,
-                    on_epoch=True,
-                )
 
         return loss_dict["loss"]
 
     def validation_step(self, batch: Dict, batch_idx: int) -> torch.Tensor:
         """Validation step."""
-        images = batch["images"]
-        targets = batch["targets"]
-        img_sizes = batch["img_sizes"]
-
-        # Forward pass
-        predictions = self(images)
+        predictions = self(batch["images"])
 
         # Reshape predictions for post-processing
-        # predictions are List[Tensor] with shape [batch, (nc+5)*3, h, w]
-        # We need to reshape to [batch, 3, h, w, nc+5]
-        reshaped_preds = []
-        for pred in predictions:
-            b, c, h, w = pred.shape
-            pred_reshaped = (
-                pred.view(b, 3, self.config["num_classes"] + 5, h, w)
-                .permute(0, 1, 3, 4, 2)
-                .contiguous()
-            )
-            reshaped_preds.append(pred_reshaped)
+        reshaped_preds = [
+            pred.view(pred.shape[0], 3, self.config["num_classes"] + 5, *pred.shape[2:])
+            .permute(0, 1, 3, 4, 2)
+            .contiguous()
+            for pred in predictions
+        ]
 
         # Compute loss
-        loss_dict = self.criterion(predictions, targets)
+        loss_dict = self.criterion(predictions, batch["targets"])
 
         # Log losses
-        self.log("val/loss", loss_dict["loss"], on_epoch=True, prog_bar=True)
-        self.log("val/loss_box", loss_dict["loss_box"], on_epoch=True)
-        self.log("val/loss_cls", loss_dict["loss_cls"], on_epoch=True)
-        self.log("val/loss_obj", loss_dict["loss_obj"], on_epoch=True)
-
-        # Log per-class losses
-        for class_name in self.config["class_names"]:
-            loss_key = f"loss_cls_{class_name}"
-            if loss_key in loss_dict:
-                self.log(f"val/{loss_key}", loss_dict[loss_key], on_epoch=True)
-
-        # Post-process predictions for mAP calculation
-        processed_preds = self._postprocess_predictions(reshaped_preds, img_sizes)
-        target_list = self._prepare_targets_for_map(targets, images.shape[0])
+        self.log_dict(
+            {f"val/{k}": v for k, v in loss_dict.items()},
+            on_epoch=True,
+            prog_bar=True,
+            sync_dist=True,
+        )
 
         # Update mAP metric
+        processed_preds = self._postprocess_predictions(
+            reshaped_preds, batch["img_sizes"]
+        )
+        target_list = self._prepare_targets_for_map(
+            batch["targets"], batch["images"].shape[0]
+        )
         self.val_map.update(processed_preds, target_list)
 
         return loss_dict["loss"]
 
     def on_validation_epoch_end(self):
         """Compute validation metrics."""
-        # Compute mAP
         map_dict = self.val_map.compute()
 
-        # Log overall mAP metrics
-        self.log("val/mAP50", map_dict["map_50"], on_epoch=True, prog_bar=True)
-        self.log("val/mAP50-95", map_dict["map"], on_epoch=True, prog_bar=True)
+        # Log mAP metrics with automatic handling
+        metrics_to_log = {
+            "val/mAP50": map_dict["map_50"],
+            "val/mAP50-95": map_dict["map"],
+        }
 
-        # Log per-class mAP if available
+        # Add per-class mAP if available
         if "map_per_class" in map_dict and len(self.config["class_names"]) > 1:
             for i, class_name in enumerate(self.config["class_names"]):
                 if i < len(map_dict["map_per_class"]):
-                    self.log(
-                        f"val/mAP50_{class_name}",
-                        map_dict["map_per_class"][i],
-                        on_epoch=True,
-                    )
+                    metrics_to_log[f"val/mAP50_{class_name}"] = map_dict[
+                        "map_per_class"
+                    ][i]
 
-        # Reset metric for next epoch
+        self.log_dict(metrics_to_log, prog_bar=True, sync_dist=True)
         self.val_map.reset()
 
     def configure_optimizers(self):
         """Configure optimizer and scheduler."""
-        # Optimizer
         optimizer = torch.optim.AdamW(
             self.parameters(),
             lr=self.config["learning_rate"],
             weight_decay=self.config["weight_decay"],
         )
 
-        # Scheduler
-        if self.config["lr_scheduler"] == "cosine":
-            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        # Simplified scheduler configuration
+        scheduler_config = {
+            "cosine": lambda: torch.optim.lr_scheduler.CosineAnnealingLR(
                 optimizer, T_max=self.config["epochs"]
-            )
-        elif self.config["lr_scheduler"] == "onecycle":
-            scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            ),
+            "onecycle": lambda: torch.optim.lr_scheduler.OneCycleLR(
                 optimizer,
                 max_lr=self.config["learning_rate"],
                 total_steps=int(self.trainer.estimated_stepping_batches),
-            )
-        else:
-            scheduler = torch.optim.lr_scheduler.StepLR(
+            ),
+            "step": lambda: torch.optim.lr_scheduler.StepLR(
                 optimizer, step_size=30, gamma=0.1
-            )
+            ),
+        }
+
+        scheduler = scheduler_config.get(
+            self.config["lr_scheduler"], scheduler_config["step"]
+        )()
 
         return {
             "optimizer": optimizer,
-            "lr_scheduler": {
-                "scheduler": scheduler,
-                "interval": "epoch",
-                "frequency": 1,
-            },
+            "lr_scheduler": {"scheduler": scheduler, "interval": "epoch"},
         }
 
 
@@ -1237,7 +1160,8 @@ class YOLODataModule(L.LightningDataModule):
             shuffle=True,
             num_workers=self.config["num_workers"],
             pin_memory=self.config["pin_memory"],
-            persistent_workers=self.config["persistent_workers"],
+            persistent_workers=self.config["persistent_workers"]
+            and self.config["num_workers"] > 0,
             collate_fn=collate_fn,
         )
 
@@ -1249,7 +1173,8 @@ class YOLODataModule(L.LightningDataModule):
             shuffle=False,
             num_workers=self.config["num_workers"],
             pin_memory=self.config["pin_memory"],
-            persistent_workers=self.config["persistent_workers"],
+            persistent_workers=self.config["persistent_workers"]
+            and self.config["num_workers"] > 0,
             collate_fn=collate_fn,
         )
 
@@ -1317,6 +1242,7 @@ def create_debug_dataset(config: Dict) -> str:
     return str(yaml_path)
 
 
+@rank_zero_only
 def setup_comet_logger(config: Dict) -> Optional[CometLogger]:
     """Setup Comet ML logger."""
     api_key = os.getenv("COMET_API_KEY")
