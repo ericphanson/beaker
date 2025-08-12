@@ -274,7 +274,7 @@ def collect_run_assets(model_path):
         assets.append(onnx_path)
 
         # Generate int8 ONNX model if applicable
-        onnx_path_int8 = generate_onnx_model(model_path, use_int8=True)
+        onnx_path_int8 = generate_onnx_model(model_path, None, use_int8=True)
         assets.append(onnx_path_int8)
 
         return assets
