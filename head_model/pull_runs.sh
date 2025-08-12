@@ -1,11 +1,16 @@
 #!/bin/bash
 #
-# Pull runs directory from remote system back to laptop
+# Pull a subdirectory from remote system back to laptop
 #
 # Usage:
-#   ./pull_runs.sh           # Perform actual transfer
-#   ./pull_runs.sh --dry-run # Show what would be transferred (no actual copy)
-#   ./pull_runs.sh -n        # Same as --dry-run
+#   ./pull_runs.sh [subdir] [--dry-run]
+#   ./pull_runs.sh [subdir] [-n]
+#
+# Examples:
+#   ./pull_runs.sh                    # Pull runs directory (default)
+#   ./pull_runs.sh data               # Pull data subdirectory
+#   ./pull_runs.sh runs --dry-run     # Dry run for runs directory
+#   ./pull_runs.sh data -n            # Dry run for data directory
 #
 
 REMOTE="pc"
@@ -14,49 +19,73 @@ LOCAL_DIR="/Users/eph/beaker"
 
 set -e  # Exit on any error
 
-# Check for dry-run flag
+# Parse arguments
+SUBDIR="runs"  # Default subdirectory
 DRY_RUN=""
-if [[ "$1" == "--dry-run" || "$1" == "-n" ]]; then
-    DRY_RUN="--dry-run"
+
+# Handle arguments - order matters: subdir first, then flags
+for arg in "$@"; do
+    case "$arg" in
+        --dry-run|-n)
+            DRY_RUN="--dry-run"
+            ;;
+        -*)
+            echo "❌ Error: Unknown flag '$arg'"
+            echo ""
+            echo "Usage:"
+            echo "  $0 [subdir] [--dry-run|-n]"
+            echo ""
+            echo "Examples:"
+            echo "  $0                    # Pull runs directory (default)"
+            echo "  $0 data               # Pull data subdirectory"
+            echo "  $0 runs --dry-run     # Dry run for runs directory"
+            echo "  $0 data -n            # Dry run for data directory"
+            exit 1
+            ;;
+        *)
+            # If it's not a flag, treat it as the subdirectory
+            if [[ "$SUBDIR" == "runs" ]]; then
+                SUBDIR="$arg"
+            else
+                echo "❌ Error: Multiple subdirectories specified"
+                exit 1
+            fi
+            ;;
+    esac
+done
+
+if [[ -n "$DRY_RUN" ]]; then
     echo "🔍 DRY RUN MODE - No files will be transferred"
     echo ""
-elif [[ -n "$1" ]]; then
-    echo "❌ Error: Unknown argument '$1'"
-    echo ""
-    echo "Usage:"
-    echo "  $0           # Perform actual transfer"
-    echo "  $0 --dry-run # Show what would be transferred (no actual copy)"
-    echo "  $0 -n        # Same as --dry-run"
-    exit 1
 fi
 
-echo "⬇️  Starting runs pull from remote system..."
+echo "⬇️  Starting $SUBDIR pull from remote system..."
 
 # Check if local directory exists, create if not
 if [[ -z "$DRY_RUN" ]]; then
     echo "📁 Ensuring local directory structure exists..."
-    mkdir -p "$LOCAL_DIR/head_model/runs"
+    mkdir -p "$LOCAL_DIR/head_model/$SUBDIR"
 else
     echo "📁 [DRY RUN] Would ensure local directory structure exists..."
 fi
 
-# Pull runs directory from remote
-echo "🏃 Pulling runs directory..."
-echo "   Source: $REMOTE:$REMOTE_DIR/head_model/runs"
-echo "   Destination: $LOCAL_DIR/head_model/runs"
+# Pull subdirectory from remote
+echo "🏃 Pulling $SUBDIR directory..."
+echo "   Source: $REMOTE:$REMOTE_DIR/head_model/$SUBDIR"
+echo "   Destination: $LOCAL_DIR/head_model/$SUBDIR"
 rsync -avz --progress $DRY_RUN \
     --exclude='*.pyc' \
     --exclude='__pycache__' \
     --exclude='.DS_Store' \
-    $REMOTE:$REMOTE_DIR/head_model/runs/ $LOCAL_DIR/head_model/runs/
+    "$REMOTE:$REMOTE_DIR/head_model/$SUBDIR/" "$LOCAL_DIR/head_model/$SUBDIR/"
 
 # Verify the transfer
 if [[ -z "$DRY_RUN" ]]; then
     echo "✅ Verifying transfer..."
-    echo "Local runs directory contents:"
-    ls -la "$LOCAL_DIR/head_model/runs/" | head -10
+    echo "Local $SUBDIR directory contents:"
+    find "$LOCAL_DIR/head_model/$SUBDIR/" -maxdepth 1 -type f -o -type d | head -10
 
-    echo "🎉 Runs pull completed successfully!"
+    echo "🎉 $SUBDIR pull completed successfully!"
 else
     echo ""
     echo "🔍 DRY RUN COMPLETED - No files were actually transferred"
