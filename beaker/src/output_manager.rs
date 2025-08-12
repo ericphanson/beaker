@@ -14,19 +14,34 @@ use std::path::{Path, PathBuf};
 
 use crate::model_processing::ModelConfig;
 use crate::shared_metadata::{
-    get_metadata_path, load_or_create_metadata, save_metadata, CutoutSections, HeadSections,
+    get_metadata_path, load_or_create_metadata, save_metadata, CutoutSections, DetectSections,
 };
 
 /// Unified output path management for all models
 pub struct OutputManager<'a> {
     config: &'a dyn ModelConfig,
     input_path: &'a Path,
+    produced_outputs: std::cell::RefCell<Vec<PathBuf>>,
 }
 
 impl<'a> OutputManager<'a> {
     /// Create a new OutputManager for the given config and input path
     pub fn new(config: &'a dyn ModelConfig, input_path: &'a Path) -> Self {
-        Self { config, input_path }
+        Self {
+            config,
+            input_path,
+            produced_outputs: std::cell::RefCell::new(Vec::new()),
+        }
+    }
+
+    /// Track that an output file was produced
+    pub fn track_output(&self, path: PathBuf) {
+        self.produced_outputs.borrow_mut().push(path);
+    }
+
+    /// Get all outputs that have been tracked as produced
+    pub fn get_produced_outputs(&self) -> Vec<PathBuf> {
+        self.produced_outputs.borrow().clone()
     }
 
     /// Get the input file stem (filename without extension)
@@ -37,9 +52,9 @@ impl<'a> OutputManager<'a> {
             .unwrap_or("output")
     }
 
-    /// Generate primary output path without suffix when using output_dir
+    /// Generate primary output path with suffix (always includes suffix)
     ///
-    /// This is for main outputs that should be clean when placed in a dedicated output directory
+    /// This ensures consistent naming regardless of output directory usage
     pub fn generate_main_output_path(
         &self,
         default_suffix: &str,
@@ -47,13 +62,8 @@ impl<'a> OutputManager<'a> {
     ) -> Result<PathBuf> {
         let input_stem = self.input_stem();
 
-        let output_filename = if self.config.base().output_dir.is_some() {
-            // Clean filename when using output directory
-            format!("{input_stem}.{extension}")
-        } else {
-            // Add suffix when placing next to input
-            format!("{input_stem}_{default_suffix}.{extension}")
-        };
+        // Always add suffix for consistency
+        let output_filename = format!("{input_stem}_{default_suffix}.{extension}");
 
         let output_path = if let Some(output_dir) = &self.config.base().output_dir {
             let output_dir = Path::new(output_dir);
@@ -72,7 +82,7 @@ impl<'a> OutputManager<'a> {
     /// Generate numbered output path for multiple similar outputs
     ///
     /// Examples:
-    /// - Single item: "image_crop.jpg" or "image.jpg" (with output_dir)
+    /// - Single item: "image_crop.jpg" (always with suffix)
     /// - Multiple items < 10: "image_crop-1.jpg", "image_crop-2.jpg"
     /// - Multiple items >= 10: "image_crop-01.jpg", "image_crop-02.jpg"
     pub fn generate_numbered_output(
@@ -85,25 +95,17 @@ impl<'a> OutputManager<'a> {
         let input_stem = self.input_stem();
 
         let output_filename = if total == 1 {
-            // Single output - use main output behavior
-            if self.config.base().output_dir.is_some() {
-                format!("{input_stem}.{extension}")
-            } else {
-                format!("{input_stem}_{base_suffix}.{extension}")
-            }
+            // Single output - always use suffix for consistency
+            format!("{input_stem}_{base_suffix}.{extension}")
         } else {
-            // Multiple outputs - always numbered
+            // Multiple outputs - always numbered with suffix
             let number_format = if total >= 10 {
                 format!("{index:02}") // Zero-padded for 10+
             } else {
                 format!("{index}") // No padding for < 10
             };
 
-            if self.config.base().output_dir.is_some() {
-                format!("{input_stem}-{number_format}.{extension}")
-            } else {
-                format!("{input_stem}_{base_suffix}-{number_format}.{extension}")
-            }
+            format!("{input_stem}_{base_suffix}-{number_format}.{extension}")
         };
 
         let output_path = if let Some(output_dir) = &self.config.base().output_dir {
@@ -139,6 +141,50 @@ impl<'a> OutputManager<'a> {
         Ok(output_path)
     }
 
+    /// Generate main output path with optional tracking (default: track=true)
+    pub fn generate_main_output_path_with_tracking(
+        &self,
+        default_suffix: &str,
+        extension: &str,
+        track: bool,
+    ) -> Result<PathBuf> {
+        let path = self.generate_main_output_path(default_suffix, extension)?;
+        if track {
+            self.track_output(path.clone());
+        }
+        Ok(path)
+    }
+
+    /// Generate numbered output path with optional tracking (default: track=true)
+    pub fn generate_numbered_output_with_tracking(
+        &self,
+        base_suffix: &str,
+        index: usize,
+        total: usize,
+        extension: &str,
+        track: bool,
+    ) -> Result<PathBuf> {
+        let path = self.generate_numbered_output(base_suffix, index, total, extension)?;
+        if track {
+            self.track_output(path.clone());
+        }
+        Ok(path)
+    }
+
+    /// Generate auxiliary output path with optional tracking (default: track=true)
+    pub fn generate_auxiliary_output_with_tracking(
+        &self,
+        suffix: &str,
+        extension: &str,
+        track: bool,
+    ) -> Result<PathBuf> {
+        let path = self.generate_auxiliary_output(suffix, extension)?;
+        if track {
+            self.track_output(path.clone());
+        }
+        Ok(path)
+    }
+
     /// Make a file path relative to the metadata file location
     pub fn make_relative_to_metadata(&self, path: &Path) -> Result<String> {
         if self.config.base().skip_metadata {
@@ -154,7 +200,7 @@ impl<'a> OutputManager<'a> {
     /// Save complete metadata sections (core + enhanced sections)
     pub fn save_complete_metadata(
         &self,
-        head_sections: Option<HeadSections>,
+        detect_sections: Option<DetectSections>,
         cutout_sections: Option<CutoutSections>,
     ) -> Result<()> {
         if self.config.base().skip_metadata {
@@ -167,14 +213,17 @@ impl<'a> OutputManager<'a> {
         let mut metadata = load_or_create_metadata(&metadata_path)?;
 
         // Update the sections that were provided
-        if let Some(head) = head_sections {
-            metadata.head = Some(head);
+        if let Some(detect) = detect_sections {
+            metadata.detect = Some(detect);
         }
         if let Some(cutout) = cutout_sections {
             metadata.cutout = Some(cutout);
         }
 
         save_metadata(&metadata, &metadata_path)?;
+
+        // Note: Do not track metadata file as output.
+        // Per invariant: shared TOML should never be a prerequisite of earlier targets.
 
         debug!("📋 Saved complete metadata to: {}", metadata_path.display());
 
@@ -200,22 +249,28 @@ pub fn make_path_relative_to_toml(file_path: &Path, toml_path: &Path) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{BaseModelConfig, HeadDetectionConfig};
+    use crate::config::{BaseModelConfig, DetectionConfig};
+    use std::collections::HashSet;
     use tempfile::TempDir;
 
-    fn create_test_config(output_dir: Option<String>) -> HeadDetectionConfig {
-        HeadDetectionConfig {
+    fn create_test_config(output_dir: Option<String>) -> DetectionConfig {
+        DetectionConfig {
             base: BaseModelConfig {
                 sources: vec!["test.jpg".to_string()],
                 device: "cpu".to_string(),
-                output_dir,
+                output_dir: output_dir.clone(),
+                depfile: None,
                 skip_metadata: false,
                 strict: true,
             },
             confidence: 0.25,
             iou_threshold: 0.45,
-            crop: true,
+            crop_classes: HashSet::new(), // Empty for this test
             bounding_box: false,
+            model_path: None,
+            model_url: None,
+            model_checksum: None,
+            output_dir, // Add the stamped output_dir field
         }
     }
 
@@ -241,7 +296,8 @@ mod tests {
         let manager = OutputManager::new(&config, &input_path);
         let output_path = manager.generate_main_output_path("cutout", "png").unwrap();
 
-        assert_eq!(output_path, output_dir.join("test.png"));
+        // Should now always include suffix, even with output_dir
+        assert_eq!(output_path, output_dir.join("test_cutout.png"));
     }
 
     #[test]
@@ -269,6 +325,22 @@ mod tests {
             .unwrap();
 
         assert_eq!(output_path, temp_dir.path().join("test_crop.jpg"));
+    }
+
+    #[test]
+    fn test_numbered_output_single_item_with_output_dir() {
+        let temp_dir = TempDir::new().unwrap();
+        let output_dir = temp_dir.path().join("output");
+        let input_path = temp_dir.path().join("test.jpg");
+        let config = create_test_config(Some(output_dir.to_string_lossy().to_string()));
+
+        let manager = OutputManager::new(&config, &input_path);
+        let output_path = manager
+            .generate_numbered_output("crop", 1, 1, "jpg")
+            .unwrap();
+
+        // Should now always include suffix, even with output_dir and single item
+        assert_eq!(output_path, output_dir.join("test_crop.jpg"));
     }
 
     #[test]
@@ -311,7 +383,8 @@ mod tests {
             .generate_numbered_output("crop", 3, 12, "jpg")
             .unwrap();
 
-        assert_eq!(output_path, output_dir.join("test-03.jpg"));
+        // Should now always include suffix, even with output_dir
+        assert_eq!(output_path, output_dir.join("test_crop-03.jpg"));
     }
 
     #[test]

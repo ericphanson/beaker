@@ -1,7 +1,7 @@
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
+use std::{env, fs};
 use tempfile::TempDir;
 use toml::Value;
 
@@ -12,14 +12,16 @@ use beaker::shared_metadata::BeakerMetadata;
 #[derive(Debug)]
 pub struct TestScenario {
     pub name: &'static str,
-    pub tool: &'static str, // "head", "cutout", or "both"
+    pub tool: &'static str, // "detect", "cutout", or "both"
     pub args: Vec<&'static str>,
     pub expected_files: Vec<&'static str>,
     pub metadata_checks: Vec<MetadataCheck>,
+    pub env_vars: Vec<(&'static str, &'static str)>, // Environment variables to set
 }
 
 /// Metadata validation checks
 #[derive(Debug)]
+#[allow(dead_code)] // All variants are used in integration tests, but clippy doesn't detect this with --all-targets
 pub enum MetadataCheck {
     /// Verify device was used for a specific tool
     DeviceUsed(&'static str, &'static str), // tool, device
@@ -37,6 +39,30 @@ pub enum MetadataCheck {
     BeakerVersion(&'static str), // tool
     /// Verify core results field exists
     CoreResultsField(&'static str, &'static str), // tool, field_name
+    /// Verify file I/O timing is present and valid
+    IoTimingExists(&'static str), // tool
+    /// Verify environment variable is present
+    EnvVarPresent(&'static str, &'static str), // tool, env_var_name
+    /// Verify environment variable has specific value
+    EnvVarValue(&'static str, &'static str, &'static str), // tool, env_var_name, expected_value
+    /// Verify mask encoding is present (cutout only)
+    MaskEncodingPresent,
+    /// Verify ASCII preview is present and contains expected characters
+    AsciiPreviewValid,
+
+    // Cache Statistics Checks
+    /// Verify ONNX cache statistics are present (count and size)
+    OnnxCacheStatsPresent(&'static str), // tool
+    /// Verify ONNX cache statistics are absent (for models that don't access cache)
+    OnnxCacheStatsAbsent(&'static str), // tool
+    /// Verify download cache hit/miss field is present
+    DownloadCacheHitPresent(&'static str), // tool
+    /// Verify download cache hit/miss field is absent (for embedded models)
+    DownloadCacheHitAbsent(&'static str), // tool
+    /// Verify download timing is absent (for embedded/cached models)
+    DownloadTimingAbsent(&'static str), // tool
+    /// Verify CoreML cache statistics are absent (when CoreML device is not used)
+    CoremlCacheStatsAbsent(&'static str), // tool
 }
 
 /// Copy test files to temp directory and return their paths
@@ -67,31 +93,17 @@ pub fn setup_test_files(temp_dir: &TempDir) -> (PathBuf, PathBuf) {
 
 /// Run a beaker command and return exit code
 pub fn run_beaker_command(args: &[&str]) -> i32 {
-    use std::sync::Once;
+    run_beaker_command_with_env(args, &[])
+}
 
-    static BUILD_ONCE: Once = Once::new();
-
-    // Build the binary once at the start of testing
-    BUILD_ONCE.call_once(|| {
-        let build_output = Command::new("cargo")
-            .args(["build"])
-            .current_dir(env!("CARGO_MANIFEST_DIR"))
-            .output()
-            .expect("Failed to build beaker");
-
-        if !build_output.status.success() {
-            panic!(
-                "Failed to build beaker: {}",
-                String::from_utf8_lossy(&build_output.stderr)
-            );
-        }
-    });
-
+/// Run a beaker command with environment variables and return exit code
+pub fn run_beaker_command_with_env(args: &[&str], env_vars: &[(&str, &str)]) -> i32 {
     // Run the built binary directly
-    let beaker_binary = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/debug/beaker");
+    let beaker_binary = env!("CARGO_BIN_EXE_beaker");
 
-    let output = Command::new(&beaker_binary)
+    let output = Command::new(beaker_binary)
         .args(args)
+        .envs(env_vars.iter().map(|(k, v)| (*k, *v)))
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .output()
         .expect("Failed to execute beaker command");
@@ -148,7 +160,7 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
     match check {
         MetadataCheck::DeviceUsed(tool, expected_device) => {
             let system = match *tool {
-                "head" => metadata.head.as_ref().and_then(|h| h.system.as_ref()),
+                "detect" => metadata.detect.as_ref().and_then(|d| d.system.as_ref()),
                 "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
                 _ => panic!("Unknown tool: {tool}"),
             };
@@ -168,7 +180,7 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
 
         MetadataCheck::ConfigValue(tool, field_path, expected_value) => {
             let config = match *tool {
-                "head" => metadata.head.as_ref().and_then(|h| h.config.as_ref()),
+                "detect" => metadata.detect.as_ref().and_then(|d| d.config.as_ref()),
                 "cutout" => metadata.cutout.as_ref().and_then(|c| c.config.as_ref()),
                 _ => panic!("Unknown tool: {tool}"),
             };
@@ -181,7 +193,7 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
             // Handle special case for device which is stored in system section
             if *field_path == "device" {
                 let system = match *tool {
-                    "head" => metadata.head.as_ref().and_then(|h| h.system.as_ref()),
+                    "detect" => metadata.detect.as_ref().and_then(|d| d.system.as_ref()),
                     "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
                     _ => panic!("Unknown tool: {tool}"),
                 };
@@ -229,16 +241,16 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
 
         MetadataCheck::TimingBound(tool, field, min_ms, max_ms) => {
             let timing_value = match *tool {
-                "head" => {
-                    let head_sections = metadata.head.as_ref().unwrap_or_else(|| {
-                        panic!("Head sections should exist for test {test_name}")
+                "detect" => {
+                    let detect_sections = metadata.detect.as_ref().unwrap_or_else(|| {
+                        panic!("Detect sections should exist for test {test_name}")
                     });
                     match *field {
-                        "execution.model_processing_time_ms" => head_sections
+                        "execution.model_processing_time_ms" => detect_sections
                             .execution
                             .as_ref()
                             .and_then(|e| e.model_processing_time_ms),
-                        "system.model_load_time_ms" => head_sections
+                        "system.model_load_time_ms" => detect_sections
                             .system
                             .as_ref()
                             .and_then(|s| s.model_load_time_ms),
@@ -280,7 +292,7 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
 
         MetadataCheck::ExecutionProvider(tool, expected_provider) => {
             let system = match *tool {
-                "head" => metadata.head.as_ref().and_then(|h| h.system.as_ref()),
+                "detect" => metadata.detect.as_ref().and_then(|d| d.system.as_ref()),
                 "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
                 _ => panic!("Unknown tool: {tool}"),
             };
@@ -302,7 +314,7 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
 
         MetadataCheck::ExitCode(tool, expected_code) => {
             let execution = match *tool {
-                "head" => metadata.head.as_ref().and_then(|h| h.execution.as_ref()),
+                "detect" => metadata.detect.as_ref().and_then(|d| d.execution.as_ref()),
                 "cutout" => metadata.cutout.as_ref().and_then(|c| c.execution.as_ref()),
                 _ => panic!("Unknown tool: {tool}"),
             };
@@ -320,7 +332,7 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
 
         MetadataCheck::BeakerVersion(tool) => {
             let execution = match *tool {
-                "head" => metadata.head.as_ref().and_then(|h| h.execution.as_ref()),
+                "detect" => metadata.detect.as_ref().and_then(|d| d.execution.as_ref()),
                 "cutout" => metadata.cutout.as_ref().and_then(|c| c.execution.as_ref()),
                 _ => panic!("Unknown tool: {tool}"),
             };
@@ -360,6 +372,283 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
                 "Core field {field_name} should exist for {tool} in test {test_name}"
             );
         }
+
+        MetadataCheck::IoTimingExists(tool) => {
+            let execution = match *tool {
+                "detect" => metadata.detect.as_ref().and_then(|d| d.execution.as_ref()),
+                "cutout" => metadata.cutout.as_ref().and_then(|c| c.execution.as_ref()),
+                _ => panic!("Unknown tool: {tool}"),
+            };
+
+            assert!(
+                execution.is_some(),
+                "Execution context should exist for {tool} in test {test_name}"
+            );
+
+            let io_timing = execution.unwrap().file_io.as_ref();
+            assert!(
+                io_timing.is_some(),
+                "File I/O timing should exist for {tool} in test {test_name}"
+            );
+
+            let timing = io_timing.unwrap();
+            // At least one timing field should be present and non-zero (we do read and write operations)
+            let has_read_timing = timing.read_time_ms.is_some_and(|t| t > 0.0);
+            let has_write_timing = timing.write_time_ms.is_some_and(|t| t > 0.0);
+
+            assert!(
+                has_read_timing || has_write_timing,
+                "At least one I/O timing value should be present and positive for {tool} in test {test_name}"
+            );
+        }
+
+        MetadataCheck::EnvVarPresent(tool, env_var_name) => {
+            let execution = match *tool {
+                "detect" => metadata.detect.as_ref().and_then(|d| d.execution.as_ref()),
+                "cutout" => metadata.cutout.as_ref().and_then(|c| c.execution.as_ref()),
+                _ => panic!("Unknown tool: {tool}"),
+            };
+
+            assert!(
+                execution.is_some(),
+                "Execution info should exist for {tool} in test {test_name}"
+            );
+
+            let env_vars = execution.unwrap().beaker_env_vars.as_ref();
+            assert!(
+                env_vars.is_some(),
+                "Environment variables should be present for {tool} in test {test_name}"
+            );
+
+            let env_map = env_vars.unwrap();
+            assert!(
+                env_map.contains_key(*env_var_name),
+                "Environment variable {env_var_name} should be present for {tool} in test {test_name}"
+            );
+        }
+
+        MetadataCheck::EnvVarValue(tool, env_var_name, expected_value) => {
+            let execution = match *tool {
+                "detect" => metadata.detect.as_ref().and_then(|d| d.execution.as_ref()),
+                "cutout" => metadata.cutout.as_ref().and_then(|c| c.execution.as_ref()),
+                _ => panic!("Unknown tool: {tool}"),
+            };
+
+            assert!(
+                execution.is_some(),
+                "Execution info should exist for {tool} in test {test_name}"
+            );
+
+            let env_vars = execution.unwrap().beaker_env_vars.as_ref();
+            assert!(
+                env_vars.is_some(),
+                "Environment variables should be present for {tool} in test {test_name}"
+            );
+
+            let env_map = env_vars.unwrap();
+            let actual_value = env_map.get(*env_var_name).unwrap_or_else(|| {
+                panic!("Environment variable {env_var_name} should be present for {tool} in test {test_name}")
+            });
+
+            assert_eq!(
+                actual_value, expected_value,
+                "Environment variable {env_var_name} should have value {expected_value} for {tool} in test {test_name}, got {actual_value}"
+            );
+        }
+
+        MetadataCheck::MaskEncodingPresent => {
+            assert!(
+                metadata.cutout.is_some(),
+                "Cutout metadata should be present for mask encoding check in test {test_name}"
+            );
+
+            let cutout = metadata.cutout.as_ref().unwrap();
+            assert!(
+                cutout.mask.is_some(),
+                "Mask data should be present in cutout metadata for test {test_name}"
+            );
+
+            let mask = cutout.mask.as_ref().unwrap();
+            assert!(
+                !mask.data.is_empty(),
+                "Mask data should not be empty for test {test_name}"
+            );
+            assert_eq!(
+                mask.format, "rle-binary-v1 | gzip | base64",
+                "Mask format should be correct for test {test_name}"
+            );
+        }
+
+        MetadataCheck::AsciiPreviewValid => {
+            assert!(
+                metadata.cutout.is_some(),
+                "Cutout metadata should be present for ASCII preview check in test {test_name}"
+            );
+
+            let cutout = metadata.cutout.as_ref().unwrap();
+            assert!(
+                cutout.mask.is_some(),
+                "Mask data should be present for ASCII preview check in test {test_name}"
+            );
+
+            let mask = cutout.mask.as_ref().unwrap();
+            assert!(
+                mask.preview.is_some(),
+                "ASCII preview should be present for test {test_name}"
+            );
+
+            let preview = mask.preview.as_ref().unwrap();
+            assert_eq!(
+                preview.format, "ascii",
+                "Preview format should be ascii for test {test_name}"
+            );
+            assert!(
+                preview.width > 0 && preview.height > 0,
+                "Preview dimensions should be positive for test {test_name}"
+            );
+            assert_eq!(
+                preview.rows.len(),
+                preview.height as usize,
+                "Preview rows count should match height for test {test_name}"
+            );
+
+            // Check that preview contains expected characters (# and .)
+            let all_chars: String = preview.rows.join("");
+            assert!(
+                all_chars.contains('#') && all_chars.contains('.'),
+                "ASCII preview should contain both '#' and '.' characters for test {test_name}"
+            );
+
+            // Check that each row has the correct width
+            for (i, row) in preview.rows.iter().enumerate() {
+                assert_eq!(
+                    row.len(),
+                    preview.width as usize,
+                    "Preview row {i} should have width {} for test {test_name}, got {}",
+                    preview.width,
+                    row.len()
+                );
+            }
+        }
+
+        // Cache Statistics Checks
+        MetadataCheck::OnnxCacheStatsPresent(tool) => {
+            let system = match *tool {
+                "detect" => metadata.detect.as_ref().and_then(|h| h.system.as_ref()),
+                "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
+                _ => panic!("Unknown tool: {tool}"),
+            };
+
+            assert!(
+                system.is_some(),
+                "System info should exist for {tool} in test {test_name}"
+            );
+
+            let system = system.unwrap();
+            assert!(
+                system.onnx_cache.is_some(),
+                "onnx_cache should be present for {tool} in test {test_name}"
+            );
+            let onnx_cache = system.onnx_cache.as_ref().unwrap();
+            assert!(
+                onnx_cache.cached_models_count.is_some(),
+                "onnx_cache.cached_models_count should be present for {tool} in test {test_name}"
+            );
+            assert!(
+                onnx_cache.cached_models_size_mb.is_some(),
+                "onnx_cache.cached_models_size_mb should be present for {tool} in test {test_name}"
+            );
+        }
+
+        MetadataCheck::OnnxCacheStatsAbsent(tool) => {
+            let system = match *tool {
+                "detect" => metadata.detect.as_ref().and_then(|h| h.system.as_ref()),
+                "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
+                _ => panic!("Unknown tool: {tool}"),
+            };
+
+            if let Some(system) = system {
+                assert!(
+                    system.onnx_cache.is_none(),
+                    "onnx_cache should be absent for {tool} in test {test_name}"
+                );
+            }
+        }
+
+        MetadataCheck::DownloadCacheHitPresent(tool) => {
+            let system = match *tool {
+                "detect" => metadata.detect.as_ref().and_then(|h| h.system.as_ref()),
+                "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
+                _ => panic!("Unknown tool: {tool}"),
+            };
+
+            assert!(
+                system.is_some(),
+                "System info should exist for {tool} in test {test_name}"
+            );
+
+            let system = system.unwrap();
+            assert!(
+                system.onnx_cache.is_some(),
+                "onnx_cache should be present for {tool} in test {test_name}"
+            );
+            let onnx_cache = system.onnx_cache.as_ref().unwrap();
+            assert!(
+                onnx_cache.model_cache_hit.is_some(),
+                "onnx_cache.model_cache_hit should be present for {tool} in test {test_name}"
+            );
+        }
+
+        MetadataCheck::DownloadCacheHitAbsent(tool) => {
+            let system = match *tool {
+                "detect" => metadata.detect.as_ref().and_then(|h| h.system.as_ref()),
+                "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
+                _ => panic!("Unknown tool: {tool}"),
+            };
+
+            if let Some(system) = system {
+                if let Some(onnx_cache) = &system.onnx_cache {
+                    assert!(
+                        onnx_cache.model_cache_hit.is_none(),
+                        "onnx_cache.model_cache_hit should be absent for {tool} in test {test_name}"
+                    );
+                }
+                // If onnx_cache itself is None, that's also considered absent
+            }
+        }
+
+        MetadataCheck::DownloadTimingAbsent(tool) => {
+            let system = match *tool {
+                "detect" => metadata.detect.as_ref().and_then(|h| h.system.as_ref()),
+                "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
+                _ => panic!("Unknown tool: {tool}"),
+            };
+
+            if let Some(system) = system {
+                if let Some(onnx_cache) = &system.onnx_cache {
+                    assert!(
+                        onnx_cache.download_time_ms.is_none(),
+                        "onnx_cache.download_time_ms should be absent for {tool} in test {test_name}"
+                    );
+                }
+                // If onnx_cache itself is None, that's also considered absent
+            }
+        }
+
+        MetadataCheck::CoremlCacheStatsAbsent(tool) => {
+            let system = match *tool {
+                "detect" => metadata.detect.as_ref().and_then(|h| h.system.as_ref()),
+                "cutout" => metadata.cutout.as_ref().and_then(|c| c.system.as_ref()),
+                _ => panic!("Unknown tool: {tool}"),
+            };
+
+            if let Some(system) = system {
+                assert!(
+                    system.coreml_cache.is_none(),
+                    "coreml_cache should be absent for {tool} in test {test_name}"
+                );
+            }
+        }
     }
 }
 
@@ -373,13 +662,13 @@ where
     // Setup test files in temp directory
     let (example_jpg, example_2_birds) = setup_test_files(temp_dir);
 
-    // Handle special multi-tool case
+    // Handle special cases
     let exit_code = if scenario.tool == "both" {
-        // Run head first
-        let head_exit = run_beaker_command(&[
-            "head",
+        // Run detect first
+        let detect_exit = run_beaker_command(&[
+            "detect",
             example_jpg.to_str().unwrap(),
-            "--crop",
+            "--crop=head",
             "--metadata",
             "--output-dir",
             temp_dir.path().to_str().unwrap(),
@@ -397,8 +686,8 @@ where
 
         // Both should succeed
         assert_eq!(
-            head_exit, 0,
-            "Head command should succeed in multi-tool test {}",
+            detect_exit, 0,
+            "Detect command should succeed in multi-tool test {}",
             scenario.name
         );
         assert_eq!(
@@ -424,7 +713,7 @@ where
             "--output-dir",
             temp_dir.path().to_str().unwrap(),
         ]);
-        run_beaker_command(&full_args)
+        run_beaker_command_with_env(&full_args, &scenario.env_vars)
     };
 
     let test_duration = start_time.elapsed();
@@ -461,38 +750,43 @@ where
         }
     }
 
-    // Parse and validate metadata
-    let metadata_path = if scenario
-        .expected_files
-        .contains(&"example-2-birds.beaker.toml")
-    {
-        temp_dir.path().join("example-2-birds.beaker.toml")
-    } else {
-        temp_dir.path().join("example.beaker.toml")
-    };
-
-    assert!(
-        metadata_path.exists(),
-        "Metadata file should exist for test: {}",
-        scenario.name
-    );
-
-    let metadata = parse_metadata(&metadata_path);
-
-    // Validate all metadata checks
-    for check in &scenario.metadata_checks {
-        // Handle OutputCreated check at file system level
-        if let MetadataCheck::OutputCreated(filename) = check {
-            let output_path = temp_dir.path().join(filename);
-            assert!(
-                output_path.exists(),
-                "Output file {} should exist for test {}",
-                filename,
-                scenario.name
-            );
+    // Parse and validate metadata (skip for version command)
+    if scenario.tool != "version" {
+        let metadata_path = if scenario
+            .expected_files
+            .contains(&"example-2-birds.beaker.toml")
+        {
+            temp_dir.path().join("example-2-birds.beaker.toml")
         } else {
-            validate_metadata_check(&metadata, check, scenario.name);
+            temp_dir.path().join("example.beaker.toml")
+        };
+
+        assert!(
+            metadata_path.exists(),
+            "Metadata file should exist for test: {}",
+            scenario.name
+        );
+
+        let metadata = parse_metadata(&metadata_path);
+
+        // Validate all metadata checks
+        for check in &scenario.metadata_checks {
+            // Handle OutputCreated check at file system level
+            if let MetadataCheck::OutputCreated(filename) = check {
+                let output_path = temp_dir.path().join(filename);
+                assert!(
+                    output_path.exists(),
+                    "Output file {} should exist for test {}",
+                    filename,
+                    scenario.name
+                );
+            } else {
+                validate_metadata_check(&metadata, check, scenario.name);
+            }
         }
+    } else {
+        // For version command, no output files should be created
+        // Version commands don't generate metadata files or output images
     }
 }
 

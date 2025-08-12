@@ -60,7 +60,7 @@ The build process automatically:
 When running detection, `beaker head` can generate several output files:
 
 - **`--crop`**: Individual square crops for each detected bird head (`image_crop-1.jpg`, `image_crop-2.jpg`, etc.)
-  - Single detection: `image_crop.jpg` (no suffix)
+  - Single detection: `image_crop.jpg`
   - Multiple detections: Numbered with zero-padding for 10+ detections
 - **`--bounding-box`**: Single image showing all detections with green boxes (`image_bounding-box.jpg`)
 - **`--metadata`**: Structured TOML output with detection coordinates, confidence scores, and relative file paths (`image.beaker.toml`)
