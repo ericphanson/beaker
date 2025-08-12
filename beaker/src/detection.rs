@@ -20,11 +20,12 @@ use crate::yolo_preprocessing::preprocess_image;
 use log::debug;
 
 // Embed the ONNX model at compile time
-pub const MODEL_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/bird-head-detector.onnx"));
+pub const MODEL_BYTES: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/bird-multi-detector.onnx"));
 
 // Get model version from build script
 pub const MODEL_VERSION: &str =
-    include_str!(concat!(env!("OUT_DIR"), "/bird-head-detector.version"));
+    include_str!(concat!(env!("OUT_DIR"), "/bird-multi-detector.version"));
 
 /// Head detection model access implementation.
 pub struct HeadAccess;

@@ -110,8 +110,9 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
         );
     }
 
+    let tool = config.tool_name();
     // Collect device information for metadata
-    let device_selection = determine_optimal_device(&config.base().device);
+    let device_selection = determine_optimal_device(&config.base().device, tool);
     let device_selected = device_selection.device.clone();
     let device_selection_reason = device_selection.reason.clone();
 

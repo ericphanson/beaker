@@ -105,20 +105,28 @@ pub struct DeviceSelection {
 }
 
 /// Determine optimal device based on user preference
-pub fn determine_optimal_device(requested_device: &str) -> DeviceSelection {
+pub fn determine_optimal_device(requested_device: &str, tool_name: &str) -> DeviceSelection {
     match requested_device {
         "auto" => {
-            // For auto, prefer CoreML if available, otherwise CPU
-            let coreml = CoreMLExecutionProvider::default();
-            match coreml.is_available() {
-                Ok(true) => DeviceSelection {
-                    device: "coreml".to_string(),
-                    reason: "Auto-selected CoreML (available)".to_string(),
-                },
-                _ => DeviceSelection {
+            match tool_name {
+                "detect" => DeviceSelection {
                     device: "cpu".to_string(),
-                    reason: "Auto-selected CPU (CoreML not available)".to_string(),
+                    reason: "Multi-detect does not work on CoreML currently".to_string(),
                 },
+                _other_tool => {
+                    // For auto, prefer CoreML if available, otherwise CPU
+                    let coreml = CoreMLExecutionProvider::default();
+                    match coreml.is_available() {
+                        Ok(true) => DeviceSelection {
+                            device: "coreml".to_string(),
+                            reason: "Auto-selected CoreML (available)".to_string(),
+                        },
+                        _ => DeviceSelection {
+                            device: "cpu".to_string(),
+                            reason: "Auto-selected CPU (CoreML not available)".to_string(),
+                        },
+                    }
+                }
             }
         }
         other => DeviceSelection {

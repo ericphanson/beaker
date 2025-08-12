@@ -1,8 +1,8 @@
 [package]
 name         = "beaker"
-version      = "0.1.1"
+version      = "0.2.0"
 edition      = "2021"
-description  = "Detect bird heads in images using YOLOv8 (Rust implementation)"
+description  = "Process bird images with ML models"
 readme       = "README.md"
 license      = "AGPL-3.0"
 repository   = "https://github.com/ericphanson/beaker"
