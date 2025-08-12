@@ -287,21 +287,18 @@ def evaluate_checkpoint(
         save_json=False,
     )
 
-    # Extract metrics using the correct method calls
+    # Extract metrics using the correct property access
     metrics = {
         "epoch": int(checkpoint_path.stem.replace("epoch", "")),
         "checkpoint_path": str(checkpoint_path),
         # Overall metrics
-        "map50": float(results.box.map50()),  # mAP@0.5
-        "map": float(results.box.map()),  # mAP@0.5:0.95
-        "precision": float(results.box.mp()),
-        "recall": float(results.box.mr()),
+        "map50": float(results.box.map50),  # mAP@0.5
+        "map": float(results.box.map),  # mAP@0.5:0.95
+        "precision": float(results.box.mp),
+        "recall": float(results.box.mr),
         "f1": float(
-            2
-            * results.box.mp()
-            * results.box.mr()
-            / (results.box.mp() + results.box.mr())
-            if (results.box.mp() + results.box.mr()) > 0
+            2 * results.box.mp * results.box.mr / (results.box.mp + results.box.mr)
+            if (results.box.mp + results.box.mr) > 0
             else 0
         ),
         # Per-class mAP@0.5
