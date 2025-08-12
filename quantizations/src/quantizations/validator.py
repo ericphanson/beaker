@@ -14,9 +14,7 @@ import onnxruntime as ort
 logger = logging.getLogger(__name__)
 
 
-def load_and_preprocess_image(
-    image_path: Path, target_size: tuple = (640, 640)
-) -> np.ndarray:
+def load_and_preprocess_image(image_path: Path, target_size: tuple) -> np.ndarray:
     """Load and preprocess an image for model inference."""
     try:
         # Load image
@@ -109,14 +107,17 @@ def calculate_difference_metrics(
 
 
 def validate_single_image(
-    original_model: Path, quantized_model: Path, image_path: Path
+    original_model: Path,
+    quantized_model: Path,
+    image_path: Path,
+    model_type: str = "detect",
 ) -> dict[str, float]:
     """Validate models on a single image."""
     try:
         logger.debug(f"Validating on image: {image_path}")
 
         # Preprocess image
-        input_data = load_and_preprocess_image(image_path)
+        input_data = load_and_preprocess_image(image_path, model_type)
 
         # Run inference on both models
         original_output = run_inference(original_model, input_data)
@@ -196,6 +197,7 @@ def validate_models_with_timing(
     test_images_dir: Path,
     tolerance: float = 0.01,
     num_timing_runs: int = 5,
+    model_type: str = "detect",
 ) -> tuple[bool, float, dict[str, Any]]:
     """
     Validate quantized model against original model with timing measurements.
@@ -240,7 +242,7 @@ def validate_models_with_timing(
                 all_metrics.append(metrics)
 
                 # Measure timing for both models
-                input_data = load_and_preprocess_image(image_path)
+                input_data = load_and_preprocess_image(image_path, model_type)
 
                 timing_original = measure_inference_time(
                     original_model, input_data, num_timing_runs
@@ -337,6 +339,7 @@ def validate_models(
     quantized_model: Path,
     test_images_dir: Path,
     tolerance: float = 0.01,
+    model_type: str = "detect",
 ) -> tuple[bool, float]:
     """
     Validate quantized model against original model (backward compatibility).
@@ -345,42 +348,10 @@ def validate_models(
         Tuple of (is_valid, max_difference)
     """
     is_valid, max_diff, _ = validate_models_with_timing(
-        original_model, quantized_model, test_images_dir, tolerance
+        original_model,
+        quantized_model,
+        test_images_dir,
+        tolerance,
+        model_type=model_type,
     )
     return is_valid, max_diff
-    """Generate a detailed validation report."""
-    try:
-        # Run validation
-        is_valid, max_diff = validate_models(
-            original_model, quantized_model, test_images_dir
-        )
-
-        # Get model file sizes
-        original_size = original_model.stat().st_size
-        quantized_size = quantized_model.stat().st_size
-        size_reduction = (original_size - quantized_size) / original_size * 100
-
-        # Collect test images
-        test_images = collect_test_images(test_images_dir)
-
-        report = {
-            "original_model": str(original_model),
-            "quantized_model": str(quantized_model),
-            "validation_passed": is_valid,
-            "max_difference": max_diff,
-            "model_sizes": {
-                "original_bytes": original_size,
-                "quantized_bytes": quantized_size,
-                "size_reduction_percent": size_reduction,
-            },
-            "test_info": {
-                "num_test_images": len(test_images),
-                "test_images": [str(img) for img in test_images],
-            },
-        }
-
-        return report
-
-    except Exception as e:
-        logger.error(f"Failed to generate validation report: {e}")
-        raise

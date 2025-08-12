@@ -24,7 +24,7 @@ Performance testing on 4 example images demonstrates excellent quantization resu
 | Static-INT8 | 3.2 | 37.9 ± 1.7 | 0.999891 | 3.62 | 127.43 | 73.3% |
 
 **Base Models:**
-- **Head Detection**: YOLOv8n-based bird head detection model (best.onnx)
+- **Head Detection**: YOLOv8n-based bird detect detection model (best.onnx)
 - **Cutout Processing**: Custom segmentation model for background removal
 
 **Important Note**: These validation metrics are based on a limited set of 4 example images and may not be representative of general performance on diverse datasets.
@@ -72,14 +72,14 @@ Run the complete quantization pipeline (recommended for first-time users):
 
 ```bash
 # Dry run to see what would happen
-uv run quantize-models full-pipeline --model-type head --tolerance 200 --dry-run
+uv run quantize-models full-pipeline --model-type detect --tolerance 200 --dry-run
 
 # Actually run the pipeline with all optimizations
-uv run quantize-models full-pipeline --model-type head --tolerance 200
+uv run quantize-models full-pipeline --model-type detect --tolerance 200
 ```
 
 This will:
-1. Download the latest head detection model
+1. Download the latest detect detection model
 2. Create quantized versions (dynamic and static INT8)
 3. Apply ONNX optimizations and simplifications
 4. Validate the quantized models with timing measurements
@@ -93,8 +93,8 @@ This will:
 Download the latest ONNX models from GitHub releases:
 
 ```bash
-# Download head detection models
-uv run quantize-models download --model-type head -o models/
+# Download detect detection models
+uv run quantize-models download --model-type detect -o models/
 
 # Download cutout models
 uv run quantize-models download --model-type cutout -o models/
@@ -148,14 +148,14 @@ Upload quantized models to GitHub releases:
 
 ```bash
 # Basic upload
-uv run quantize-models upload quantized/ --model-type head --version v1.0
+uv run quantize-models upload quantized/ --model-type detect --version v1.0
 
 # Include comparison images and performance metrics
-uv run quantize-models upload quantized/ --model-type head --version v1.0 \
+uv run quantize-models upload quantized/ --model-type detect --version v1.0 \
   --include-comparisons --test-images ../
 
 # Dry run to preview release
-uv run quantize-models upload quantized/ --model-type head --version v1.0 --dry-run
+uv run quantize-models upload quantized/ --model-type detect --version v1.0 --dry-run
 ```
 
 The upload command now creates releases with:
@@ -171,10 +171,10 @@ Use quantized models with the existing Beaker CLI:
 
 ```bash
 # Set environment variable to use quantized model
-export BEAKER_DETECT_MODEL_URL="https://github.com/ericphanson/beaker/releases/download/head-quantizations-v1.0/head-fp16.onnx"
+export BEAKER_DETECT_MODEL_URL="https://github.com/ericphanson/beaker/releases/download/detect-quantizations-v1.0/detect-fp16.onnx"
 
 # Use with beaker as normal
-beaker head image.jpg --crop
+beaker detect image.jpg --crop
 
 # For cutout models
 export BEAKER_CUTOUT_MODEL_URL="https://github.com/ericphanson/beaker/releases/download/cutout-quantizations-v1.0/cutout-dynamic-int8.onnx"
@@ -241,11 +241,11 @@ Based on testing with 4 example images, the quantization results show excellent 
 ## Model Support
 
 ### Head Detection Models
-- **Base Model**: YOLOv8n-based bird head detection model (best.onnx)
-- **Source**: `bird-head-detector-*` releases from GitHub
+- **Base Model**: YOLOv8n-based bird detect detection model (best.onnx)
+- **Source**: `bird-detect-detector-*` releases from GitHub
 - **Quantization Levels**: Dynamic INT8, Static INT8, FP16
-- **Use Case**: Bird head detection and cropping
-- **Input Size**: 640x640 RGB images
+- **Use Case**: Bird detect detection and cropping
+- **Input Size**: 960x960 RGB images
 - **Output**: Bounding boxes with confidence scores
 
 ### Cutout Models
@@ -261,9 +261,9 @@ Based on testing with 4 example images, the quantization results show excellent 
 Quantized models can be used seamlessly with the existing Beaker CLI:
 
 ```bash
-# Use quantized head detection model
-export BEAKER_DETECT_MODEL_URL=https://github.com/ericphanson/beaker/releases/download/head-quantizations-v1/best-dynamic.onnx
-beaker head image.jpg --crop
+# Use quantized detect detection model
+export BEAKER_DETECT_MODEL_URL=https://github.com/ericphanson/beaker/releases/download/detect-quantizations-v1/best-dynamic.onnx
+beaker detect image.jpg --crop
 
 # Use quantized cutout model
 export BEAKER_CUTOUT_MODEL_URL=https://github.com/ericphanson/beaker/releases/download/cutout-quantizations-v1/model-dynamic.onnx
@@ -275,7 +275,7 @@ beaker cutout image.jpg
 Quantized models are published to GitHub releases with semantic tags:
 
 ### Head Detection Quantizations
-- **Tag Pattern**: `head-quantizations-v{version}`
+- **Tag Pattern**: `detect-quantizations-v{version}`
 - **Files**:
   - `best-dynamic.onnx` - Dynamic quantization
   - `best-static.onnx` - Static quantization (if available)
@@ -339,7 +339,7 @@ uv run quantize-models validate model.onnx quantized.onnx -v
 Add `-v` or `--verbose` to any command for detailed logging:
 
 ```bash
-uv run quantize-models full-pipeline --model-type head --tolerance 200 -v
+uv run quantize-models full-pipeline --model-type detect --tolerance 200 -v
 ```
 
 ### Manual Verification
@@ -355,7 +355,7 @@ sha256sum quantized/*.onnx
 
 # Test with beaker CLI
 export BEAKER_DETECT_MODEL_URL=./quantized/best-dynamic.onnx
-beaker head ../example.jpg
+beaker detect ../example.jpg
 ```
 
 ## Development

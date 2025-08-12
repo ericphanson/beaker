@@ -31,7 +31,7 @@ class ImageCalibrationDataReader(CalibrationDataReader):
     """Calibration data reader for image models."""
 
     def __init__(
-        self, image_paths: list[Path], input_name: str, target_size: tuple = (640, 640)
+        self, image_paths: list[Path], input_name: str, target_size: tuple = (960, 960)
     ):
         self.image_paths = image_paths
         self.input_name = input_name
@@ -194,9 +194,9 @@ def quantize_model(model_path: Path, output_dir: Path, quantization_level: str) 
 
     # Determine model type from path or filename
     model_type = "unknown"
-    if "head" in str(model_path).lower() or "best" in stem.lower():
-        model_type = "head"
-    elif "cutout" in str(model_path).lower():
+    if "detect" in str(model_path).lower() or "multi" in stem.lower():
+        model_type = "detect"
+    elif "isnet" in str(model_path).lower():
         model_type = "cutout"
 
     # Create descriptive filename
@@ -324,7 +324,7 @@ def measure_inference_time(
                 if image is None:
                     continue
                 image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                image = cv2.resize(image, (640, 640), interpolation=cv2.INTER_LINEAR)
+                image = cv2.resize(image, (960, 960), interpolation=cv2.INTER_LINEAR)
                 image = image.astype(np.float32) / 255.0
                 image = np.transpose(image, (2, 0, 1))
                 image = np.expand_dims(image, axis=0)

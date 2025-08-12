@@ -176,10 +176,10 @@ def generate_release_notes(
     notes.append("You can use them by setting the appropriate environment variables:")
     notes.append("")
     notes.append("```bash")
-    if model_type == "head":
-        notes.append("# For head detection")
+    if model_type == "detect":
+        notes.append("# For detect detection")
         notes.append("export BEAKER_DETECT_MODEL_URL=<download_url>")
-        notes.append("beaker head image.jpg --crop")
+        notes.append("beaker detect image.jpg --crop")
     elif model_type == "cutout":
         notes.append("# For cutout processing")
         notes.append("export BEAKER_CUTOUT_MODEL_URL=<download_url>")
@@ -393,10 +393,10 @@ def list_available_quantizations() -> dict[str, list[str]]:
                     releases.append(parts[0])  # Tag name
 
         # Organize by model type
-        quantizations = {"head": [], "cutout": []}
+        quantizations = {"detect": [], "cutout": []}
         for release in releases:
-            if "head" in release:
-                quantizations["head"].append(release)
+            if "detect" in release:
+                quantizations["detect"].append(release)
             elif "cutout" in release:
                 quantizations["cutout"].append(release)
 
@@ -404,4 +404,4 @@ def list_available_quantizations() -> dict[str, list[str]]:
 
     except (subprocess.CalledProcessError, FileNotFoundError):
         logger.warning("Could not list releases (GitHub CLI not available)")
-        return {"head": [], "cutout": []}
+        return {"detect": [], "cutout": []}

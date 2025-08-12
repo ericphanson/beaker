@@ -12,45 +12,198 @@ import matplotlib.patches as patches
 import numpy as np
 import onnxruntime as ort
 
+# Try relative import first, fall back to direct import
+try:
+    from .yolov8 import YOLOv8
+except ImportError:
+    try:
+        from yolov8 import YOLOv8
+    except ImportError:
+        # If both fail, try importing from the same directory
+        import sys
+        import os
+
+        sys.path.insert(0, os.path.dirname(__file__))
+        from yolov8 import YOLOv8
+
 logger = logging.getLogger(__name__)
 
 
 def load_and_preprocess_image(
-    image_path: Path, target_size: tuple = (640, 640)
+    image_path: Path, model_type: str = "detect"
 ) -> np.ndarray:
     """Load and preprocess an image for model inference."""
-    image = cv2.imread(str(image_path))
-    if image is None:
-        raise ValueError(f"Could not load image: {image_path}")
+    if model_type == "detect":
+        target_size = (960, 960)  # Use default size for detect models
+    else:
+        target_size = (1024, 1024)  # Use default size for other models
+    if model_type == "detect":
+        # For detect models, we'll return the image path and let YOLOv8 handle preprocessing
+        image = cv2.imread(str(image_path))
+        if image is None:
+            raise ValueError(f"Could not load image: {image_path}")
 
-    # Convert BGR to RGB
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        # Convert BGR to RGB for display
+        display_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        original_height, original_width = image.shape[:2]
 
-    # Store original size for scaling
-    original_height, original_width = image.shape[:2]
+        # For detect models, return the original image path and display image
+        return str(image_path), display_image, (original_width, original_height)
+    else:
+        # Keep original preprocessing for other model types (like "cutout")
+        image = cv2.imread(str(image_path))
+        if image is None:
+            raise ValueError(f"Could not load image: {image_path}")
 
-    # Resize to target size
-    resized_image = cv2.resize(image, target_size, interpolation=cv2.INTER_LINEAR)
+        # Convert BGR to RGB
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-    # Normalize to [0, 1] and convert to CHW format
-    input_image = resized_image.astype(np.float32) / 255.0
-    input_image = np.transpose(input_image, (2, 0, 1))  # HWC to CHW
-    input_image = np.expand_dims(input_image, axis=0)  # Add batch dimension
+        # Store original size for scaling
+        original_height, original_width = image.shape[:2]
 
-    return input_image, resized_image, (original_width, original_height)
+        # Resize to target size
+        resized_image = cv2.resize(image, target_size, interpolation=cv2.INTER_LINEAR)
+
+        # Normalize to [0, 1] and convert to CHW format
+        input_image = resized_image.astype(np.float32) / 255.0
+        input_image = np.transpose(input_image, (2, 0, 1))  # HWC to CHW
+        input_image = np.expand_dims(input_image, axis=0)  # Add batch dimension
+
+        return input_image, resized_image, (original_width, original_height)
 
 
-def run_model_inference(model_path: Path, input_data: np.ndarray) -> np.ndarray:
+def run_model_inference(
+    model_path: Path,
+    input_data,
+    model_type: str = "detect",
+    confidence_threshold: float = 0.5,
+    iou_threshold: float = 0.5,
+):
     """Run inference on a model."""
     try:
-        providers = ["CPUExecutionProvider"]
-        session = ort.InferenceSession(str(model_path), providers=providers)
-        input_name = session.get_inputs()[0].name
-        outputs = session.run(None, {input_name: input_data})
-        return outputs[0] if outputs else np.array([])
+        if model_type == "detect":
+            # Use YOLOv8 class for detect models
+            detector = YOLOv8(
+                str(model_path), input_data, confidence_threshold, iou_threshold
+            )
+            # Run the full inference pipeline and return the detections in our format
+            output_image = detector.main()
+
+            # Extract detections from the YOLOv8 detector
+            # We need to re-run the inference to get the raw detections before drawing
+            session = ort.InferenceSession(
+                str(model_path), providers=["CPUExecutionProvider"]
+            )
+            model_inputs = session.get_inputs()
+            input_shape = model_inputs[0].shape
+            detector.input_width = input_shape[2]
+            detector.input_height = input_shape[3]
+
+            # Preprocess using YOLOv8 methods
+            img_data, pad = detector.preprocess()
+
+            # Run inference
+            outputs = session.run(None, {model_inputs[0].name: img_data})
+
+            # Parse the raw outputs to get detections in our format
+            detections = parse_yolov8_detections(
+                outputs[0], detector, pad, confidence_threshold
+            )
+
+            return detections
+        else:
+            # Original inference for other model types
+            providers = ["CPUExecutionProvider"]
+            session = ort.InferenceSession(str(model_path), providers=providers)
+            input_name = session.get_inputs()[0].name
+            outputs = session.run(None, {input_name: input_data})
+            return outputs[0] if outputs else np.array([])
     except Exception as e:
         logger.error(f"Inference failed for {model_path}: {e}")
         raise
+
+
+def parse_yolov8_detections(
+    output: np.ndarray, detector: YOLOv8, pad: tuple, confidence_threshold: float = 0.5
+) -> List[Dict[str, float]]:
+    """Parse YOLOv8 detection output into bounding boxes using YOLOv8's postprocessing logic."""
+    detections = []
+
+    # Transpose and squeeze the output to match the expected shape
+    outputs = np.transpose(np.squeeze(output))
+
+    # Get the number of rows in the outputs array
+    rows = outputs.shape[0]
+
+    # Calculate the scaling factors for the bounding box coordinates
+    gain = min(
+        detector.input_height / detector.img_height,
+        detector.input_width / detector.img_width,
+    )
+    outputs[:, 0] -= pad[1]
+    outputs[:, 1] -= pad[0]
+
+    # Lists to store the bounding boxes, scores, and class IDs of the detections
+    boxes = []
+    scores = []
+    class_ids = []
+
+    # Iterate over each row in the outputs array
+    for i in range(rows):
+        # Extract the class scores from the current row
+        classes_scores = outputs[i][4:]
+
+        # Find the maximum score among the class scores
+        max_score = np.amax(classes_scores)
+
+        # If the maximum score is above the confidence threshold
+        if max_score >= confidence_threshold:
+            # Get the class ID with the highest score
+            class_id = np.argmax(classes_scores)
+
+            # Extract the bounding box coordinates from the current row
+            x, y, w, h = outputs[i][0], outputs[i][1], outputs[i][2], outputs[i][3]
+
+            # Calculate the scaled coordinates of the bounding box
+            left = int((x - w / 2) / gain)
+            top = int((y - h / 2) / gain)
+            width = int(w / gain)
+            height = int(h / gain)
+
+            # Add the class ID, score, and box coordinates to the respective lists
+            class_ids.append(class_id)
+            scores.append(max_score)
+            boxes.append([left, top, width, height])
+
+    # Apply non-maximum suppression to filter out overlapping bounding boxes
+    if boxes:
+        indices = cv2.dnn.NMSBoxes(
+            boxes, scores, confidence_threshold, detector.iou_thres
+        )
+
+        # Iterate over the selected indices after non-maximum suppression
+        for i in indices:
+            # Get the box, score, and class ID corresponding to the index
+            box = boxes[i]
+            score = scores[i]
+            class_id = class_ids[i]
+
+            # Convert to x1, y1, x2, y2 format
+            x1, y1, w, h = box
+            x2, y2 = x1 + w, y1 + h
+
+            detections.append(
+                {
+                    "x1": float(x1),
+                    "y1": float(y1),
+                    "x2": float(x2),
+                    "y2": float(y2),
+                    "confidence": float(score),
+                    "class_id": int(class_id),
+                }
+            )
+
+    return detections
 
 
 def parse_detections(
@@ -133,11 +286,18 @@ def create_detection_comparison_figure(
     model_results: Dict[str, Tuple[Path, List[Dict]]],
     output_path: Path,
     confidence_threshold: float = 0.5,
+    model_type: str = "detect",
 ) -> None:
+    if model_type == "detect":
+        imgsz = (960, 960)  # Use default size for detect models
+    else:
+        imgsz = (1024, 1024)  # Use default size for other models
     """Create a comparison figure showing detections from multiple models."""
     try:
         # Load the original image
-        input_data, display_image, original_size = load_and_preprocess_image(image_path)
+        input_data, display_image, original_size = load_and_preprocess_image(
+            image_path, imgsz, model_type
+        )
 
         # Create subplot figure
         num_models = len(model_results)
@@ -223,8 +383,15 @@ def generate_model_comparison_images(
     test_images: List[Path],
     output_dir: Path,
     confidence_threshold: float = 0.5,
+    iou_threshold: float = 0.5,
+    model_type: str = "detect",
 ) -> List[Path]:
     """Generate comparison images for multiple models on test images."""
+
+    if model_type == "detect":
+        imgsz = (960, 960)  # Use default size for detect models
+    else:
+        imgsz = (1024, 1024)  # Use default size for other models
     output_dir.mkdir(parents=True, exist_ok=True)
     comparison_files = []
 
@@ -236,9 +403,22 @@ def generate_model_comparison_images(
 
         for model_name, model_path in models.items():
             try:
-                input_data, _, _ = load_and_preprocess_image(image_path)
-                output = run_model_inference(model_path, input_data)
-                detections = parse_detections(output, confidence_threshold)
+                if model_type == "detect":
+                    # For detect models, pass the image path directly
+                    input_data, _, _ = load_and_preprocess_image(image_path, model_type)
+                    detections = run_model_inference(
+                        model_path,
+                        input_data,
+                        model_type,
+                        confidence_threshold,
+                        iou_threshold,
+                    )
+                else:
+                    # For other models, use original preprocessing
+                    input_data, _, _ = load_and_preprocess_image(image_path, model_type)
+                    output = run_model_inference(model_path, input_data, model_type)
+                    detections = parse_detections(output, confidence_threshold)
+
                 model_results[model_name] = (model_path, detections)
                 logger.debug(f"{model_name}: Found {len(detections)} detections")
             except Exception as e:
@@ -251,7 +431,12 @@ def generate_model_comparison_images(
             output_path = output_dir / output_filename
 
             create_detection_comparison_figure(
-                image_path, model_results, output_path, confidence_threshold
+                image_path,
+                model_results,
+                output_path,
+                confidence_threshold,
+                imgsz,
+                model_type,
             )
             comparison_files.append(output_path)
 

@@ -34,7 +34,7 @@ def cli(verbose: bool) -> None:
 )
 @click.option(
     "--model-type",
-    type=click.Choice(["head", "cutout", "all"]),
+    type=click.Choice(["detect", "cutout", "all"]),
     default="all",
     help="Which models to download",
 )
@@ -42,8 +42,8 @@ def download(output_dir: Path, model_type: str) -> None:
     """Download ONNX models from GitHub releases."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    if model_type in ["head", "all"]:
-        logger.info("Downloading head detection model...")
+    if model_type in ["detect", "all"]:
+        logger.info("Downloading detect detection model...")
         downloader.download_detect_model(output_dir)
 
     if model_type in ["cutout", "all"]:
@@ -98,6 +98,7 @@ def validate(
     quantized_model: Path,
     test_images: Path | None,
     tolerance: float,
+    model_type: str = "detect",
 ) -> None:
     """Validate quantized model against original."""
     # Use default test images if not specified
@@ -121,7 +122,7 @@ def validate(
     logger.info(f"Validating {quantized_model.name} against {original_model.name}...")
 
     is_valid, max_diff = validator.validate_models(
-        original_model, quantized_model, test_images, tolerance
+        original_model, quantized_model, test_images, tolerance, model_type=model_type
     )
 
     if is_valid:
@@ -137,7 +138,7 @@ def validate(
 @click.argument("quantized_dir", type=click.Path(exists=True, path_type=Path))
 @click.option(
     "--model-type",
-    type=click.Choice(["head", "cutout"]),
+    type=click.Choice(["detect", "cutout"]),
     required=True,
     help="Type of model being uploaded",
 )
@@ -233,7 +234,7 @@ def upload(
 @cli.command()
 @click.option(
     "--model-type",
-    type=click.Choice(["head", "cutout", "all"]),
+    type=click.Choice(["detect", "cutout", "all"]),
     default="all",
     help="Which models to process",
 )
@@ -252,8 +253,16 @@ def upload(
     help="Maximum allowed difference in validation",
 )
 @click.option("--dry-run", is_flag=True, help="Perform dry run without uploading")
+@click.option(
+    "--no-download", is_flag=True, help="Skip download step and use existing models"
+)
 def full_pipeline(
-    model_type: str, output_dir: Path, version: str, tolerance: float, dry_run: bool
+    model_type: str,
+    output_dir: Path,
+    version: str,
+    tolerance: float,
+    dry_run: bool,
+    no_download: bool,
 ) -> None:
     """Run the complete quantization pipeline: download -> quantize -> validate -> upload."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -262,23 +271,29 @@ def full_pipeline(
     quantized_dir = output_dir / "quantized"
     comparisons_dir = output_dir / "comparisons"
 
-    # Download models
-    logger.info("Step 1: Downloading models...")
-    download.callback(models_dir, model_type)
+    # Download models (unless --no-download is specified)
+    if not no_download:
+        logger.info("Step 1: Downloading models...")
+        download.callback(models_dir, model_type)
+    else:
+        logger.info("Step 1: Skipping download (--no-download specified)")
 
     # Find downloaded models
     model_files = []
-    if model_type in ["head", "all"]:
-        head_files = list(models_dir.glob("*head*.onnx")) + list(
-            models_dir.glob("best.onnx")
-        )
-        model_files.extend(head_files)
+    if model_type in ["detect", "all"]:
+        detect_files = list(models_dir.glob("*detect*.onnx"))
+        model_files.extend(detect_files)
     if model_type in ["cutout", "all"]:
-        cutout_files = list(models_dir.glob("*cutout*.onnx"))
+        cutout_files = list(models_dir.glob("*isnet*.onnx"))
         model_files.extend(cutout_files)
 
     if not model_files:
-        raise click.ClickException("No model files found after download")
+        if no_download:
+            raise click.ClickException(
+                f"No model files found in {models_dir}. Run without --no-download to download models first."
+            )
+        else:
+            raise click.ClickException("No model files found after download")
 
     # Quantize each model
     logger.info("Step 2: Quantizing models...")
@@ -322,7 +337,11 @@ def full_pipeline(
         try:
             is_valid, max_diff, detailed_metrics = (
                 validator.validate_models_with_timing(
-                    original, quantized_path, test_images_dir, tolerance
+                    original,
+                    quantized_path,
+                    test_images_dir,
+                    tolerance,
+                    model_type=model_type,
                 )
             )
             if not is_valid:
@@ -349,7 +368,7 @@ def full_pipeline(
     test_images = test_images[:4]  # Limit to 4 images
 
     # Process each model type
-    for current_type in ["head", "cutout"]:
+    for current_type in ["detect", "cutout"]:
         if model_type not in [current_type, "all"]:
             continue
 

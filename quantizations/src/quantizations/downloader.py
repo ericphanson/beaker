@@ -58,8 +58,8 @@ def download_file(url: str, output_path: Path) -> bool:
 
 
 def download_detect_model(output_dir: Path) -> Path | None:
-    """Download the latest head detection model."""
-    release = get_latest_release_by_pattern("bird-head-detector")
+    """Download the latest detect detection model."""
+    release = get_latest_release_by_pattern("bird-multi-detector")
     if not release:
         return None
 
@@ -74,7 +74,7 @@ def download_detect_model(output_dir: Path) -> Path | None:
             break
 
     if not onnx_asset:
-        logger.error("No ONNX model found in head detector release")
+        logger.error("No ONNX model found in detector release")
         return None
 
     download_url = onnx_asset.get("browser_download_url")
@@ -82,7 +82,7 @@ def download_detect_model(output_dir: Path) -> Path | None:
         logger.error("No download URL found for ONNX asset")
         return None
 
-    model_name = onnx_asset.get("name", "bird-head-detector.onnx")
+    model_name = onnx_asset.get("name", "bird-multi-detector.onnx")
     output_path = output_dir / model_name
 
     if download_file(download_url, output_path):
