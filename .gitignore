@@ -29,3 +29,5 @@ beaker/*.tif
 *.png
 *_bounding-box.jpg
 *_cutout.*
+
+*.pth
