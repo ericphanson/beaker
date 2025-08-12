@@ -759,30 +759,45 @@ def save_results_summary(results: List[Dict], output_dir: Path):
     # Create summary statistics
     summary_stats = {
         "total_epochs_analyzed": len(results),
-        "epoch_range": {"start": df["epoch"].min(), "end": df["epoch"].max()},
+        "epoch_range": {
+            "start": df["epoch"].min().item(),
+            "end": df["epoch"].max().item(),
+        },
         "best_overall_performance": {
-            "epoch": df.loc[df["map50"].idxmax(), "epoch"],
-            "map50": df["map50"].max(),
-            "map": df.loc[df["map50"].idxmax(), "map"],
+            "epoch": df.loc[df["map50"].idxmax(), "epoch"].item(),
+            "map50": df["map50"].max().item(),
+            "map": df.loc[df["map50"].idxmax(), "map"].item(),
         },
         "final_performance": {
-            "epoch": df["epoch"].iloc[-1],
-            "map50": df["map50"].iloc[-1],
-            "map": df["map"].iloc[-1],
-            "per_class_map50": dict(zip(CLASS_NAMES, df["map50_per_class"].iloc[-1])),
-            "per_class_map": dict(zip(CLASS_NAMES, df["map_per_class"].iloc[-1])),
+            "epoch": df["epoch"].iloc[-1].item(),
+            "map50": df["map50"].iloc[-1].item(),
+            "map": df["map"].iloc[-1].item(),
+            "per_class_map50": {
+                name: float(score)
+                for name, score in zip(CLASS_NAMES, df["map50_per_class"].iloc[-1])
+            },
+            "per_class_map": {
+                name: float(score)
+                for name, score in zip(CLASS_NAMES, df["map_per_class"].iloc[-1])
+            },
         },
         "class_rankings_final": {
-            "by_map50": sorted(
-                zip(CLASS_NAMES, df["map50_per_class"].iloc[-1]),
-                key=lambda x: x[1],
-                reverse=True,
-            ),
-            "by_map": sorted(
-                zip(CLASS_NAMES, df["map_per_class"].iloc[-1]),
-                key=lambda x: x[1],
-                reverse=True,
-            ),
+            "by_map50": [
+                (name, float(score))
+                for name, score in sorted(
+                    zip(CLASS_NAMES, df["map50_per_class"].iloc[-1]),
+                    key=lambda x: x[1],
+                    reverse=True,
+                )
+            ],
+            "by_map": [
+                (name, float(score))
+                for name, score in sorted(
+                    zip(CLASS_NAMES, df["map_per_class"].iloc[-1]),
+                    key=lambda x: x[1],
+                    reverse=True,
+                )
+            ],
         },
     }
 
