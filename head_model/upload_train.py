@@ -173,7 +173,7 @@ def generate_onnx_model(model_path, output_dir=None, int8=False):
             simplify=True,  # Simplify the ONNX model
             opset=11,  # ONNX opset 11 for good compatibility
             half=False,  # Use FP32 for CPU compatibility
-            int8=int,
+            int8=int8,
         )
 
         # Move to desired location if needed
