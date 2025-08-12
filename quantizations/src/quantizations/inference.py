@@ -51,22 +51,34 @@ def run_beaker_inference(
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         logger.debug(f"Beaker output: {result.stdout}")
 
-        # Find the output image (beaker should create it in output_dir)
-        # Assuming beaker creates output with same name as input
-        output_name = image_path.stem + "_output" + image_path.suffix
+        # Find the output image based on beaker's naming convention
+        if model_type == "detect":
+            # Beaker detect creates: {input_name}_bounding-box.jpg
+            output_name = image_path.stem + "_bounding-box" + ".jpg"
+        elif model_type == "cutout":
+            # Beaker cutout creates: {input_name}_cutout.png (assuming similar pattern)
+            output_name = image_path.stem + "_cutout" + ".png"
+        else:
+            # Fallback to generic pattern
+            output_name = image_path.stem + "_output" + image_path.suffix
+
         output_path = output_dir / output_name
 
-        # If that doesn't exist, look for any new image in output_dir
+        # If the expected output doesn't exist, look for any new image in output_dir
         if not output_path.exists():
             output_images = list(output_dir.glob("*.jpg")) + list(
                 output_dir.glob("*.png")
             )
             if output_images:
-                output_path = output_images[-1]  # Take the most recent
+                # Sort by modification time and take the most recent
+                output_images.sort(key=lambda p: p.stat().st_mtime)
+                output_path = output_images[-1]
+                logger.debug(f"Using most recent output: {output_path}")
 
         if not output_path.exists():
             raise FileNotFoundError(f"No output image found in {output_dir}")
 
+        logger.debug(f"Found beaker output: {output_path}")
         return output_path
 
     except subprocess.CalledProcessError as e:
