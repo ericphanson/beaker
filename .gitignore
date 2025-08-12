@@ -33,6 +33,8 @@ beaker/*.tif
 *.png
 *_bounding-box.jpg
 *_cutout.*
+*.pth
 
 # Exception: example_crop.jpg is shown in README.md and should be committed
 !example_crop.jpg
+

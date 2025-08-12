@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Release script for bird-head-detector models.
+Release script for bird-multi-detector models.
 
 This script:
 1. Checks if the repository is clean (no uncommitted changes)
 2. Shows existing tags/versions
 3. Finds available model files or uses specified model
 4. Prompts for a new version number (or uses provided version)
-5. Creates a git tag with format 'bird-head-detector-v{version}'
+5. Creates a git tag with format 'bird-multi-detector-v{version}'
 6. Uploads the selected model as a GitHub release asset
 7. Pushes everything to the remote repository
 
@@ -20,8 +20,8 @@ Usage:
     # Interactive mode - choose from available models
     uv run python release.py
 
-    # Specify model and version (creates tag: bird-head-detector-v1.2.0)
-    uv run python release.py --model runs/detect/best_model/weights/best.pt --version 1.2.0
+    # Specify model and version (creates tag: bird-multi-detector-v1.2.0)
+    uv run python release.py --model runs/multi-detect/best_model/weights/best.pt --version 1.2.0
 
     # Specify just the model (will prompt for version)
     uv run python release.py --model my_custom_model.pt
@@ -159,13 +159,13 @@ def generate_onnx_model(model_path, output_dir=None):
             output_dir.mkdir(exist_ok=True)
 
         # Generate ONNX file path
-        onnx_path = output_dir / f"{model_path.stem}.onnx"
+        onnx_path = output_dir / "bird-multi-detector.onnx"
 
         # Export to ONNX with optimized settings
         print("   🚀 Exporting to ONNX format...")
         export_path = model.export(
             format="onnx",
-            imgsz=640,  # Standard input size
+            imgsz=960,  # may need changing based on training
             dynamic=False,  # Static input shape for better compatibility
             simplify=True,  # Simplify the ONNX model
             opset=11,  # ONNX opset 11 for good compatibility
@@ -193,13 +193,13 @@ def generate_onnx_model(model_path, output_dir=None):
 
 def get_model_path():
     """Find available model files and let user choose."""
-    # Search for all .pt files in runs/detect subdirectories
+    # Search for all .pt files in runs/multi-detect subdirectories
     available_models = []
 
-    # Check if runs/detect exists
-    runs_detect = Path("runs/detect")
+    # Check if runs/multi-detect exists
+    runs_detect = Path("runs/multi-detect")
     if runs_detect.exists():
-        # Find all subdirectories in runs/detect
+        # Find all subdirectories in runs/multi-detect
         for run_dir in runs_detect.iterdir():
             if run_dir.is_dir():
                 weights_dir = run_dir / "weights"
@@ -216,8 +216,9 @@ def get_model_path():
             if path.is_file():
                 available_models.append(path)
 
-    # Remove duplicates and sort
-    available_models = sorted(set(available_models))
+    # Remove duplicates and sort by modification time
+    available_models = list(set(available_models))
+    available_models.sort(key=lambda p: p.stat().st_mtime, reverse=True)
 
     if not available_models:
         return None
@@ -258,23 +259,10 @@ def get_model_path():
 def collect_run_assets(model_path):
     """Collect all assets from the training run directory, including only the selected model."""
     # Get the run directory from the model path
-    # Model path should be like: runs/detect/run_name/weights/best.pt
-    if "runs/detect" in str(model_path):
-        run_dir = model_path.parent.parent  # Go up from weights/ to run directory
-    else:
-        # If not from a training run, just return the model file itself
-        assets = [model_path]
-        # Generate ONNX model (will raise exception if it fails)
-        onnx_path = generate_onnx_model(model_path)
-        assets.append(onnx_path)
-        return assets
-
+    # Model path should be like: runs/multi-detect/run_name/weights/best.pt
+    run_dir = model_path.parent.parent  # Go up from weights/ to run directory
     if not run_dir.exists():
-        assets = [model_path]
-        # Generate ONNX model (will raise exception if it fails)
-        onnx_path = generate_onnx_model(model_path)
-        assets.append(onnx_path)
-        return assets
+        raise FileNotFoundError(f"Run directory not found: {run_dir}")
 
     # Define file patterns to include in the release (excluding other .pt files)
     include_patterns = [
@@ -303,7 +291,7 @@ def collect_run_assets(model_path):
 def get_training_info(model_path):
     """Extract training information from args.yaml and dataset configuration."""
     # Get the run directory from the model path
-    if "runs/detect" in str(model_path):
+    if "runs/multi-detect" in str(model_path):
         run_dir = model_path.parent.parent  # Go up from weights/ to run directory
         args_file = run_dir / "args.yaml"
     else:
@@ -369,12 +357,12 @@ def create_release(version, model_path):
     """Create a GitHub release with the model and training assets."""
     print(f"🚀 Creating release {version}...")
 
-    # Ensure version starts with 'bird-head-detector-v'
-    if not version.startswith("bird-head-detector-"):
+    # Ensure version starts with 'bird-multi-detector-v'
+    if not version.startswith("bird-multi-detector-"):
         if version.startswith("v"):
-            version = f"bird-head-detector-{version}"
+            version = f"bird-multi-detector-{version}"
         else:
-            version = f"bird-head-detector-v{version}"
+            version = f"bird-multi-detector-v{version}"
 
     # Create git tag
     print(f"📝 Creating git tag: {version}")
@@ -413,11 +401,11 @@ def create_release(version, model_path):
     files_section = "## Files\n"
     if model_files:
         files_section += "### Model Weights\n"
-        files_section += "- `bird-head-detector.pt`: Trained model weights (PyTorch)\n"
+        files_section += "- `bird-multi-detector.pt`: Trained model weights (PyTorch)\n"
 
     if onnx_files:
         files_section += (
-            "- `bird-head-detector.onnx`: Trained model weights (ONNX format)\n"
+            "- `bird-multi-detector.onnx`: Trained model weights (ONNX format)\n"
         )
 
     if plot_files:
@@ -448,24 +436,7 @@ def create_release(version, model_path):
 - **Dataset**: CUB-200-2011 (bird head parts)
 {epochs_info}- **Training Images**: {training_info["train_images"]}
 - **Validation Images**: {training_info["val_images"]}
-- **Classes**: 1 (bird_head)
-
-## Usage
-Download the model files and use with the Rust inference tool:
-
-**Using the Rust tool (recommended):**
-```bash
-cd beaker
-cargo build --release
-./target/release/beaker head your_image.jpg --confidence 0.25
-```
-
-**ONNX model (for production deployment):**
-```bash
-# Use with ONNX runtime or other frameworks that support ONNX
-# Model input: [1, 3, 640, 640] (NCHW format)
-# Model output: [1, 84, 8400] (detection results)
-```
+- **Classes**: 4
 
 {files_section}
 """
@@ -509,16 +480,16 @@ cargo build --release
             for asset in assets:
                 if asset.suffix == ".pt":
                     # Create renamed copy of PT file
-                    renamed_pt = temp_path / "bird-head-detector.pt"
+                    renamed_pt = temp_path / "bird-multi-detector.pt"
                     renamed_pt.write_bytes(asset.read_bytes())
                     upload_files.append(str(renamed_pt))
-                    print(f"   📝 Renaming {asset.name} → bird-head-detector.pt")
+                    print(f"   📝 Renaming {asset.name} → bird-multi-detector.pt")
                 elif asset.suffix == ".onnx":
                     # Create renamed copy of ONNX file
-                    renamed_onnx = temp_path / "bird-head-detector.onnx"
+                    renamed_onnx = temp_path / "bird-multi-detector.onnx"
                     renamed_onnx.write_bytes(asset.read_bytes())
                     upload_files.append(str(renamed_onnx))
-                    print(f"   📝 Renaming {asset.name} → bird-head-detector.onnx")
+                    print(f"   📝 Renaming {asset.name} → bird-multi-detector.onnx")
                 else:
                     upload_files.append(str(asset))
 
@@ -542,9 +513,9 @@ cargo build --release
         for asset in assets:
             size_mb = asset.stat().st_size / (1024 * 1024)
             if asset.suffix == ".pt":
-                print(f"   - bird-head-detector.pt ({size_mb:.1f} MB)")
+                print(f"   - bird-multi-detector.pt ({size_mb:.1f} MB)")
             elif asset.suffix == ".onnx":
-                print(f"   - bird-head-detector.onnx ({size_mb:.1f} MB)")
+                print(f"   - bird-multi-detector.onnx ({size_mb:.1f} MB)")
             else:
                 print(f"   - {asset.name} ({size_mb:.1f} MB)")
     else:
@@ -615,7 +586,7 @@ def main():
         if not model_path:
             print("❌ No trained models found!")
             print("   Searched in:")
-            print("   - runs/detect/*/weights/*.pt")
+            print("   - runs/multi-detect/*/weights/*.pt")
             print("   - models/*.pt")
             print("   - *.pt")
             print("\n   Train a model first using: uv run python train.py")
@@ -677,13 +648,13 @@ def main():
             print("   Use semantic versioning (e.g., 1.0.0)")
             sys.exit(1)
 
-        # Normalize version (add 'bird-head-detector-v' prefix if missing)
-        if version.startswith("bird-head-detector-"):
+        # Normalize version (add 'bird-multi-detector-v' prefix if missing)
+        if version.startswith("bird-multi-detector-"):
             normalized_version = version
         elif version.startswith("v"):
-            normalized_version = f"bird-head-detector-{version}"
+            normalized_version = f"bird-multi-detector-{version}"
         else:
-            normalized_version = f"bird-head-detector-v{version}"
+            normalized_version = f"bird-multi-detector-v{version}"
 
         if normalized_version in existing_tags:
             print(f"❌ Version {normalized_version} already exists!")
@@ -703,13 +674,13 @@ def main():
                 )
                 continue
 
-            # Normalize version (add 'bird-head-detector-v' prefix if missing)
-            if version.startswith("bird-head-detector-"):
+            # Normalize version (add 'bird-multi-detector-v' prefix if missing)
+            if version.startswith("bird-multi-detector-"):
                 normalized_version = version
             elif version.startswith("v"):
-                normalized_version = f"bird-head-detector-{version}"
+                normalized_version = f"bird-multi-detector-{version}"
             else:
-                normalized_version = f"bird-head-detector-v{version}"
+                normalized_version = f"bird-multi-detector-v{version}"
 
             if normalized_version in existing_tags:
                 print(f"   Version {normalized_version} already exists!")
