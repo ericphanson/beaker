@@ -36,7 +36,7 @@ impl ModelAccess for HeadAccess {
     }
 
     fn get_env_var_name() -> &'static str {
-        "BEAKER_HEAD_MODEL_PATH"
+        "BEAKER_DETECT_MODEL_PATH"
     }
 
     // Head models support remote download for CLI --model-url usage
@@ -395,7 +395,7 @@ mod tests {
 
     #[test]
     fn test_head_access_env_var_name() {
-        assert_eq!(HeadAccess::get_env_var_name(), "BEAKER_HEAD_MODEL_PATH");
+        assert_eq!(HeadAccess::get_env_var_name(), "BEAKER_DETECT_MODEL_PATH");
     }
 
     #[test]

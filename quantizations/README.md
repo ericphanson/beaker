@@ -171,7 +171,7 @@ Use quantized models with the existing Beaker CLI:
 
 ```bash
 # Set environment variable to use quantized model
-export BEAKER_HEAD_MODEL_URL="https://github.com/ericphanson/beaker/releases/download/head-quantizations-v1.0/head-fp16.onnx"
+export BEAKER_DETECT_MODEL_URL="https://github.com/ericphanson/beaker/releases/download/head-quantizations-v1.0/head-fp16.onnx"
 
 # Use with beaker as normal
 beaker head image.jpg --crop
@@ -262,7 +262,7 @@ Quantized models can be used seamlessly with the existing Beaker CLI:
 
 ```bash
 # Use quantized head detection model
-export BEAKER_HEAD_MODEL_URL=https://github.com/ericphanson/beaker/releases/download/head-quantizations-v1/best-dynamic.onnx
+export BEAKER_DETECT_MODEL_URL=https://github.com/ericphanson/beaker/releases/download/head-quantizations-v1/best-dynamic.onnx
 beaker head image.jpg --crop
 
 # Use quantized cutout model
@@ -354,7 +354,7 @@ ls -lh models/ quantized/
 sha256sum quantized/*.onnx
 
 # Test with beaker CLI
-export BEAKER_HEAD_MODEL_URL=./quantized/best-dynamic.onnx
+export BEAKER_DETECT_MODEL_URL=./quantized/best-dynamic.onnx
 beaker head ../example.jpg
 ```
 

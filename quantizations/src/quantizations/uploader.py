@@ -178,7 +178,7 @@ def generate_release_notes(
     notes.append("```bash")
     if model_type == "head":
         notes.append("# For head detection")
-        notes.append("export BEAKER_HEAD_MODEL_URL=<download_url>")
+        notes.append("export BEAKER_DETECT_MODEL_URL=<download_url>")
         notes.append("beaker head image.jpg --crop")
     elif model_type == "cutout":
         notes.append("# For cutout processing")

@@ -64,26 +64,26 @@ echo "⬇️  Starting $SUBDIR pull from remote system..."
 # Check if local directory exists, create if not
 if [[ -z "$DRY_RUN" ]]; then
     echo "📁 Ensuring local directory structure exists..."
-    mkdir -p "$LOCAL_DIR/head_model/$SUBDIR"
+    mkdir -p "$LOCAL_DIR/detect_model/$SUBDIR"
 else
     echo "📁 [DRY RUN] Would ensure local directory structure exists..."
 fi
 
 # Pull subdirectory from remote
 echo "🏃 Pulling $SUBDIR directory..."
-echo "   Source: $REMOTE:$REMOTE_DIR/head_model/$SUBDIR"
-echo "   Destination: $LOCAL_DIR/head_model/$SUBDIR"
+echo "   Source: $REMOTE:$REMOTE_DIR/detect_model/$SUBDIR"
+echo "   Destination: $LOCAL_DIR/detect_model/$SUBDIR"
 rsync -avz --progress $DRY_RUN \
     --exclude='*.pyc' \
     --exclude='__pycache__' \
     --exclude='.DS_Store' \
-    "$REMOTE:$REMOTE_DIR/head_model/$SUBDIR/" "$LOCAL_DIR/head_model/$SUBDIR/"
+    "$REMOTE:$REMOTE_DIR/detect_model/$SUBDIR/" "$LOCAL_DIR/detect_model/$SUBDIR/"
 
 # Verify the transfer
 if [[ -z "$DRY_RUN" ]]; then
     echo "✅ Verifying transfer..."
     echo "Local $SUBDIR directory contents:"
-    find "$LOCAL_DIR/head_model/$SUBDIR/" -maxdepth 1 -type f -o -type d | head -10
+    find "$LOCAL_DIR/detect_model/$SUBDIR/" -maxdepth 1 -type f -o -type d | head -10
 
     echo "🎉 $SUBDIR pull completed successfully!"
 else

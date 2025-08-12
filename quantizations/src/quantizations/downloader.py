@@ -57,7 +57,7 @@ def download_file(url: str, output_path: Path) -> bool:
         return False
 
 
-def download_head_model(output_dir: Path) -> Path | None:
+def download_detect_model(output_dir: Path) -> Path | None:
     """Download the latest head detection model."""
     release = get_latest_release_by_pattern("bird-head-detector")
     if not release:

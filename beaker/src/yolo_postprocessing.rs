@@ -99,7 +99,7 @@ pub fn postprocess_output(
     img_width: u32,
     img_height: u32,
     model_size: u32,
-    is_legacy_head_model: bool,
+    is_legacy_detect_model: bool,
 ) -> Result<Vec<Detection>> {
     let mut detections = Vec::new();
 
@@ -117,7 +117,7 @@ pub fn postprocess_output(
         let width = output[[0, 2, i]];
         let height = output[[0, 3, i]];
 
-        if is_legacy_head_model {
+        if is_legacy_detect_model {
             // Legacy single-class head detection model (class 0 = head)
             let confidence = output[[0, 4, i]];
 

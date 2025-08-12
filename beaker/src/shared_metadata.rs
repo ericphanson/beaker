@@ -68,7 +68,7 @@ impl IoTiming {
 
 /// Centralized list of relevant environment variables for version command and metadata collection
 pub const RELEVANT_ENV_VARS: &[&str] = &[
-    "BEAKER_HEAD_MODEL_PATH",
+    "BEAKER_DETECT_MODEL_PATH",
     "BEAKER_CUTOUT_MODEL_PATH",
     "BEAKER_CUTOUT_MODEL_URL",
     "BEAKER_CUTOUT_MODEL_CHECKSUM",

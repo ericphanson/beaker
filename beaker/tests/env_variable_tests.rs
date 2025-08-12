@@ -5,7 +5,7 @@ use tempfile::TempDir;
 /// This avoids race conditions by setting environment variables only on subprocesses
 
 #[test]
-fn test_head_model_path_override() {
+fn test_detect_model_path_override() {
     let temp_dir = TempDir::new().unwrap();
 
     // Create a fake model file
@@ -16,7 +16,7 @@ fn test_head_model_path_override() {
     let test_image = temp_dir.path().join("test.jpg");
     std::fs::copy("../example.jpg", &test_image).unwrap();
 
-    // Run beaker detect with BEAKER_HEAD_MODEL_PATH set to non-existent file
+    // Run beaker detect with BEAKER_DETECT_MODEL_PATH set to non-existent file
     let output = Command::new("cargo")
         .args([
             "run",
@@ -27,7 +27,7 @@ fn test_head_model_path_override() {
             "0.5",
             "--metadata",
         ])
-        .env("BEAKER_HEAD_MODEL_PATH", "/non/existent/path.onnx")
+        .env("BEAKER_DETECT_MODEL_PATH", "/non/existent/path.onnx")
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .output()
         .expect("Failed to execute beaker command");

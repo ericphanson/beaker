@@ -1,5 +1,5 @@
 [project]
-name = "head_model"
+name = "detect_model"
 version = "0.1.0"
 description = "Training scripts and tools for the Beaker bird head detection model"
 readme = "README.md"
