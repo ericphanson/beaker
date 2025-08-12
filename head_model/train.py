@@ -4,6 +4,7 @@
 Train YOLOv8n model for bird head detection on M1 MacBook Pro with Comet.ml tracking.
 """
 
+import argparse
 import os
 
 os.environ["COMET_EVAL_LOG_IMAGE_PREDICTIONS"] = (
@@ -168,6 +169,55 @@ else:
     print("ℹ️ NMS prefilter patch disabled via TRAINING_CONFIG.")
 
 
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Train YOLOv8n model for bird head detection",
+        epilog="""
+Examples:
+  # Start training from scratch
+  python train.py
+
+  # Resume training from a specific checkpoint
+  python train.py --resume runs/multi-detect/bird_multi_yolov8n/weights/last.pt
+
+  # Resume training with custom epochs and Comet experiment
+  python train.py --resume runs/multi-detect/bird_multi_yolov8n/weights/last.pt --epochs 50 --experiment-key abc123
+
+  # Start debug training from scratch
+  python train.py --debug
+
+  # Resume debug training from checkpoint
+  python train.py --resume runs/multi-detect/bird_multi_yolov8n_debug/weights/last.pt --debug
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--resume",
+        type=str,
+        default=None,
+        help="Path to checkpoint file (.pt) to resume training from. If not provided, training starts from scratch.",
+    )
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=None,
+        help="Number of epochs to train for. If not provided, uses config default (100 for full, 10 for debug).",
+    )
+    parser.add_argument(
+        "--experiment-key",
+        type=str,
+        default=None,
+        help="Comet ML experiment key to resume tracking from existing experiment.",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Run in debug mode with reduced epochs and data subset",
+    )
+    return parser.parse_args()
+
+
 def print_checkpoint_metrics(trainer):
     """Print trainer metrics and loss details after each checkpoint is saved."""
     print(
@@ -199,17 +249,26 @@ def setup_comet(device, experiment_key: str | None = None):
     workspace = os.getenv("COMET_WORKSPACE")
 
     try:
-        experiment = comet_ml.Experiment(
-            api_key=api_key,
-            project_name=project_name,
-            workspace=workspace,
-        )
-        print(f"✅ Comet.ml experiment started: {experiment.url}")
+        if experiment_key:
+            # Resume existing experiment
+            print(f"📊 Resuming Comet.ml experiment: {experiment_key}")
+            experiment = comet_ml.start(mode="get", experiment_key=experiment_key)
+            print(f"✅ Comet.ml experiment resumed: {experiment.url}")
+        else:
+            # Create new experiment
+            experiment = comet_ml.Experiment(
+                api_key=api_key,
+                project_name=project_name,
+                workspace=workspace,
+            )
+            print(f"✅ Comet.ml experiment started: {experiment.url}")
 
-        # Log hyperparameters from global config
-        log_params = TRAINING_CONFIG.copy()
-        log_params["device"] = device
-        experiment.log_parameters(log_params)
+        # Log hyperparameters from global config (only for new experiments)
+        if not experiment_key:
+            log_params = TRAINING_CONFIG.copy()
+            log_params["device"] = device
+            experiment.log_parameters(log_params)
+
         return experiment
 
     except Exception as e:
@@ -282,12 +341,17 @@ def create_debug_dataset():
     return str(yaml_path)
 
 
-def main():
+def main(
+    resume_checkpoint=None,
+    debug_override=None,
+    epochs_override=None,
+    experiment_key=None,
+):
     # Check if MPS is available
     if torch.backends.mps.is_available():
         print("✅ MPS (Metal Performance Shaders) is available")
         device = "mps"  # Re-enable MPS for speed
-        print("� Using MPS for accelerated training")
+        print("🔥 Using MPS for accelerated training")
     elif torch.cuda.is_available():
         print("✅ CUDA is available")
         device = "cuda"
@@ -295,8 +359,10 @@ def main():
         print("❌ Falling back to CPU")
         device = "cpu"
 
-    # Check if running in debug mode
-    is_debug = TRAINING_CONFIG["debug_run"]
+    # Check if running in debug mode (CLI override takes precedence)
+    is_debug = (
+        debug_override if debug_override is not None else TRAINING_CONFIG["debug_run"]
+    )
     if is_debug:
         print("🐛 DEBUG MODE: Quick training run enabled")
         print(
@@ -308,30 +374,56 @@ def main():
 
         # Create debug dataset
         data_config = create_debug_dataset()
-        epochs = TRAINING_CONFIG["debug_epochs"]
+        epochs = (
+            epochs_override
+            if epochs_override is not None
+            else TRAINING_CONFIG["debug_epochs"]
+        )
         run_name = f"{TRAINING_CONFIG['name']}_debug"
     else:
         print("🚀 FULL TRAINING MODE")
         data_config = TRAINING_CONFIG["data"]
-        epochs = TRAINING_CONFIG["epochs"]
+        epochs = (
+            epochs_override
+            if epochs_override is not None
+            else TRAINING_CONFIG["epochs"]
+        )
         run_name = TRAINING_CONFIG["name"]
 
+    # Show final epoch count
+    print(f"📅 Training for {epochs} epochs")
+
     # Setup Comet.ml tracking
-    experiment = setup_comet(device)
+    experiment = setup_comet(device, experiment_key)
 
     # Log debug info to Comet.ml
     if experiment:
         experiment.log_parameter("run_name", run_name)
         experiment.log_parameter("debug_mode", is_debug)
+        experiment.log_parameter("resume_checkpoint", resume_checkpoint is not None)
+        experiment.log_parameter("epochs", epochs)
+        if resume_checkpoint:
+            experiment.log_parameter("checkpoint_path", resume_checkpoint)
+        if experiment_key:
+            experiment.log_parameter("resumed_experiment", True)
         if is_debug:
             experiment.log_parameter("debug_epochs", epochs)
             experiment.log_parameter(
                 "debug_fraction", TRAINING_CONFIG["debug_fraction"]
             )
 
-    # Load a pretrained YOLO model
-    print(f"📦 Loading {TRAINING_CONFIG['model']} pretrained model...")
-    model = YOLO(TRAINING_CONFIG["model_file"])
+    # Load model - either from checkpoint or pretrained
+    if resume_checkpoint:
+        # Convert to absolute path if relative
+        checkpoint_path = os.path.abspath(resume_checkpoint)
+        print(f"📦 Resuming training from checkpoint: {checkpoint_path}")
+        if not os.path.exists(checkpoint_path):
+            raise FileNotFoundError(f"Checkpoint file not found: {checkpoint_path}")
+        model = YOLO(checkpoint_path)
+        print("✅ Successfully loaded checkpoint")
+    else:
+        print(f"📦 Loading {TRAINING_CONFIG['model']} pretrained model...")
+        model = YOLO(TRAINING_CONFIG["model_file"])
 
     # Ensure model is on the intended device (important for MPS)
     try:
@@ -359,25 +451,34 @@ def main():
 
     # Train the model on bird head dataset
     mode_text = "DEBUG" if is_debug else "FULL"
-    print(f"🚀 Starting {mode_text} training...")
-    results = model.train(
-        data=data_config,
-        epochs=epochs,
-        imgsz=TRAINING_CONFIG["imgsz"],
-        batch=TRAINING_CONFIG["batch"],
-        device=device,
-        project=TRAINING_CONFIG["project"],
-        name=run_name,
-        workers=TRAINING_CONFIG["workers"],
-        verbose=TRAINING_CONFIG["verbose"],
-        conf=TRAINING_CONFIG["conf"],
-        iou=TRAINING_CONFIG["iou"],
-        max_det=TRAINING_CONFIG["max_det"],
-        plots=TRAINING_CONFIG["plots"],
-        amp=False,
-        save_json=True,
-        save_period=1,
-    )
+    resume_text = " (RESUMING)" if resume_checkpoint else ""
+    print(f"🚀 Starting {mode_text} training{resume_text}...")
+
+    # Configure training parameters
+    train_params = {
+        "data": data_config,
+        "epochs": epochs,
+        "imgsz": TRAINING_CONFIG["imgsz"],
+        "batch": TRAINING_CONFIG["batch"],
+        "device": device,
+        "project": TRAINING_CONFIG["project"],
+        "name": run_name,
+        "workers": TRAINING_CONFIG["workers"],
+        "verbose": TRAINING_CONFIG["verbose"],
+        "conf": TRAINING_CONFIG["conf"],
+        "iou": TRAINING_CONFIG["iou"],
+        "max_det": TRAINING_CONFIG["max_det"],
+        "plots": TRAINING_CONFIG["plots"],
+        "amp": False,
+        "save_json": True,
+        "save_period": 1,
+    }
+
+    # Add resume parameter if we're resuming from checkpoint
+    if resume_checkpoint:
+        train_params["resume"] = True
+
+    results = model.train(**train_params)
 
     # Log final results to Comet.ml
     if experiment and results:
@@ -505,4 +606,10 @@ CALLBACKS["on_val_batch_end"] = on_val_batch_end_set_eta
 
 
 if __name__ == "__main__":
-    main()
+    args = parse_args()
+    main(
+        resume_checkpoint=args.resume,
+        debug_override=args.debug,
+        epochs_override=args.epochs,
+        experiment_key=args.experiment_key,
+    )
