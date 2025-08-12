@@ -205,6 +205,9 @@ def create_validation_subset(
     import random
     import yaml
 
+    # Set random seed for reproducible subsampling
+    random.seed(42)
+
     print(f"Creating validation subset with {val_fraction:.1%} of data...")
 
     # Load original dataset config
