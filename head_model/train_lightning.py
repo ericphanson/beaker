@@ -815,6 +815,10 @@ class YOLOv8Model(nn.Module):
         # P5_out: 256 channels, 1/32 scale
         return [p3_out, p4_out, p5_out]
 
+    def _extract_features(self, x: torch.Tensor) -> list[torch.Tensor]:
+        """Legacy method name for compatibility."""
+        return self._extract_features_with_neck(x)
+
 
 class YOLOModel(nn.Module):
     """Complete YOLO model - legacy wrapper for compatibility."""
@@ -822,16 +826,21 @@ class YOLOModel(nn.Module):
     def __init__(self, num_classes: int = 4):
         super().__init__()
         self.num_classes = num_classes
-        # Use YOLOv8 model
+        # Use YOLOv8 model with neck/FPN
         self.model = YOLOv8Model(num_classes)
 
         # Legacy attributes for compatibility
         self.backbone = self.model.backbone
+        self.neck = self.model.neck
         self.head = self.model.head
 
     def forward(self, x: torch.Tensor) -> list[torch.Tensor]:
         """Forward pass."""
         return self.model(x)
+
+    def _extract_features(self, x: torch.Tensor) -> list[torch.Tensor]:
+        """Legacy method for compatibility."""
+        return self.model._extract_features(x)
 
 
 # ============================================================================
