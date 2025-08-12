@@ -8,4 +8,5 @@ dependencies = [
     "rfdetr>=1.2.1",
     "pillow>=10.0.0",
     "numpy>=1.24.0",
+    "comet-ml>=3.50.0",
 ]
