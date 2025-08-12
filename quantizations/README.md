@@ -7,27 +7,23 @@ This package provides tools to quantize ONNX models for the Beaker bird detectio
 - **Model Download**: Automatically downloads the latest ONNX models from GitHub releases
 - **Multiple Quantization Levels**: Supports dynamic and static INT8 quantization with ONNX optimization
 - **ONNX Optimization**: Uses onnx-simplifier for graph optimization and optimization passes
-- **Validation**: Compares quantized models against originals using multiple metrics
-- **Performance Metrics**: Measures inference timing over multiple runs
-- **Comparison Images**: Generates visual comparisons with bounding boxes and IoU metrics
-- **Upload**: Publishes quantized models to new GitHub releases with comprehensive metrics
+- **Model Comparison**: Compares quantized models against originals using the beaker CLI for visual side-by-side results
+- **Upload**: Publishes quantized models to new GitHub releases with comparison images
 - **Full Pipeline**: Automated workflow from download to upload
 
-## Performance Results
+## Model Support
 
-Performance testing on 4 example images demonstrates excellent quantization results:
+### Head Detection Models
+- **Base Model**: YOLOv8n-based bird detect detection model (best.onnx)
+- **Source**: `bird-detect-detector-*` releases from GitHub
+- **Quantization Levels**: Dynamic INT8, Static INT8, FP16
+- **Use Case**: Bird detect detection and cropping
 
-| Model | Size (MB) | Inference (ms) | Cosine Similarity | RMSE | Max Diff | Size Reduction |
-|-------|-----------|----------------|-------------------|------|----------|----------------|
-| Original | 12.0 | 45.2 ± 2.1 | 1.000000 | 0.00 | 0.00 | 0.0% |
-| Dynamic-INT8 | 3.2 | 38.7 ± 1.8 | 0.999896 | 3.54 | 125.08 | 73.3% |
-| Static-INT8 | 3.2 | 37.9 ± 1.7 | 0.999891 | 3.62 | 127.43 | 73.3% |
-
-**Base Models:**
-- **Head Detection**: YOLOv8n-based bird detect detection model (best.onnx)
-- **Cutout Processing**: Custom segmentation model for background removal
-
-**Important Note**: These validation metrics are based on a limited set of 4 example images and may not be representative of general performance on diverse datasets.
+### Cutout Models
+- **Base Model**: Custom segmentation model for background removal
+- **Source**: `beaker-cutout-model-*` releases from GitHub
+- **Quantization Levels**: Dynamic INT8, Static INT8, FP16
+- **Use Case**: Background removal and segmentation
 
 ## Prerequisites
 
@@ -39,7 +35,14 @@ Before using this tool, ensure you have:
    source ~/.bashrc  # or restart your terminal
    ```
 
-2. **GitHub CLI** (for uploading quantized models):
+2. **Beaker CLI** for running inference comparisons:
+   ```bash
+   # Install beaker CLI (adjust path as needed)
+   # Make sure 'beaker' is available in your PATH
+   beaker --help
+   ```
+
+3. **GitHub CLI** (for uploading quantized models):
    ```bash
    # Install gh CLI (varies by OS)
    # Ubuntu/Debian: apt install gh
@@ -50,7 +53,7 @@ Before using this tool, ensure you have:
    gh auth login
    ```
 
-3. **Git** configured with your credentials
+4. **Git** configured with your credentials
 
 ## Installation
 
@@ -72,19 +75,18 @@ Run the complete quantization pipeline (recommended for first-time users):
 
 ```bash
 # Dry run to see what would happen
-uv run quantize-models full-pipeline --model-type detect --tolerance 200 --dry-run
+uv run quantize-models full-pipeline --model-type detect --dry-run
 
-# Actually run the pipeline with all optimizations
-uv run quantize-models full-pipeline --model-type detect --tolerance 200
+# Actually run the pipeline
+uv run quantize-models full-pipeline --model-type detect --test-image ../example.jpg
 ```
 
 This will:
 1. Download the latest detect detection model
 2. Create quantized versions (dynamic and static INT8)
 3. Apply ONNX optimizations and simplifications
-4. Validate the quantized models with timing measurements
-5. Generate comparison images showing detection results
-6. Upload them to a new GitHub release with performance metrics
+4. Generate comparison images using the beaker CLI
+5. Upload them to a new GitHub release with comparison images
 
 ### Individual Commands
 
@@ -127,20 +129,27 @@ Available quantization levels:
 - **fp16**: Half-precision floating-point (good balance of size and accuracy)
 - **int8**: Alias for static quantization
 
-#### 3. Validate Quantized Models
+#### 3. Compare Quantized Models
 
-Compare quantized models against the original:
+Compare quantized models against the original using the beaker CLI:
 
 ```bash
-# Basic validation
-uv run quantize-models validate models/best.onnx quantized/best-dynamic.onnx
+# Basic comparison (will auto-find example images)
+uv run quantize-models compare models/best.onnx quantized/best-dynamic.onnx
 
-# Set custom tolerance for max difference
-uv run quantize-models validate models/best.onnx quantized/best-dynamic.onnx --tolerance 200
+# Specify test image and model type
+uv run quantize-models compare models/best.onnx quantized/best-dynamic.onnx \
+  --test-image ../example.jpg --model-type detect
 
-# Validate with test images (if available)
-uv run quantize-models validate models/best.onnx quantized/best-dynamic.onnx --test-images ../example.jpg ../example-2-birds.jpg
+# Custom output directory
+uv run quantize-models compare models/best.onnx quantized/best-dynamic.onnx \
+  --output-dir comparisons/
 ```
+
+This command will:
+- Run inference on both models using the beaker CLI
+- Generate side-by-side comparison images
+- Save results to the specified output directory
 
 #### 4. Upload Quantized Models
 
@@ -150,9 +159,9 @@ Upload quantized models to GitHub releases:
 # Basic upload
 uv run quantize-models upload quantized/ --model-type detect --version v1.0
 
-# Include comparison images and performance metrics
+# Include comparison images
 uv run quantize-models upload quantized/ --model-type detect --version v1.0 \
-  --include-comparisons --test-images ../
+  --include-comparisons --test-image ../example.jpg
 
 # Dry run to preview release
 uv run quantize-models upload quantized/ --model-type detect --version v1.0 --dry-run
@@ -160,8 +169,7 @@ uv run quantize-models upload quantized/ --model-type detect --version v1.0 --dr
 
 The upload command now creates releases with:
 - All quantized models for the specified type in one release
-- Performance comparison tables
-- Visual comparison images with bounding boxes and IoU metrics
+- Visual comparison images generated using the beaker CLI
 - Comprehensive release notes with optimization details
 - SHA256 checksums for all files
 
@@ -181,80 +189,16 @@ export BEAKER_CUTOUT_MODEL_URL="https://github.com/ericphanson/beaker/releases/d
 beaker cutout image.jpg
 ```
 
-## Performance Optimizations
+## Quantization Benefits
 
-### ONNX Model Optimizations Applied
+Quantization provides several advantages:
 
-All quantized models include the following optimizations:
+- **Size Reduction**: INT8 quantization typically reduces model size by ~70%
+- **Faster Inference**: Quantized models run faster on CPU hardware
+- **Lower Memory Usage**: Reduced memory footprint during inference
+- **Maintained Accuracy**: Visual comparison shows minimal quality degradation
 
-1. **ONNX Simplification**: Models are processed with onnx-simplifier to:
-   - Remove redundant operations
-   - Simplify computation graphs
-   - Optimize constant folding
-   - Reduce model complexity
-
-2. **Graph Optimization Passes**: Multiple optimization passes are applied:
-   - Operator fusion for improved performance
-   - Memory layout optimization
-   - Constant propagation and elimination
-
-3. **Quantization Techniques**:
-   - **FP16**: Half-precision floating-point (49% size reduction, minimal accuracy loss)
-   - **Dynamic INT8**: Runtime quantization (73% size reduction, fastest inference)
-   - **Static INT8**: Calibration-based quantization (73% size reduction, optimal accuracy)
-
-### Performance Benchmarks
-
-Inference timing measured on CPU with 5 runs per image:
-
-| Model Type | Mean Time (ms) | Std Dev (ms) | Speedup |
-|------------|----------------|--------------|---------|
-| Original   | 45.2           | ±2.1         | 1.0x    |
-| FP16       | 44.8           | ±2.3         | 1.01x   |
-| Dynamic INT8| 38.7          | ±1.8         | 1.17x   |
-| Static INT8| 37.9           | ±1.7         | 1.19x   |
-
-## Validation Metrics
-
-Based on testing with 4 example images, the quantization results show excellent performance:
-
-### Head Detection Model Quantization Results
-
-| Metric | FP16 | Dynamic INT8 | Static INT8 |
-|--------|------|-------------|-------------|
-| **File Size** | 6.1MB | 3.2MB | 3.2MB |
-| **Size Reduction** | 49.2% | 73.3% | 73.3% |
-| **Cosine Similarity** | 0.999998 | 0.999896 | 0.999891 |
-| **RMSE** | 0.12 | 3.54 | 3.62 |
-| **Max Absolute Difference** | 2.15 | 125.08 | 127.43 |
-
-### Detailed Validation Results
-
-- **Test Images**: 4 example images (example.jpg, example-2-birds.jpg, etc.)
-- **Inference Speed**: 17-19% faster on CPU compared to original model
-- **Memory Usage**: ~70% reduction during inference
-- **Accuracy**: Maintains >99.98% similarity to original predictions
-- **IoU Metrics**: Average IoU >0.95 for bounding box detection
-
-**⚠️ Important Note**: These validation metrics are based on a limited set of 4 example images and may not be representative of general performance on diverse datasets. For production use, validate the quantized models on your specific dataset and use cases.
-
-## Model Support
-
-### Head Detection Models
-- **Base Model**: YOLOv8n-based bird detect detection model (best.onnx)
-- **Source**: `bird-detect-detector-*` releases from GitHub
-- **Quantization Levels**: Dynamic INT8, Static INT8, FP16
-- **Use Case**: Bird detect detection and cropping
-- **Input Size**: 960x960 RGB images
-- **Output**: Bounding boxes with confidence scores
-
-### Cutout Models
-- **Base Model**: Custom segmentation model for background removal
-- **Source**: `beaker-cutout-model-*` releases from GitHub
-- **Quantization Levels**: Dynamic INT8, Static INT8, FP16
-- **Use Case**: Background removal and segmentation
-- **Input Size**: Variable size RGB images
-- **Output**: Segmentation masks
+Use the `compare` command to generate side-by-side visual comparisons and verify that quantized models meet your quality requirements.
 
 ## Integration with Beaker CLI
 
@@ -320,13 +264,17 @@ gh auth login
 - Check available disk space (quantization creates temporary files)
 - Try with verbose logging: `uv run quantize-models quantize -v`
 
-#### 5. Validation tolerance errors
+#### 5. Comparison failures
 ```bash
-# Increase tolerance if models are flagged as too different
-uv run quantize-models validate model.onnx quantized.onnx --tolerance 500
+# Make sure beaker CLI is available
+beaker --help
 
-# Check validation with verbose output
-uv run quantize-models validate model.onnx quantized.onnx -v
+# Check if models are compatible with beaker
+beaker detect --help
+beaker cutout --help
+
+# Try with verbose logging
+uv run quantize-models compare model.onnx quantized.onnx -v
 ```
 
 #### 6. Upload failures
@@ -383,7 +331,7 @@ src/quantizations/
 ├── downloader.py      # GitHub release downloading
 ├── quantizer.py       # ONNX model quantization
 ├── uploader.py        # GitHub release uploading
-├── validator.py       # Model validation and metrics
+├── inference.py       # Model comparison using beaker CLI
 └── py.typed          # Type hint marker
 ```
 

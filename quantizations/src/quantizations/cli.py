@@ -7,7 +7,7 @@ from pathlib import Path
 
 import click
 
-from . import downloader, quantizer, uploader, validator, comparisons
+from . import downloader, quantizer, uploader, inference
 
 # Set up logging
 logging.basicConfig(
@@ -83,55 +83,68 @@ def quantize(model_path: Path, output_dir: Path, levels: tuple[str, ...]) -> Non
 @click.argument("original_model", type=click.Path(exists=True, path_type=Path))
 @click.argument("quantized_model", type=click.Path(exists=True, path_type=Path))
 @click.option(
-    "--test-images",
+    "--test-image",
     type=click.Path(exists=True, path_type=Path),
-    help="Directory containing test images",
+    help="Test image for comparison",
 )
 @click.option(
-    "--tolerance",
-    type=float,
-    default=0.01,
-    help="Maximum allowed difference in predictions",
+    "--output-dir",
+    "-o",
+    type=click.Path(path_type=Path),
+    default=Path("./comparisons"),
+    help="Directory to save comparison images",
 )
-def validate(
+@click.option(
+    "--model-type",
+    type=click.Choice(["detect", "cutout"]),
+    default="detect",
+    help="Type of model",
+)
+def compare(
     original_model: Path,
     quantized_model: Path,
-    test_images: Path | None,
-    tolerance: float,
-    model_type: str = "detect",
+    test_image: Path | None,
+    output_dir: Path,
+    model_type: str,
 ) -> None:
-    """Validate quantized model against original."""
-    # Use default test images if not specified
-    if test_images is None:
-        # Try to find the beaker repository root
+    """Compare original and quantized models by generating side-by-side inference results."""
+    # Use default test image if not specified
+    if test_image is None:
+        # Try to find example images
         current_path = Path(__file__).parent
         repo_root = None
 
-        # Search up the directory tree for the beaker repository
+        # Search up the directory tree for example images
         for _ in range(6):  # Reasonable limit
             if (current_path / "example.jpg").exists() or current_path.name == "beaker":
                 repo_root = current_path
                 break
             current_path = current_path.parent
 
-        if repo_root and (repo_root / "example.jpg").exists():
-            test_images = repo_root
-        else:
-            test_images = Path.cwd()  # Default to current directory
+        if repo_root:
+            # Look for example images
+            for pattern in ["example*.jpg", "example*.png"]:
+                examples = list(repo_root.glob(pattern))
+                if examples:
+                    test_image = examples[0]
+                    break
 
-    logger.info(f"Validating {quantized_model.name} against {original_model.name}...")
+        if test_image is None:
+            raise click.ClickException(
+                "No test image specified and no example images found"
+            )
 
-    is_valid, max_diff = validator.validate_models(
-        original_model, quantized_model, test_images, tolerance, model_type=model_type
-    )
+    logger.info(f"Comparing {quantized_model.name} against {original_model.name}...")
+    logger.info(f"Using test image: {test_image}")
 
-    if is_valid:
-        logger.info(f"✓ Validation passed! Max difference: {max_diff:.6f}")
-    else:
-        logger.error(
-            f"✗ Validation failed! Max difference: {max_diff:.6f} > {tolerance}"
+    try:
+        comparison_path = inference.compare_models(
+            original_model, quantized_model, test_image, output_dir, model_type
         )
-        raise click.ClickException("Validation failed")
+        logger.info(f"✓ Comparison complete! Saved to: {comparison_path}")
+    except Exception as e:
+        logger.error(f"✗ Comparison failed: {e}")
+        raise click.ClickException(f"Comparison failed: {e}")
 
 
 @cli.command()
@@ -154,9 +167,9 @@ def validate(
     help="Generate and include comparison images in the release",
 )
 @click.option(
-    "--test-images",
+    "--test-image",
     type=click.Path(exists=True, path_type=Path),
-    help="Directory containing test images for comparison generation",
+    help="Test image for comparison generation",
 )
 def upload(
     quantized_dir: Path,
@@ -164,7 +177,7 @@ def upload(
     version: str,
     dry_run: bool,
     include_comparisons: bool,
-    test_images: Path | None,
+    test_image: Path | None,
 ) -> None:
     """Upload quantized models to GitHub releases."""
     logger.info(f"Uploading {model_type} quantizations (version: {version})...")
@@ -174,7 +187,7 @@ def upload(
     comparison_images = []
     base_model_info = f"Base model type: {model_type}"
 
-    if include_comparisons and test_images:
+    if include_comparisons:
         logger.info("Generating comparison images...")
         try:
             # Find original and quantized models
@@ -188,27 +201,31 @@ def upload(
                     quantized_dir, model_type
                 )
 
-                # Collect test images
-                if test_images.is_file():
-                    test_image_list = [test_images]
-                else:
-                    test_image_list = []
-                    for ext in [".jpg", ".jpeg", ".png"]:
-                        test_image_list.extend(test_images.glob(f"*{ext}"))
+                # Use provided test image or find one
+                if test_image is None:
+                    # Look for example images
+                    current_path = Path(__file__).parent
+                    for _ in range(6):
+                        if (
+                            current_path / "example.jpg"
+                        ).exists() or current_path.name == "beaker":
+                            for pattern in ["example*.jpg", "example*.png"]:
+                                examples = list(current_path.glob(pattern))
+                                if examples:
+                                    test_image = examples[0]
+                                    break
+                            break
+                        current_path = current_path.parent
 
-                if test_image_list and quantized_models:
-                    # Create model dict for comparison
-                    models = {"Original": original_model}
-                    for q_model in quantized_models:
-                        model_name = q_model.stem.replace(f"{model_type}-", "").title()
-                        models[model_name] = q_model
-
+                if test_image and quantized_models:
                     # Generate comparison images
                     comparison_output = quantized_dir / "comparisons"
-                    comparison_images = comparisons.generate_model_comparison_images(
-                        models,
-                        test_image_list[:4],
-                        comparison_output,  # Limit to 4 images
+                    comparison_images = inference.generate_all_comparisons(
+                        original_model,
+                        quantized_models[:3],  # Limit to 3 models
+                        [test_image],
+                        comparison_output,
+                        model_type,
                     )
 
                     logger.info(f"Generated {len(comparison_images)} comparison images")
@@ -246,25 +263,24 @@ def upload(
     help="Base output directory",
 )
 @click.option("--version", default="v1", help="Version tag for releases")
-@click.option(
-    "--tolerance",
-    type=float,
-    default=200.0,
-    help="Maximum allowed difference in validation",
-)
 @click.option("--dry-run", is_flag=True, help="Perform dry run without uploading")
 @click.option(
     "--no-download", is_flag=True, help="Skip download step and use existing models"
+)
+@click.option(
+    "--test-image",
+    type=click.Path(exists=True, path_type=Path),
+    help="Test image for comparison generation",
 )
 def full_pipeline(
     model_type: str,
     output_dir: Path,
     version: str,
-    tolerance: float,
     dry_run: bool,
     no_download: bool,
+    test_image: Path | None,
 ) -> None:
-    """Run the complete quantization pipeline: download -> quantize -> validate -> upload."""
+    """Run the complete quantization pipeline: download -> quantize -> generate comparisons -> upload."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
     models_dir = output_dir / "models"
@@ -314,129 +330,88 @@ def full_pipeline(
     if not all_quantized:
         raise click.ClickException("No quantized models were created")
 
-    # Validate quantized models with enhanced metrics
-    logger.info("Step 3: Validating quantized models...")
+    # Find test image if not provided
+    if test_image is None:
+        current_path = Path(__file__).parent
+        for _ in range(6):
+            if (current_path / "example.jpg").exists() or current_path.name == "beaker":
+                for pattern in ["example*.jpg", "example*.png"]:
+                    examples = list(current_path.glob(pattern))
+                    if examples:
+                        test_image = examples[0]
+                        break
+                if test_image:
+                    break
+                current_path = current_path.parent
 
-    # Find test images using the same logic as validate command
-    current_path = Path(__file__).parent
-    test_images_dir = None
+    # Generate comparisons and upload for each model type
+    logger.info("Step 3: Generating comparisons and uploading...")
 
-    for _ in range(6):
-        if (current_path / "example.jpg").exists() or current_path.name == "beaker":
-            test_images_dir = current_path
-            break
-        current_path = current_path.parent
-
-    if not test_images_dir:
-        test_images_dir = Path.cwd()
-
-    validation_results = {}
-    timing_results = {}
-
-    for original, quantized_path in all_quantized:
-        try:
-            is_valid, max_diff, detailed_metrics = (
-                validator.validate_models_with_timing(
-                    original,
-                    quantized_path,
-                    test_images_dir,
-                    tolerance,
-                    model_type=model_type,
-                )
-            )
-            if not is_valid:
-                logger.error(f"Validation failed for {quantized_path.name}")
-                raise click.ClickException(
-                    f"Validation failed for {quantized_path.name}"
-                )
-
-            model_name = quantized_path.stem
-            validation_results[model_name] = detailed_metrics
-            timing_results[model_name] = detailed_metrics["quantized_timing"]
-
-            logger.info(f"✓ {quantized_path.name} validated (max diff: {max_diff:.6f})")
-        except Exception as e:
-            logger.warning(f"Validation failed for {quantized_path.name}: {e}")
-
-    # Generate comparison images and performance tables
-    logger.info("Step 4: Generating comparisons and metrics...")
-
-    # Find test images using same logic
-    test_images = []
-    for pattern in ["example*.jpg", "example*.png"]:
-        test_images.extend(test_images_dir.glob(pattern))
-    test_images = test_images[:4]  # Limit to 4 images
-
-    # Process each model type
     for current_type in ["detect", "cutout"]:
         if model_type not in [current_type, "all"]:
             continue
 
         # Find models for this type
-        type_models = {}
-        original_model = None
+        type_quantized = [
+            (orig, quant)
+            for orig, quant in all_quantized
+            if current_type in str(quant).lower()
+        ]
 
-        for original, quantized_path in all_quantized:
-            if current_type in str(quantized_path).lower():
-                if not original_model:
-                    # Find or create optimized original
-                    original_model = original
-                    optimized_original = (
-                        quantized_dir / f"{current_type}-optimized.onnx"
-                    )
-                    if not optimized_original.exists():
-                        quantizer.optimize_model(original, optimized_original)
-                    type_models["Original"] = optimized_original
+        if not type_quantized:
+            continue
 
-                # Add quantized model
-                model_name = quantized_path.stem.replace(f"{current_type}-", "").title()
-                type_models[model_name] = quantized_path
+        # Get original model (first one found)
+        original_model = type_quantized[0][0]
 
-        if (
-            len(type_models) > 1 and test_images
-        ):  # Need original + at least one quantized
-            logger.info(f"Generating comparison images for {current_type} models...")
+        # Create optimized version of original if it doesn't exist
+        optimized_original = quantized_dir / f"{current_type}-optimized.onnx"
+        if not optimized_original.exists():
             try:
-                comparison_images = comparisons.generate_model_comparison_images(
-                    type_models, test_images, comparisons_dir
+                quantizer.optimize_model(original_model, optimized_original)
+                logger.info(f"✓ Created optimized original: {optimized_original.name}")
+            except Exception as e:
+                logger.warning(f"Failed to optimize original model: {e}")
+                optimized_original = original_model
+
+        # Generate comparison images if test image is available
+        comparison_images = []
+        if test_image:
+            logger.info(f"Generating comparison images for {current_type} models...")
+            quantized_models = [quant for _, quant in type_quantized]
+
+            try:
+                comparison_images = inference.generate_all_comparisons(
+                    optimized_original,
+                    quantized_models,
+                    [test_image],
+                    comparisons_dir,
+                    current_type,
                 )
                 logger.info(
                     f"Generated {len(comparison_images)} comparison images for {current_type}"
                 )
-
-                # Create performance table
-                type_validation = {
-                    k: v for k, v in validation_results.items() if current_type in k
-                }
-                type_timing = {
-                    k: v for k, v in timing_results.items() if current_type in k
-                }
-                performance_table = comparisons.create_performance_table(
-                    type_models, test_images, type_timing, type_validation
-                )
-
-                # Upload quantized models for this type
-                logger.info(f"Step 5: Uploading {current_type} quantizations...")
-                base_model_info = f"Base model: {original_model.name if original_model else 'Unknown'}"
-
-                uploader.upload_quantizations(
-                    quantized_dir,
-                    current_type,
-                    version,
-                    dry_run,
-                    performance_table,
-                    comparison_images,
-                    base_model_info,
-                )
-
             except Exception as e:
                 logger.warning(
                     f"Failed to generate comparisons for {current_type}: {e}"
                 )
-                # Upload without comparisons
-                uploader.upload_quantizations(
-                    quantized_dir, current_type, version, dry_run
-                )
+
+        # Upload quantized models for this type
+        logger.info(f"Step 4: Uploading {current_type} quantizations...")
+        base_model_info = f"Base model: {original_model.name}"
+
+        try:
+            uploader.upload_quantizations(
+                quantized_dir,
+                current_type,
+                version,
+                dry_run,
+                "",  # No performance table for now
+                comparison_images,
+                base_model_info,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to upload {current_type} models: {e}")
 
     logger.info("Full pipeline complete!")
 
