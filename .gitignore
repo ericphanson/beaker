@@ -9,6 +9,7 @@ onnxruntime-libs
 
 # Rust build artifacts
 beaker/target/
+target/
 beaker/Cargo.lock
 example-raw.rw2
 beaker/*-notes.md
