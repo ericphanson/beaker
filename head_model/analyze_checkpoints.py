@@ -302,12 +302,12 @@ def evaluate_checkpoint(
             else 0
         ),
         # Per-class mAP@0.5
-        "map50_per_class": results.box.ap50().tolist()
-        if len(results.box.ap50()) > 0
+        "map50_per_class": results.box.ap50.tolist()
+        if len(results.box.ap50) > 0
         else [0] * len(CLASS_NAMES),
         # Per-class mAP@0.5:0.95
-        "map_per_class": results.box.maps().tolist()
-        if len(results.box.maps()) > 0
+        "map_per_class": results.box.maps.tolist()
+        if len(results.box.maps) > 0
         else [0] * len(CLASS_NAMES),
         # Per-class precision and recall
         "precision_per_class": results.box.p.tolist()
