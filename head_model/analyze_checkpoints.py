@@ -274,56 +274,54 @@ def evaluate_checkpoint(
     """Evaluate a single checkpoint and return metrics."""
     print(f"  Evaluating {checkpoint_path.name}...")
 
-    try:
-        # Load model
-        model = YOLO(str(checkpoint_path))
+    # Load model
+    model = YOLO(str(checkpoint_path))
 
-        # Run validation
-        results = model.val(
-            data=data_config,
-            conf=conf_thres,
-            iou=iou_thres,
-            plots=False,
-            verbose=False,
-            save_json=False,
-        )
+    # Run validation
+    results = model.val(
+        data=data_config,
+        conf=conf_thres,
+        iou=iou_thres,
+        plots=False,
+        verbose=False,
+        save_json=False,
+    )
 
-        # Extract metrics
-        metrics = {
-            "epoch": int(checkpoint_path.stem.replace("epoch", "")),
-            "checkpoint_path": str(checkpoint_path),
-            # Overall metrics
-            "map50": float(results.box.map50),  # mAP@0.5
-            "map": float(results.box.map),  # mAP@0.5:0.95
-            "precision": float(results.box.mp),
-            "recall": float(results.box.mr),
-            "f1": float(
-                2 * results.box.mp * results.box.mr / (results.box.mp + results.box.mr)
-                if (results.box.mp + results.box.mr) > 0
-                else 0
-            ),
-            # Per-class mAP@0.5
-            "map50_per_class": results.box.maps50.tolist()
-            if results.box.maps50 is not None
-            else [0] * len(CLASS_NAMES),
-            # Per-class mAP@0.5:0.95
-            "map_per_class": results.box.maps.tolist()
-            if results.box.maps is not None
-            else [0] * len(CLASS_NAMES),
-            # Per-class precision and recall
-            "precision_per_class": results.box.p.tolist()
-            if hasattr(results.box, "p") and results.box.p is not None
-            else [0] * len(CLASS_NAMES),
-            "recall_per_class": results.box.r.tolist()
-            if hasattr(results.box, "r") and results.box.r is not None
-            else [0] * len(CLASS_NAMES),
-        }
+    # Extract metrics using the correct method calls
+    metrics = {
+        "epoch": int(checkpoint_path.stem.replace("epoch", "")),
+        "checkpoint_path": str(checkpoint_path),
+        # Overall metrics
+        "map50": float(results.box.map50()),  # mAP@0.5
+        "map": float(results.box.map()),  # mAP@0.5:0.95
+        "precision": float(results.box.mp()),
+        "recall": float(results.box.mr()),
+        "f1": float(
+            2
+            * results.box.mp()
+            * results.box.mr()
+            / (results.box.mp() + results.box.mr())
+            if (results.box.mp() + results.box.mr()) > 0
+            else 0
+        ),
+        # Per-class mAP@0.5
+        "map50_per_class": results.box.ap50().tolist()
+        if len(results.box.ap50()) > 0
+        else [0] * len(CLASS_NAMES),
+        # Per-class mAP@0.5:0.95
+        "map_per_class": results.box.maps().tolist()
+        if len(results.box.maps()) > 0
+        else [0] * len(CLASS_NAMES),
+        # Per-class precision and recall
+        "precision_per_class": results.box.p.tolist()
+        if hasattr(results.box, "p") and results.box.p is not None
+        else [0] * len(CLASS_NAMES),
+        "recall_per_class": results.box.r.tolist()
+        if hasattr(results.box, "r") and results.box.r is not None
+        else [0] * len(CLASS_NAMES),
+    }
 
-        return metrics
-
-    except Exception as e:
-        print(f"    ❌ Error evaluating {checkpoint_path.name}: {e}")
-        return None
+    return metrics
 
 
 def load_cache(cache_path: Path) -> Dict:
@@ -388,10 +386,9 @@ def evaluate_all_checkpoints(
             checkpoint_path, data_config, args.conf_thres, args.iou_thres
         )
 
-        if result is not None:
-            all_results.append(result)
-            # Cache the result
-            cached_results[cache_key] = result
+        all_results.append(result)
+        # Cache the result
+        cached_results[cache_key] = result
 
         # Save cache periodically
         if args.save_cache and i % 5 == 0:
