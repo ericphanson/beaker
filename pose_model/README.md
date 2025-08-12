@@ -12,6 +12,19 @@ You can validate it with `uv run python summarize_checkpoint.py`.
 uv run python export_vhr_birdpose.py --aggressive-quantization --fp16
 ```
 
+### Run
+Place bird photos in "birds".
+
+Generate crops:
+```sh
+beaker detect --crop bird --output-dir birds-crops -v --confidence 0.8 birds
+```
+
+Run VHR pose detect:
+```sh
+uv run python batch_inference.py --input-dir birds-crops --output-dir birds-crops-output --save-visualizations --backend coreml
+```
+
 ### Citation
 Any usage of this model should cite the paper:
 ```bibtex
