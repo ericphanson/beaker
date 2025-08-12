@@ -296,10 +296,10 @@ def full_pipeline(
 
     # Find downloaded models
     model_files = []
-    if model_type in ["detect", "all"]:
+    if model_type in ["detect"]:
         detect_files = list(models_dir.glob("*detect*.onnx"))
         model_files.extend(detect_files)
-    if model_type in ["cutout", "all"]:
+    if model_type in ["cutout"]:
         cutout_files = list(models_dir.glob("*isnet*.onnx"))
         model_files.extend(cutout_files)
 
@@ -311,21 +311,26 @@ def full_pipeline(
         else:
             raise click.ClickException("No model files found after download")
 
+    if len(model_files) > 1:
+        raise click.ClickException(
+            f"Multiple model files found: {', '.join([f.name for f in model_files])}. Please specify a single model."
+        )
+
+    original_model = model_files[0]
     # Quantize each model
     logger.info("Step 2: Quantizing models...")
     all_quantized = []
-    for model_file in model_files:
-        for level in ["dynamic", "static"]:
-            try:
-                quantized_path = quantizer.quantize_model(
-                    model_file, quantized_dir, level
-                )
-                all_quantized.append((model_file, quantized_path))
-                logger.info(f"✓ Created {quantized_path.name}")
-            except Exception as e:
-                logger.warning(
-                    f"Failed to create {level} quantization for {model_file.name}: {e}"
-                )
+    for level in ["dynamic", "static"]:
+        try:
+            quantized_path = quantizer.quantize_model(
+                original_model, quantized_dir, level
+            )
+            all_quantized.append((original_model, quantized_path))
+            logger.info(f"✓ Created {quantized_path.name}")
+        except Exception as e:
+            logger.warning(
+                f"Failed to create {level} quantization for {original_model.name}: {e}"
+            )
 
     if not all_quantized:
         raise click.ClickException("No quantized models were created")
@@ -345,65 +350,46 @@ def full_pipeline(
                 current_path = current_path.parent
 
     # Generate comparisons and upload for each model type
-    logger.info("Step 3: Generating comparisons and uploading...")
+    logger.info("Step 3: Generating comparisons...")
 
-    for current_type in ["detect", "cutout"]:
-        if model_type not in [current_type, "all"]:
-            continue
+    # Create optimized version of original if it doesn't exist
+    optimized_original = quantized_dir / f"{model_type}-optimized.onnx"
+    if not optimized_original.exists():
+        try:
+            quantizer.optimize_model(original_model, optimized_original)
+            logger.info(f"✓ Created optimized original: {optimized_original.name}")
+        except Exception as e:
+            logger.warning(f"Failed to optimize original model: {e}")
+            optimized_original = original_model
 
-        # Find models for this type
-        type_quantized = [
-            (orig, quant)
-            for orig, quant in all_quantized
-            if current_type in str(quant).lower()
-        ]
+    # Generate comparison images if test image is available
+    comparison_images = []
+    if test_image:
+        logger.info(f"Generating comparison images for {model_type} models...")
+        quantized_models = [quant for _, quant in all_quantized]
 
-        if not type_quantized:
-            continue
-
-        # Get original model (first one found)
-        original_model = type_quantized[0][0]
-
-        # Create optimized version of original if it doesn't exist
-        optimized_original = quantized_dir / f"{current_type}-optimized.onnx"
-        if not optimized_original.exists():
-            try:
-                quantizer.optimize_model(original_model, optimized_original)
-                logger.info(f"✓ Created optimized original: {optimized_original.name}")
-            except Exception as e:
-                logger.warning(f"Failed to optimize original model: {e}")
-                optimized_original = original_model
-
-        # Generate comparison images if test image is available
-        comparison_images = []
-        if test_image:
-            logger.info(f"Generating comparison images for {current_type} models...")
-            quantized_models = [quant for _, quant in type_quantized]
-
-            try:
-                comparison_images = inference.generate_all_comparisons(
-                    optimized_original,
-                    quantized_models,
-                    [test_image],
-                    comparisons_dir,
-                    current_type,
-                )
-                logger.info(
-                    f"Generated {len(comparison_images)} comparison images for {current_type}"
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Failed to generate comparisons for {current_type}: {e}"
-                )
+        try:
+            comparison_images = inference.generate_all_comparisons(
+                original_model,
+                quantized_models,
+                [test_image],
+                comparisons_dir,
+                model_type,
+            )
+            logger.info(
+                f"Generated {len(comparison_images)} comparison images for {model_type}"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to generate comparisons for {model_type}: {e}")
 
         # Upload quantized models for this type
-        logger.info(f"Step 4: Uploading {current_type} quantizations...")
+        logger.info(f"Step 4: Uploading {model_type} quantizations...")
         base_model_info = f"Base model: {original_model.name}"
 
         try:
             uploader.upload_quantizations(
                 quantized_dir,
-                current_type,
+                model_type,
                 version,
                 dry_run,
                 "",  # No performance table for now
@@ -411,7 +397,7 @@ def full_pipeline(
                 base_model_info,
             )
         except Exception as e:
-            logger.warning(f"Failed to upload {current_type} models: {e}")
+            logger.warning(f"Failed to upload {model_type} models: {e}")
 
     logger.info("Full pipeline complete!")
 

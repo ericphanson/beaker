@@ -51,7 +51,7 @@ def run_beaker_inference(
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         logger.debug(f"Beaker output: {result.stdout}")
 
-        # Find the output image based on beaker's naming convention
+        # Find the output image based on beaker's naming convention.
         if model_type == "detect":
             # Beaker detect creates: {input_name}_bounding-box.jpg
             output_name = image_path.stem + "_bounding-box" + ".jpg"
@@ -63,17 +63,6 @@ def run_beaker_inference(
             output_name = image_path.stem + "_output" + image_path.suffix
 
         output_path = output_dir / output_name
-
-        # If the expected output doesn't exist, look for any new image in output_dir
-        if not output_path.exists():
-            output_images = list(output_dir.glob("*.jpg")) + list(
-                output_dir.glob("*.png")
-            )
-            if output_images:
-                # Sort by modification time and take the most recent
-                output_images.sort(key=lambda p: p.stat().st_mtime)
-                output_path = output_images[-1]
-                logger.debug(f"Using most recent output: {output_path}")
 
         if not output_path.exists():
             raise FileNotFoundError(f"No output image found in {output_dir}")
@@ -131,6 +120,44 @@ def create_side_by_side_comparison(
     comparison.paste(img1, (0, 0))
     comparison.paste(img2, (img1.width, 0))
 
+    # Add labels
+    logger.info(f"Adding labels: {labels}")
+
+    from PIL import ImageDraw, ImageFont
+
+    draw = ImageDraw.Draw(comparison)
+    font = ImageFont.load_default(20)
+
+    # Draw labels at the top
+    label0_bbox = font.getbbox(labels[0])
+    label1_bbox = font.getbbox(labels[1])
+    label0_width = label0_bbox[2] - label0_bbox[0]
+    label1_width = label1_bbox[2] - label1_bbox[0]
+    # White background for labels
+    draw.rectangle(
+        [
+            (img1.width // 2 - label0_width // 2 - 5, 0),
+            (img1.width // 2 + label0_width // 2 + 5, 30),
+        ],
+        fill="white",
+    )
+    draw.rectangle(
+        [
+            (img1.width + img2.width // 2 - label1_width // 2 - 5, 0),
+            (img1.width + img2.width // 2 + label1_width // 2 + 5, 30),
+        ],
+        fill="white",
+    )
+    # Draw text
+    draw.text(
+        (img1.width // 2 - label0_width // 2, 5), labels[0], fill="black", font=font
+    )
+    draw.text(
+        (img1.width + img2.width // 2 - label1_width // 2, 5),
+        labels[1],
+        fill="black",
+        font=font,
+    )
     # Save comparison
     comparison.save(comparison_output)
     logger.info(f"Created comparison image: {comparison_output}")
