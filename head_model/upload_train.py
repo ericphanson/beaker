@@ -137,7 +137,7 @@ def validate_version(version):
     return re.match(pattern, version) is not None
 
 
-def generate_onnx_model(model_path, output_dir=None, int8=False):
+def generate_onnx_model(model_path, output_dir=None, use_int8=False):
     """Generate ONNX model from PyTorch model."""
     if not YOLO_AVAILABLE:
         raise RuntimeError(
@@ -146,7 +146,7 @@ def generate_onnx_model(model_path, output_dir=None, int8=False):
         )
 
     try:
-        print(f"🔄 Generating ONNX model from {model_path.name} with {int8=}...")
+        print(f"🔄 Generating ONNX model from {model_path.name} with {use_int8=}...")
 
         # Load the model
         model = YOLO(str(model_path))
@@ -159,10 +159,10 @@ def generate_onnx_model(model_path, output_dir=None, int8=False):
             output_dir.mkdir(exist_ok=True)
 
         # Generate ONNX file path
-        if int8:
-            onnx_path = output_dir / f"{model_path.stem}_int8.onnx"
+        if use_int8:
+            onnx_path = output_dir / "bird-multi-detector_int8.onnx"
         else:
-            onnx_path = output_dir / f"{model_path.stem}.onnx"
+            onnx_path = output_dir / "bird-multi-detector.onnx"
 
         # Export to ONNX with optimized settings
         print("   🚀 Exporting to ONNX format...")
@@ -173,7 +173,7 @@ def generate_onnx_model(model_path, output_dir=None, int8=False):
             simplify=True,  # Simplify the ONNX model
             opset=11,  # ONNX opset 11 for good compatibility
             half=False,  # Use FP32 for CPU compatibility
-            int8=int8,
+            int8=use_int8,  # Use INT8 quantization if specified
         )
 
         # Move to desired location if needed
@@ -274,7 +274,7 @@ def collect_run_assets(model_path):
         assets.append(onnx_path)
 
         # Generate int8 ONNX model if applicable
-        onnx_path_int8 = generate_onnx_model(model_path, int8=True)
+        onnx_path_int8 = generate_onnx_model(model_path, use_int8=True)
         assets.append(onnx_path_int8)
 
         return assets
