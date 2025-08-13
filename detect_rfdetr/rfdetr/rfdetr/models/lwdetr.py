@@ -195,7 +195,7 @@ class LWDETR(nn.Module):
                 outputs_coord_wh = (
                     outputs_coord_delta[..., 2:].exp() * ref_unsigmoid[..., 2:]
                 )
-                outputs_coord = torch.concat(
+                outputs_coord = torch.cat(
                     [outputs_coord_cxcy, outputs_coord_wh], dim=-1
                 )
             else:
@@ -258,18 +258,19 @@ class LWDETR(nn.Module):
                 outputs_coord_wh = (
                     outputs_coord_delta[..., 2:].exp() * ref_unsigmoid[..., 2:]
                 )
-                outputs_coord = torch.concat(
+                outputs_coord = torch.cat(
                     [outputs_coord_cxcy, outputs_coord_wh], dim=-1
                 )
             else:
                 outputs_coord = (self.bbox_embed(hs) + ref_unsigmoid).sigmoid()
             outputs_class = self.class_embed(hs)
+            output_orient = self.orient_embed(hs)
         else:
             assert self.two_stage, "if not using decoder, two_stage must be True"
             outputs_class = self.transformer.enc_out_class_embed[0](hs_enc)
             outputs_coord = ref_enc
 
-        return outputs_coord, outputs_class
+        return outputs_coord, outputs_class, output_orient
 
     @torch.jit.unused
     def _set_aux_loss(self, outputs_class, outputs_coord, outputs_orient):

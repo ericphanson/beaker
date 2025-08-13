@@ -689,7 +689,7 @@ class Model:
                 outputs = model(input_tensors)
                 dets = outputs["pred_boxes"]
                 labels = outputs["pred_logits"]
-                orients = outputs["pred_orients"]
+                orients = outputs["pred_orient"]
                 print(
                     f"PyTorch inference output shapes - Boxes: {dets.shape}, Labels: {labels.shape}, Orients: {orients.shape}"
                 )

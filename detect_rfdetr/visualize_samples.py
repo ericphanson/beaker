@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Visualize samples directly from the data loader to see what goes into training
+Supports both train/test datasets and ONNX model inference for predictions
 """
 
 import torch
@@ -9,6 +10,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
 from pathlib import Path
+import onnxruntime as ort
 
 sys.path.append("rfdetr")
 
@@ -34,8 +36,193 @@ def denormalize_image(tensor, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.2
     return torch.clamp(tensor, 0, 1)
 
 
+class ONNXInferenceModel:
+    """ONNX model wrapper for inference"""
+
+    def __init__(self, model_path, confidence_threshold=0.5):
+        """
+        Initialize ONNX model
+
+        Args:
+            model_path: Path to the ONNX model file
+            confidence_threshold: Minimum confidence score for predictions
+        """
+        self.model_path = Path(model_path)
+        if not self.model_path.exists():
+            raise FileNotFoundError(f"ONNX model not found at {model_path}")
+
+        # Create ONNX Runtime session
+        self.session = ort.InferenceSession(str(self.model_path))
+        self.input_name = self.session.get_inputs()[0].name
+        self.confidence_threshold = confidence_threshold
+
+        # Get expected input shape from the model
+        input_shape = self.session.get_inputs()[0].shape
+        self.expected_height = input_shape[2]
+        self.expected_width = input_shape[3]
+
+        print(f"Loaded ONNX model from {model_path}")
+        print(f"Input name: {self.input_name}")
+        print(f"Expected input shape: {input_shape}")
+        print(f"Expected resolution: {self.expected_height}x{self.expected_width}")
+
+    def preprocess_image(self, image_tensor):
+        """
+        Preprocess image tensor for ONNX inference
+
+        Args:
+            image_tensor: Image tensor of shape (C, H, W)
+
+        Returns:
+            Preprocessed tensor ready for ONNX inference
+        """
+        # Add batch dimension if not present
+        if len(image_tensor.shape) == 3:
+            image_tensor = image_tensor.unsqueeze(0)
+
+        # Resize to expected dimensions if needed
+        current_height, current_width = image_tensor.shape[2], image_tensor.shape[3]
+        if (
+            current_height != self.expected_height
+            or current_width != self.expected_width
+        ):
+            import torch.nn.functional as F
+
+            print(
+                f"Resizing from {current_height}x{current_width} to {self.expected_height}x{self.expected_width}"
+            )
+            image_tensor = F.interpolate(
+                image_tensor,
+                size=(self.expected_height, self.expected_width),
+                mode="bilinear",
+                align_corners=False,
+            )
+
+        return image_tensor.cpu().numpy()
+
+    def postprocess_predictions(self, outputs, original_image_size):
+        """
+        Post-process ONNX model outputs
+
+        Args:
+            outputs: Raw ONNX model outputs
+            original_image_size: (height, width) of the original input image
+
+        Returns:
+            Dictionary with processed predictions
+        """
+        # This will need to be adapted based on your ONNX model's output format
+        # Based on the export script, outputs should be [dets, labels, orients]
+
+        if len(outputs) >= 3:
+            dets = outputs[0]  # Bounding boxes
+            labels = outputs[1]  # Class logits
+            orients = outputs[2]  # Orientations
+        elif len(outputs) >= 2:
+            dets = outputs[0]  # Bounding boxes
+            labels = outputs[1]  # Class logits
+        else:
+            # Single output case - need to split based on your model
+            raise ValueError(f"Unexpected number of outputs: {len(outputs)}")
+
+        # Convert to torch tensors for easier processing
+        dets = torch.from_numpy(dets).squeeze(0)  # Remove batch dimension
+        labels = torch.from_numpy(labels).squeeze(0)  # Remove batch dimension
+
+        # Apply softmax to get probabilities
+        probs = torch.softmax(labels, dim=-1)
+
+        # Get top 1 prediction per class (excluding background class if it's the last)
+        # Assuming background is the last class
+        num_classes = probs.shape[-1] - 1  # Exclude background
+
+        selected_indices = []
+        selected_probs = []
+        selected_classes = []
+
+        for class_idx in range(num_classes):
+            # Get probabilities for this class across all queries
+            class_probs = probs[:, class_idx]
+
+            # Find the query with highest probability for this class
+            best_query_idx = torch.argmax(class_probs)
+            best_prob = class_probs[best_query_idx]
+
+            # Only include if probability is reasonable (avoid very low confidence)
+            if best_prob > 0.1:  # Much lower threshold than before
+                selected_indices.append(best_query_idx)
+                selected_probs.append(best_prob)
+                selected_classes.append(class_idx)
+
+        if len(selected_indices) > 0:
+            # Convert to tensors
+            selected_indices = torch.tensor(selected_indices)
+            selected_probs = torch.tensor(selected_probs)
+            selected_classes = torch.tensor(selected_classes)
+
+            # Extract selected predictions
+            confident_boxes = dets[selected_indices]
+            confident_probs = selected_probs
+            confident_classes = selected_classes
+
+            # Handle orientation predictions if available
+            confident_orients = None
+            if len(outputs) >= 3 and orients is not None:
+                orients_tensor = torch.from_numpy(orients).squeeze(
+                    0
+                )  # Remove batch dimension
+                confident_orients = orients_tensor[selected_indices]
+
+            return {
+                "boxes": confident_boxes,
+                "scores": confident_probs,
+                "labels": confident_classes + 1,  # Add 1 if your classes are 1-indexed
+                "num_predictions": len(confident_boxes),
+                "orients": confident_orients,
+            }
+        else:
+            return {
+                "boxes": torch.empty(0, 4),
+                "scores": torch.empty(0),
+                "labels": torch.empty(0, dtype=torch.long),
+                "orients": None,
+                "num_predictions": 0,
+            }
+
+    def predict(self, image_tensor):
+        """
+        Run inference on an image tensor
+
+        Args:
+            image_tensor: Image tensor of shape (C, H, W) or (B, C, H, W)
+
+        Returns:
+            Dictionary with predictions
+        """
+        # Store original image size for coordinate scaling
+        original_size = (image_tensor.shape[-2], image_tensor.shape[-1])
+
+        # Preprocess image
+        input_tensor = self.preprocess_image(image_tensor)
+
+        # Run inference
+        outputs = self.session.run(None, {self.input_name: input_tensor})
+
+        # Post-process predictions
+        predictions = self.postprocess_predictions(outputs, original_size)
+
+        return predictions
+
+
 def visualize_sample(
-    images, targets, sample_idx=0, class_names=None, save_path=None, show=True
+    images,
+    targets,
+    sample_idx=0,
+    class_names=None,
+    save_path=None,
+    show=True,
+    predictions=None,
+    onnx_model=None,
 ):
     """
     Visualize a single sample from the data loader
@@ -46,6 +233,9 @@ def visualize_sample(
         sample_idx: Index of the sample to visualize (default: 0)
         class_names: List of class names for labeling (optional)
         save_path: Path to save the visualization (optional)
+        show: Whether to display the plot
+        predictions: Dictionary with prediction results (optional)
+        onnx_model: ONNXInferenceModel instance for inference (optional)
     """
     # Extract the image and target for the specified sample
     if sample_idx >= images.tensors.shape[0]:
@@ -86,10 +276,23 @@ def visualize_sample(
         print(f"  Orientations (rad): {orient}")
         print(f"  Orientations (deg): {np.degrees(orient)}")
 
+    # Run inference if ONNX model is provided
+    if onnx_model is not None:
+        print("Running ONNX inference...")
+        predictions = onnx_model.predict(image_tensor)
+        print(f"  Predictions: {predictions['num_predictions']} objects detected")
+        if predictions["num_predictions"] > 0:
+            print(f"  Predicted scores: {predictions['scores']}")
+            print(f"  Predicted labels: {predictions['labels']}")
+            print(f"  Predicted orientations: {predictions['orients']}")
+
     # Create the plot
     fig, ax = plt.subplots(1, 1, figsize=(12, 8))
     ax.imshow(image_np)
-    ax.set_title(f"Sample {sample_idx} - Image ID: {image_id}")
+    title = f"Sample {sample_idx} - Image ID: {image_id}"
+    if predictions and predictions["num_predictions"] > 0:
+        title += f" (GT: {len(boxes)}, Pred: {predictions['num_predictions']})"
+    ax.set_title(title)
 
     # Convert normalized boxes to pixel coordinates
     # Boxes are in format (center_x, center_y, width, height) normalized to [0, 1]
@@ -166,6 +369,123 @@ def visualize_sample(
             bbox=dict(boxstyle="round,pad=0.3", facecolor=color, alpha=0.3),
         )
 
+    # Visualize predictions if available
+    if predictions and predictions["num_predictions"] > 0:
+        pred_boxes = (
+            predictions["boxes"].cpu().numpy()
+            if hasattr(predictions["boxes"], "cpu")
+            else predictions["boxes"]
+        )
+        pred_scores = (
+            predictions["scores"].cpu().numpy()
+            if hasattr(predictions["scores"], "cpu")
+            else predictions["scores"]
+        )
+        pred_labels = (
+            predictions["labels"].cpu().numpy()
+            if hasattr(predictions["labels"], "cpu")
+            else predictions["labels"]
+        )
+        pred_orients = None
+        if predictions["orients"] is not None:
+            pred_orients = (
+                predictions["orients"].cpu().numpy()
+                if hasattr(predictions["orients"], "cpu")
+                else predictions["orients"]
+            )
+
+        pred_colors = [
+            "yellow",
+            "magenta",
+            "lime",
+            "turquoise",
+            "gold",
+            "lightcoral",
+            "lightblue",
+            "lightgreen",
+        ]
+
+        for i, (pred_box, pred_score, pred_label) in enumerate(
+            zip(pred_boxes, pred_scores, pred_labels)
+        ):
+            cx, cy, bw, bh = pred_box
+
+            # Convert to pixel coordinates
+            cx_px = cx * w
+            cy_px = cy * h
+            bw_px = bw * w
+            bh_px = bh * h
+
+            # Convert to corner format
+            x = cx_px - bw_px / 2
+            y = cy_px - bh_px / 2
+
+            # Create rectangle patch with dashed line for predictions
+            pred_color = pred_colors[i % len(pred_colors)]
+            rect = patches.Rectangle(
+                (x, y),
+                bw_px,
+                bh_px,
+                linewidth=2,
+                edgecolor=pred_color,
+                facecolor="none",
+                linestyle="--",
+            )
+            ax.add_patch(rect)
+
+            # Draw predicted orientation line if orientation data is available
+            if pred_orients is not None and i < len(pred_orients):
+                # pred_orients contains [cos(θ), sin(θ)] for each prediction
+                cos_theta, sin_theta = pred_orients[i]
+
+                # Calculate the angle from cos and sin
+                pred_angle = np.arctan2(sin_theta, cos_theta)
+
+                # Draw a line through the center of the bbox at the predicted angle
+                # Line length is proportional to the bbox size
+                line_length = min(bw_px, bh_px) * 0.4
+
+                # Calculate line endpoints
+                x1 = cx_px - line_length * cos_theta
+                y1 = cy_px - line_length * sin_theta
+                x2 = cx_px + line_length * cos_theta
+                y2 = cy_px + line_length * sin_theta
+
+                # Draw the predicted orientation line (dashed to match the bbox)
+                ax.plot(
+                    [x1, x2],
+                    [y1, y2],
+                    color=pred_color,
+                    linewidth=3,
+                    alpha=0.8,
+                    linestyle="--",
+                )
+
+                # Add a small circle at the center
+                ax.plot(cx_px, cy_px, "o", color=pred_color, markersize=4, alpha=0.8)
+
+            # Add prediction label
+            pred_label_text = f"Pred: Class {pred_label} ({pred_score:.2f})"
+            if class_names and pred_label - 1 < len(class_names):
+                pred_label_text = (
+                    f"Pred: {class_names[pred_label-1]} ({pred_score:.2f})"
+                )
+
+            # Add predicted orientation info to label if available
+            if pred_orients is not None and i < len(pred_orients):
+                cos_theta, sin_theta = pred_orients[i]
+                pred_angle_deg = np.degrees(np.arctan2(sin_theta, cos_theta))
+                pred_label_text += f" ({pred_angle_deg:.1f}°)"
+
+            ax.text(
+                x,
+                y + bh_px + 5,
+                pred_label_text,
+                color=pred_color,
+                fontsize=9,
+                bbox=dict(boxstyle="round,pad=0.3", facecolor=pred_color, alpha=0.3),
+            )
+
     ax.set_xlim(0, w)
     ax.set_ylim(h, 0)  # Flip y-axis to match image coordinates
     ax.axis("off")
@@ -180,7 +500,13 @@ def visualize_sample(
 
 
 def visualize_batch(
-    images, targets, num_samples=None, class_names=None, save_dir=None, show=True
+    images,
+    targets,
+    num_samples=None,
+    class_names=None,
+    save_dir=None,
+    show=True,
+    onnx_model=None,
 ):
     """
     Visualize multiple samples from a batch
@@ -191,6 +517,7 @@ def visualize_batch(
         num_samples: Number of samples to visualize (default: all in batch)
         class_names: List of class names for labeling (optional)
         save_dir: Directory to save visualizations (optional)
+        onnx_model: ONNXInferenceModel instance for inference (optional)
     """
     batch_size = images.tensors.shape[0]
     if num_samples is None:
@@ -216,11 +543,12 @@ def visualize_batch(
             class_names=class_names,
             save_path=save_path,
             show=show,
+            onnx_model=onnx_model,
         )
 
 
 def create_dataloader(
-    dataset_dir="../data/cub_coco_parts", batch_size=4, num_workers=0
+    dataset_dir="../data/cub_coco_parts", batch_size=4, num_workers=0, image_set="train"
 ):
     """
     Create a data loader for visualization
@@ -229,6 +557,7 @@ def create_dataloader(
         dataset_dir: Path to the dataset directory
         batch_size: Batch size for the data loader
         num_workers: Number of worker processes
+        image_set: Dataset split to use ("train" or "val")
 
     Returns:
         DataLoader: The created data loader
@@ -252,31 +581,27 @@ def create_dataloader(
     args.patch_size = 16
     args.num_windows = 4
 
-    print("Building dataset...")
+    print(f"Building {image_set} dataset...")
     print("Using training configuration:")
     print(f"  - square_resize_div_64: {args.square_resize_div_64}")
     print(f"  - multi_scale: {args.multi_scale}")
     print(f"  - expanded_scales: {args.expanded_scales}")
     print(f"  - do_random_resize_via_padding: {args.do_random_resize_via_padding}")
 
-    dataset_train = build_dataset(
-        image_set="train", args=args, resolution=args.resolution
-    )
-    print(f"Dataset built successfully. Length: {len(dataset_train)}")
+    dataset = build_dataset(image_set=image_set, args=args, resolution=args.resolution)
+    print(f"Dataset built successfully. Length: {len(dataset)}")
 
     # Create data loader
-    sampler_train = torch.utils.data.RandomSampler(dataset_train)
-    batch_sampler_train = torch.utils.data.BatchSampler(
-        sampler_train, batch_size, drop_last=True
-    )
-    data_loader_train = DataLoader(
-        dataset_train,
-        batch_sampler=batch_sampler_train,
+    sampler = torch.utils.data.RandomSampler(dataset)
+    batch_sampler = torch.utils.data.BatchSampler(sampler, batch_size, drop_last=True)
+    data_loader = DataLoader(
+        dataset,
+        batch_sampler=batch_sampler,
         collate_fn=utils.collate_fn,
         num_workers=num_workers,
     )
 
-    return data_loader_train
+    return data_loader
 
 
 CLASS_NAMES = [
@@ -288,17 +613,32 @@ CLASS_NAMES = [
 ]  # Adjust based on your dataset
 
 
-def main(show=False):
+def main(show=False, image_set="train", onnx_model_path=None):
     """
     Main function to demonstrate the visualization
+
+    Args:
+        show: Whether to display plots interactively
+        image_set: Dataset split to use ("train" or "val")
+        onnx_model_path: Path to ONNX model for inference (optional)
     """
     # Define class names for CUB dataset (you may need to adjust these)
 
+    # Initialize ONNX model if provided
+    onnx_model = None
+    if onnx_model_path:
+        try:
+            onnx_model = ONNXInferenceModel(onnx_model_path)
+            print(f"ONNX model loaded successfully from {onnx_model_path}")
+        except Exception as e:
+            print(f"Failed to load ONNX model: {e}")
+            onnx_model = None
+
     # Create data loader
-    data_loader = create_dataloader(batch_size=4)
+    data_loader = create_dataloader(batch_size=4, image_set=image_set)
 
     # Get a batch
-    print("\nGetting first batch...")
+    print(f"\nGetting first batch from {image_set} dataset...")
     batch = next(iter(data_loader))
     images, targets = batch
 
@@ -312,6 +652,7 @@ def main(show=False):
         class_names=CLASS_NAMES,
         save_dir="visualizations",
         show=show,
+        onnx_model=onnx_model,
     )
 
 
@@ -322,6 +663,8 @@ def visualize_random_samples(
     save_dir="visualizations",
     class_names=CLASS_NAMES,
     show=False,
+    image_set="train",
+    onnx_model_path=None,
 ):
     """
     Visualize random samples from multiple batches
@@ -332,10 +675,24 @@ def visualize_random_samples(
         dataset_dir: Path to the dataset directory
         save_dir: Directory to save visualizations
         show: Whether to display plots interactively
+        image_set: Dataset split to use ("train" or "val")
+        onnx_model_path: Path to ONNX model for inference (optional)
     """
 
+    # Initialize ONNX model if provided
+    onnx_model = None
+    if onnx_model_path:
+        try:
+            onnx_model = ONNXInferenceModel(onnx_model_path)
+            print(f"ONNX model loaded successfully from {onnx_model_path}")
+        except Exception as e:
+            print(f"Failed to load ONNX model: {e}")
+            onnx_model = None
+
     # Create data loader
-    data_loader = create_dataloader(dataset_dir=dataset_dir, batch_size=4)
+    data_loader = create_dataloader(
+        dataset_dir=dataset_dir, batch_size=4, image_set=image_set
+    )
 
     save_dir = Path(save_dir)
     save_dir.mkdir(exist_ok=True)
@@ -358,6 +715,7 @@ def visualize_random_samples(
                     class_names=class_names,
                     save_path=save_path,
                     show=show,
+                    onnx_model=onnx_model,
                 )
                 sample_count += 1
 
@@ -443,6 +801,8 @@ def find_oriented_samples(
     dataset_dir="../data/cub_coco_parts",
     save_dir="visualizations",
     show=False,
+    image_set="train",
+    onnx_model_path=None,
 ):
     """
     Find and visualize samples that have orientation data (has_orient=True)
@@ -452,11 +812,25 @@ def find_oriented_samples(
         dataset_dir: Path to the dataset directory
         save_dir: Directory to save visualizations
         show: Whether to display plots interactively
+        image_set: Dataset split to use ("train" or "val")
+        onnx_model_path: Path to ONNX model for inference (optional)
     """
     class_names = CLASS_NAMES
 
+    # Initialize ONNX model if provided
+    onnx_model = None
+    if onnx_model_path:
+        try:
+            onnx_model = ONNXInferenceModel(onnx_model_path)
+            print(f"ONNX model loaded successfully from {onnx_model_path}")
+        except Exception as e:
+            print(f"Failed to load ONNX model: {e}")
+            onnx_model = None
+
     # Create data loader
-    data_loader = create_dataloader(dataset_dir=dataset_dir, batch_size=4)
+    data_loader = create_dataloader(
+        dataset_dir=dataset_dir, batch_size=4, image_set=image_set
+    )
 
     save_dir = Path(save_dir)
     save_dir.mkdir(exist_ok=True)
@@ -507,6 +881,7 @@ def find_oriented_samples(
                             class_names=class_names,
                             save_path=save_path,
                             show=show,
+                            onnx_model=onnx_model,
                         )
                         oriented_samples_found += 1
 
@@ -577,11 +952,35 @@ if __name__ == "__main__":
     parser.add_argument(
         "--save_dir", default="visualizations", help="Directory to save visualizations"
     )
+    parser.add_argument(
+        "--image_set",
+        choices=["train", "val", "test"],
+        default="train",
+        help="Dataset split to use (train, val, or test)",
+    )
+    parser.add_argument(
+        "--onnx_model", default=None, help="Path to ONNX model for inference (optional)"
+    )
+    parser.add_argument(
+        "--confidence_threshold",
+        type=float,
+        default=0.5,
+        help="Confidence threshold for ONNX model predictions",
+    )
 
     args = parser.parse_args()
 
+    # Setup ONNX model path if provided
+    onnx_model_path = None
+    if args.onnx_model:
+        onnx_model_path = args.onnx_model
+    elif Path("onnx_export/export_output/inference_model.sim.onnx").exists():
+        # Use default ONNX model if available
+        onnx_model_path = "onnx_export/export_output/inference_model.sim.onnx"
+        print(f"Using default ONNX model: {onnx_model_path}")
+
     if args.mode == "single":
-        main(show=args.show)
+        main(show=args.show, image_set=args.image_set, onnx_model_path=onnx_model_path)
     elif args.mode == "random":
         visualize_random_samples(
             args.num_batches,
@@ -589,8 +988,15 @@ if __name__ == "__main__":
             args.dataset_dir,
             args.save_dir,
             show=args.show,
+            image_set=args.image_set,
+            onnx_model_path=onnx_model_path,
         )
     elif args.mode == "oriented":
         find_oriented_samples(
-            args.max_batches, args.dataset_dir, args.save_dir, show=args.show
+            args.max_batches,
+            args.dataset_dir,
+            args.save_dir,
+            show=args.show,
+            image_set=args.image_set,
+            onnx_model_path=onnx_model_path,
         )

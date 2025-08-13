@@ -350,7 +350,7 @@ class RFDETR:
                 predictions = {
                     "pred_logits": predictions[1],
                     "pred_boxes": predictions[0],
-                    "pred_orients": predictions[2],
+                    "pred_orient": predictions[2],
                 }
             target_sizes = torch.tensor(orig_sizes, device=self.model.device)
             results = self.model.postprocessors["bbox"](

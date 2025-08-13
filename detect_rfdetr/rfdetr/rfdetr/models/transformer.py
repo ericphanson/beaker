@@ -312,7 +312,7 @@ class Transformer(nn.Module):
                         enc_outputs_coord_delta_gidx[..., 2:].exp()
                         * output_proposals[..., 2:]
                     )
-                    enc_outputs_coord_unselected_gidx = torch.concat(
+                    enc_outputs_coord_unselected_gidx = torch.cat(
                         [enc_outputs_coord_cxcy_gidx, enc_outputs_coord_wh_gidx], dim=-1
                     )
                 else:
@@ -371,7 +371,7 @@ class Transformer(nn.Module):
                         refpoint_embed_ts_subset[..., 2:].exp()
                         * refpoint_embed_ts[..., 2:]
                     )
-                    refpoint_embed_ts_subset = torch.concat(
+                    refpoint_embed_ts_subset = torch.cat(
                         [refpoint_embed_cxcy, refpoint_embed_wh], dim=-1
                     )
                 else:
@@ -379,7 +379,7 @@ class Transformer(nn.Module):
                         refpoint_embed_ts_subset + refpoint_embed_ts
                     )
 
-                refpoint_embed = torch.concat(
+                refpoint_embed = torch.cat(
                     [refpoint_embed_ts_subset, refpoint_embed_subset], dim=-2
                 )
 
@@ -444,7 +444,7 @@ class TransformerDecoder(nn.Module):
             new_refpoints_wh = (
                 new_refpoints_delta[..., 2:].exp() * refpoints_unsigmoid[..., 2:]
             )
-            new_refpoints_unsigmoid = torch.concat(
+            new_refpoints_unsigmoid = torch.cat(
                 [new_refpoints_cxcy, new_refpoints_wh], dim=-1
             )
         else:
