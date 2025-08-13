@@ -10,6 +10,7 @@ dependencies = [
     "numpy>=1.24.0",
     "comet-ml>=3.50.0",
     "ptpython>=3.0.30",
+    "torchlens>=0.1.35",
 ]
 
 [tool.uv.sources]
