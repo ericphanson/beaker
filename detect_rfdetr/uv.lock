@@ -49,6 +49,15 @@ wheels = [
 ]
 
 [[package]]
+name = "appdirs"
+version = "1.4.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/d7/d8/05696357e0311f5b5c316d7b95f46c669dd9c15aaeecbb48c7d0aeb88c40/appdirs-1.4.4.tar.gz", hash = "sha256:7d5d0167b2b1ba821647616af46a749d1c653740dd0d2415100fe26e27afdf41", size = 13470, upload-time = "2020-05-11T07:59:51.037Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3b/00/2344469e2084fb287c2e0b57b72910309874c3245463acd6cf5e3db69324/appdirs-1.4.4-py2.py3-none-any.whl", hash = "sha256:a841dacd6b99318a741b166adb07e19ee71a274450e68237b4650ca1055ab128", size = 9566, upload-time = "2020-05-11T07:59:49.499Z" },
+]
+
+[[package]]
 name = "asttokens"
 version = "3.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -313,6 +322,7 @@ dependencies = [
     { name = "comet-ml" },
     { name = "numpy" },
     { name = "pillow" },
+    { name = "ptpython" },
     { name = "rfdetr" },
 ]
 
@@ -321,7 +331,8 @@ requires-dist = [
     { name = "comet-ml", specifier = ">=3.50.0" },
     { name = "numpy", specifier = ">=1.24.0" },
     { name = "pillow", specifier = ">=10.0.0" },
-    { name = "rfdetr", specifier = ">=1.2.1" },
+    { name = "ptpython", specifier = ">=3.0.30" },
+    { name = "rfdetr", editable = "rfdetr" },
 ]
 
 [[package]]
@@ -1381,6 +1392,21 @@ wheels = [
 ]
 
 [[package]]
+name = "ptpython"
+version = "3.0.30"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "appdirs" },
+    { name = "jedi" },
+    { name = "prompt-toolkit" },
+    { name = "pygments" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c9/ce/4441ac40762c73d74b48088a7311e368d28beec92602d66e632a59792a93/ptpython-3.0.30.tar.gz", hash = "sha256:51a07f9b8ebf8435a5aaeb22831cca4a52e87029771a2637df2763c79d3d8776", size = 72812, upload-time = "2025-04-15T09:26:37.534Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/05/15/77dfd9a52fa6c87b50232b246df0cfacacc0665c95ebe4a517cc994819f0/ptpython-3.0.30-py3-none-any.whl", hash = "sha256:bec3045f0285ac817c902ef98d6ece31d3e00a4604ef3fdde07d365c78bde23c", size = 67249, upload-time = "2025-04-15T09:26:35.693Z" },
+]
+
+[[package]]
 name = "ptyprocess"
 version = "0.7.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1688,7 +1714,7 @@ wheels = [
 [[package]]
 name = "rfdetr"
 version = "1.2.1"
-source = { registry = "https://pypi.org/simple" }
+source = { editable = "rfdetr" }
 dependencies = [
     { name = "accelerate" },
     { name = "cython" },
@@ -1714,10 +1740,50 @@ dependencies = [
     { name = "tqdm" },
     { name = "transformers" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c6/ca/54d3839d947cb2b0c9b6ca2b68f2dd865e4f8d75ac7b8e78d7786a3c162e/rfdetr-1.2.1.tar.gz", hash = "sha256:61f768a26e40d1ad19c6e609f2e699e9c691710edcaa52fd3ffd446956e52f0a", size = 113984, upload-time = "2025-07-24T11:54:04.661Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/e7/95/2c1db3eba8c6fda00a56e0027bbd8cb4128027e74d6a46e8ea0b1d309659/rfdetr-1.2.1-py3-none-any.whl", hash = "sha256:ebbb201b25d0fd422d7cff02cdd75eddbe7221056f904b8e017821491cd460ca", size = 131336, upload-time = "2025-07-24T11:54:02.94Z" },
+
+[package.metadata]
+requires-dist = [
+    { name = "accelerate" },
+    { name = "build", marker = "extra == 'build'", specifier = ">=0.10" },
+    { name = "cython" },
+    { name = "einops" },
+    { name = "fairscale" },
+    { name = "matplotlib" },
+    { name = "mike", marker = "extra == 'docs'", specifier = ">=2.0.0" },
+    { name = "mkdocs-git-committers-plugin-2", marker = "python_full_version >= '3.8' and python_full_version < '4' and extra == 'docs'", specifier = ">=2.4.1" },
+    { name = "mkdocs-git-revision-date-localized-plugin", marker = "extra == 'docs'", specifier = ">=1.2.4" },
+    { name = "mkdocs-jupyter", marker = "extra == 'docs'", specifier = ">=0.24.3" },
+    { name = "mkdocs-material", extras = ["imaging"], marker = "extra == 'docs'", specifier = ">=9.5.5" },
+    { name = "mkdocstrings", marker = "extra == 'docs'", specifier = ">=0.25.2,<0.30.0" },
+    { name = "mkdocstrings-python", marker = "extra == 'docs'", specifier = ">=1.10.9" },
+    { name = "ninja" },
+    { name = "numpy" },
+    { name = "onnx", marker = "extra == 'onnxexport'" },
+    { name = "onnx-graphsurgeon", marker = "extra == 'onnxexport'" },
+    { name = "onnxruntime", marker = "extra == 'onnxexport'" },
+    { name = "onnxsim", marker = "extra == 'onnxexport'" },
+    { name = "open-clip-torch" },
+    { name = "pandas" },
+    { name = "peft" },
+    { name = "polygraphy" },
+    { name = "pycocotools" },
+    { name = "pydantic" },
+    { name = "pylabel" },
+    { name = "rf100vl" },
+    { name = "roboflow" },
+    { name = "scipy" },
+    { name = "supervision" },
+    { name = "tensorboard", marker = "extra == 'metrics'", specifier = ">=2.13.0" },
+    { name = "timm" },
+    { name = "torch", specifier = ">=1.13.0" },
+    { name = "torchvision", specifier = ">=0.14.0" },
+    { name = "tqdm" },
+    { name = "transformers" },
+    { name = "twine", marker = "extra == 'build'", specifier = ">=5.1.1" },
+    { name = "wandb", marker = "extra == 'metrics'" },
+    { name = "wheel", marker = "extra == 'build'", specifier = ">=0.40" },
 ]
+provides-extras = ["onnxexport", "metrics", "docs", "build"]
 
 [[package]]
 name = "rich"

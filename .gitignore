@@ -3,7 +3,7 @@ data
 *.pt
 runs
 crops
-models
+/models
 __pycache__
 onnxruntime-libs
 
