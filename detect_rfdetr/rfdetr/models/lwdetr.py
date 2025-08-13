@@ -73,6 +73,7 @@ class LWDETR(nn.Module):
         hidden_dim = transformer.d_model
         self.class_embed = nn.Linear(hidden_dim, num_classes)
         self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
+        self.orient_embed = MLP(hidden_dim, hidden_dim, 2, 3)  # sin, cos
 
         query_dim = 4
         self.refpoint_embed = nn.Embedding(num_queries * group_detr, query_dim)
@@ -201,10 +202,16 @@ class LWDETR(nn.Module):
                 outputs_coord = (self.bbox_embed(hs) + ref_unsigmoid).sigmoid()
 
             outputs_class = self.class_embed(hs)
-
-            out = {"pred_logits": outputs_class[-1], "pred_boxes": outputs_coord[-1]}
+            outputs_orient = self.orient_embed(hs)
+            out = {
+                "pred_logits": outputs_class[-1],
+                "pred_boxes": outputs_coord[-1],
+                "pred_orient": outputs_orient[-1],
+            }
             if self.aux_loss:
-                out["aux_outputs"] = self._set_aux_loss(outputs_class, outputs_coord)
+                out["aux_outputs"] = self._set_aux_loss(
+                    outputs_class, outputs_coord, outputs_orient
+                )
 
         if self.two_stage:
             group_detr = self.group_detr if self.training else 1
@@ -257,13 +264,15 @@ class LWDETR(nn.Module):
         return outputs_coord, outputs_class
 
     @torch.jit.unused
-    def _set_aux_loss(self, outputs_class, outputs_coord):
+    def _set_aux_loss(self, outputs_class, outputs_coord, outputs_orient):
         # this is a workaround to make torchscript happy, as torchscript
         # doesn't support dictionary with non-homogeneous values, such
         # as a dict having both a Tensor and a list.
         return [
-            {"pred_logits": a, "pred_boxes": b}
-            for a, b in zip(outputs_class[:-1], outputs_coord[:-1])
+            {"pred_logits": a, "pred_boxes": b, "pred_orient": c}
+            for a, b, c in zip(
+                outputs_class[:-1], outputs_coord[:-1], outputs_orient[:-1]
+            )
         ]
 
     def update_drop_path(self, drop_path_rate, vit_encoder_num_layers):
@@ -529,6 +538,50 @@ class SetCriterion(nn.Module):
         losses["loss_giou"] = loss_giou.sum() / num_boxes
         return losses
 
+    def loss_orient(self, outputs, targets, indices, num_boxes):
+        """
+        Cosine loss between predicted unit vector and target unit vector,
+        computed only on matched positives that have orientation labels.
+        """
+
+        def _angle_to_unit(theta):
+            return torch.stack([torch.cos(theta), torch.sin(theta)], dim=-1)
+
+        assert "pred_orient" in outputs, "pred_orient missing from model outputs"
+        src_idx = self._get_src_permutation_idx(indices)  # (batch_idx, src_query_idx)
+        pred_or = outputs["pred_orient"][src_idx]  # (M, 2)
+
+        # Some samples don't have orientation; collect angle tensor if present, else zeros
+        tgt_theta_list = []
+        has_list = []
+        for t, (_, J) in zip(targets, indices):
+            # has_orient: bool mask per GT
+            has = t.get("has_orient", torch.zeros_like(t["labels"], dtype=torch.bool))
+            has_list.append(has[J])
+            if "orient" in t:
+                # orient is aligned with labels; index with J
+                tgt_theta_list.append(t["orient"][J])
+            else:
+                tgt_theta_list.append(
+                    torch.zeros_like(J, dtype=torch.float, device=pred_or.device)
+                )
+        tgt_theta = torch.cat(tgt_theta_list, dim=0)  # (M,)
+        tgt_has = torch.cat(has_list, dim=0)  # (M,)
+
+        # Select only entries with labels
+        if tgt_has.any():
+            pred = torch.nn.functional.normalize(pred_or[tgt_has], dim=-1)  # (K,2)
+            tgtu = _angle_to_unit(tgt_theta[tgt_has])  # (K,2)
+
+            # If you have 180°-symmetric classes, you can reduce the loss by min over symmetry:
+            #   coserr = torch.maximum( (pred*tgtu).sum(-1), (pred*(-tgtu)).sum(-1) )
+            cos_sim = (pred * tgtu).sum(-1)  # (K,)
+            loss = (1.0 - cos_sim).sum() / (num_boxes + 1e-6)
+        else:
+            loss = pred_or.sum() * 0.0
+
+        return {"loss_orient": loss}
+
     def _get_src_permutation_idx(self, indices):
         # permute predictions following indices
         batch_idx = torch.cat(
@@ -550,6 +603,7 @@ class SetCriterion(nn.Module):
             "labels": self.loss_labels,
             "cardinality": self.loss_cardinality,
             "boxes": self.loss_boxes,
+            "orient": self.loss_orient,
         }
         assert loss in loss_map, f"do you really want to compute {loss} loss?"
         return loss_map[loss](outputs, targets, indices, num_boxes, **kwargs)
@@ -801,8 +855,14 @@ def build_model(args):
 def build_criterion_and_postprocessors(args):
     device = torch.device(args.device)
     matcher = build_matcher(args)
-    weight_dict = {"loss_ce": args.cls_loss_coef, "loss_bbox": args.bbox_loss_coef}
-    weight_dict["loss_giou"] = args.giou_loss_coef
+
+    weight_dict = {
+        "loss_ce": args.cls_loss_coef,
+        "loss_bbox": args.bbox_loss_coef,
+        "loss_giou": args.giou_loss_coef,
+        "loss_orient": args.orient_loss_coef,
+    }
+
     # TODO this is a hack
     if args.aux_loss:
         aux_weight_dict = {}
@@ -812,7 +872,7 @@ def build_criterion_and_postprocessors(args):
             aux_weight_dict.update({k + "_enc": v for k, v in weight_dict.items()})
         weight_dict.update(aux_weight_dict)
 
-    losses = ["labels", "boxes", "cardinality"]
+    losses = ["labels", "boxes", "cardinality", "orient"]
 
     try:
         sum_group_losses = args.sum_group_losses
@@ -829,8 +889,10 @@ def build_criterion_and_postprocessors(args):
         use_varifocal_loss=args.use_varifocal_loss,
         use_position_supervised_loss=args.use_position_supervised_loss,
         ia_bce_loss=args.ia_bce_loss,
+        # optional knobs for orientation:
+        # orient_classes=args.orient_class_ids,  # e.g. list/tuple of class IDs that have angle labels
+        # orient_symmetry="pi",                 # if your class is 180° symmetric; see notes below
     )
     criterion.to(device)
     postprocessors = {"bbox": PostProcess(num_select=args.num_select)}
-
     return criterion, postprocessors

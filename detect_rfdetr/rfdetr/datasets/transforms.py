@@ -35,6 +35,19 @@ import torchvision.transforms.functional as F
 
 from rfdetr.util.box_ops import box_xyxy_to_cxcywh
 from rfdetr.util.misc import interpolate
+import math
+
+
+def wrap_angle(theta):
+    """
+    Wrap angles in radians to (-pi, pi].
+
+    Args:
+        theta (Tensor or float): input angle(s) in radians.
+    Returns:
+        Tensor or float: wrapped angle(s) in radians.
+    """
+    return (theta + math.pi) % (2 * math.pi) - math.pi
 
 
 def crop(image, target, region):
@@ -95,6 +108,9 @@ def hflip(image, target):
 
     if "masks" in target:
         target["masks"] = target["masks"].flip(-1)
+
+    if "orient" in target:
+        target["orient"] = wrap_angle(torch.pi - target["orient"])
 
     return flipped_image, target
 
