@@ -226,7 +226,15 @@ class LWDETR(nn.Module):
             if hs is not None:
                 out["enc_outputs"] = {"pred_logits": cls_enc, "pred_boxes": ref_enc}
             else:
-                out = {"pred_logits": cls_enc, "pred_boxes": ref_enc}
+                # TODO- add encoder head?
+                B, Q, _ = ref_enc.shape  # ref_enc is (B, Q, 4)
+                orient_dummy = ref_enc.new_zeros(B, Q, 2)  # (cos, sin) dummy
+
+                out = {
+                    "pred_logits": cls_enc,
+                    "pred_boxes": ref_enc,
+                    "pred_orient": orient_dummy,
+                }
 
         return out
 
@@ -656,6 +664,10 @@ class SetCriterion(nn.Module):
             enc_outputs = outputs["enc_outputs"]
             indices = self.matcher(enc_outputs, targets, group_detr=group_detr)
             for loss in self.losses:
+                # Skip orient loss for enc_outputs;
+                # we don't have an encoder head yet
+                if loss == "orient":
+                    continue
                 kwargs = {}
                 if loss == "labels":
                     # Logging is enabled only for the last layer
