@@ -292,22 +292,36 @@ def overlay_points(ax, img_pil, points_xy, weights=None, title=None):
     ax.imshow(img_pil)
     if points_xy.size == 0:
         ax.set_axis_off()
-        return
+        return None
     if weights is None:
         weights = np.ones((points_xy.shape[0],), dtype=np.float32)
-    # scale points by weights for visibility
-    sizes = 100.0 * (weights / (weights.max() + 1e-6))
-    ax.scatter(
-        points_xy[:, 0],
-        points_xy[:, 1],
-        s=sizes,
+
+    # Order points by weight (least to most intense) so high-intensity points appear on top
+    sort_indices = np.argsort(weights)
+    points_xy_sorted = points_xy[sort_indices]
+    weights_sorted = weights[sort_indices]
+
+    # Use color to represent weights instead of size
+    # Normalize weights to [0, 1] for colormap
+    weights_norm = weights_sorted / (weights_sorted.max() + 1e-6)
+
+    scatter = ax.scatter(
+        points_xy_sorted[:, 0],
+        points_xy_sorted[:, 1],
+        s=50,  # Fixed size for all points
+        c=weights_norm,  # Color based on weights
+        cmap="hot_r",  # Use reversed 'hot' colormap (white -> yellow -> red -> black)
+        vmin=0,
+        vmax=1,
         marker="o",
-        linewidths=0.5,
-        edgecolors="white",
+        linewidths=1.5,  # Increased line width for better visibility
+        edgecolors="white",  # White edges for contrast
+        alpha=0.8,
     )
     if title:
         ax.set_title(title)
     ax.axis("off")
+    return scatter
 
 
 def norm_to_image_xy(points_norm, img_w, img_h):
@@ -351,15 +365,27 @@ def visualize_queries(
     n_heads = attn.shape[2]
 
     if per_head:
-        # 1 row per query, 1 column per head
+        # 1 row per query, 1 text column + n_heads image columns + 1 colorbar column
         rows = k
-        cols = n_heads
-        fig, axes = plt.subplots(rows, cols, figsize=(4 * cols, 4 * rows))
+        cols = n_heads + 2  # +1 for text column, +1 for colorbar column
+        fig, axes = plt.subplots(
+            rows, cols, figsize=(3 * (cols - 1) + 1.5, 3 * rows)
+        )  # Extra space for colorbar
         if rows == 1:
             axes = axes.reshape(1, -1)  # ensure 2D array
         elif cols == 1:
             axes = axes.reshape(-1, 1)  # ensure 2D array
         axes = np.atleast_2d(axes)
+
+        # Set column headers
+        for h in range(n_heads):
+            axes[0, h + 1].set_title(f"Head {h}", fontsize=12, fontweight="bold")
+        axes[0, 0].set_title("Query Info", fontsize=12, fontweight="bold")
+
+        # Hide the rightmost column (reserved for colorbar)
+        for i in range(rows):
+            axes[i, -1].axis("off")
+
     else:
         # Original layout for non-per-head case
         n_panels = k
@@ -367,6 +393,8 @@ def visualize_queries(
         rows = int(np.ceil(n_panels / cols))
         fig, axes = plt.subplots(rows, cols, figsize=(4 * cols, 4 * rows))
         axes = np.atleast_1d(axes).ravel()
+
+    scatter_objects = []  # Collect scatter objects for colorbar
 
     for i, (qid, sc) in enumerate(zip(q_idx.cpu().tolist(), scores.cpu().tolist())):
         # predicted class for this query
@@ -378,41 +406,74 @@ def visualize_queries(
         loc_q = loc[0, qid]
 
         if per_head:
+            # Add query info in first column
+            ax_text = axes[i, 0]
+            ax_text.text(
+                0.5,
+                0.5,
+                f"Query {qid}\nObj: {sc:.3f}\n{cls_name}\nConf: {cls_conf:.3f}",
+                ha="center",
+                va="center",
+                fontsize=11,
+                transform=ax_text.transAxes,
+                bbox=dict(boxstyle="round,pad=0.3", facecolor="lightgray", alpha=0.7),
+            )
+            ax_text.set_xlim(0, 1)
+            ax_text.set_ylim(0, 1)
+            ax_text.axis("off")
+
             for h in range(n_heads):
                 w_h = w_q[h]
                 loc_h = loc_q[h]
                 w_hp = w_h.reshape(-1).cpu().numpy()
                 loc_hp = loc_h.reshape(-1, 2)
                 pts_img = norm_to_image_xy(loc_hp, img_w, img_h).cpu().numpy()
-                overlay_points(
-                    axes[i, h],  # row=query, col=head
+                scatter = overlay_points(
+                    axes[i, h + 1],  # row=query, col=head (+1 for text column)
                     img_pil,
                     pts_img,
                     w_hp,
-                    title=f"Q{qid} H{h} | obj={sc:.2f}\n{cls_name} ({cls_conf:.2f})",
+                    title=None,  # No individual titles
                 )
+                if scatter is not None:
+                    scatter_objects.append(scatter)
         else:
             w_mean = w_q.mean(0)
             loc_mean = loc_q.mean(0)
             w_lp = w_mean.reshape(-1).cpu().numpy()
             loc_lp = loc_mean.reshape(-1, 2)
             pts_img = norm_to_image_xy(loc_lp, img_w, img_h).cpu().numpy()
-            overlay_points(
+            scatter = overlay_points(
                 axes[i],  # linear indexing for non-per-head case
                 img_pil,
                 pts_img,
                 w_lp,
                 title=f"Q{qid} | obj={sc:.2f}\n{cls_name} ({cls_conf:.2f})",
             )
+            if scatter is not None:
+                scatter_objects.append(scatter)
 
     # Hide unused axes for non-per-head case
     if not per_head:
         for i in range(k, len(axes)):
             axes[i].axis("off")
+
+    # Add colorbar if we have scatter objects
+    if scatter_objects and per_head:
+        # Create colorbar with more space from the image grid
+        cbar_ax = fig.add_axes((0.97, 0.15, 0.02, 0.7))  # Move even further right
+        cbar = fig.colorbar(scatter_objects[0], cax=cbar_ax)
+        cbar.set_label("Attention Weight", rotation=270, labelpad=15)
+
+    plt.subplots_adjust(
+        right=0.95
+    )  # Adjust subplot spacing to make more room for colorbar
     plt.tight_layout()
     # Save figure
     path = "visualize_queries.png"
-    fig.savefig(path, bbox_inches="tight")
+    fig.savefig(
+        path, bbox_inches="tight", dpi=300
+    )  # Increased DPI for higher resolution
     print(f"Saved visualization to {path}")
     return fig
 
