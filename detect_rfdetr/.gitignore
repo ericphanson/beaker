@@ -1,6 +1,7 @@
 *.pth
 output
 output2
+output3
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

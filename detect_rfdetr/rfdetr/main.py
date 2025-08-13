@@ -678,7 +678,7 @@ class Model:
             device
         )
         input_names = ["input"]
-        output_names = ["features"] if backbone_only else ["dets", "labels"]
+        output_names = ["features"] if backbone_only else ["dets", "labels", "orients"]
         dynamic_axes = None
         self.model.eval()
         with torch.no_grad():
@@ -689,8 +689,9 @@ class Model:
                 outputs = model(input_tensors)
                 dets = outputs["pred_boxes"]
                 labels = outputs["pred_logits"]
+                orients = outputs["pred_orients"]
                 print(
-                    f"PyTorch inference output shapes - Boxes: {dets.shape}, Labels: {labels.shape}"
+                    f"PyTorch inference output shapes - Boxes: {dets.shape}, Labels: {labels.shape}, Orients: {orients.shape}"
                 )
         model.cpu()
         input_tensors = input_tensors.cpu()
