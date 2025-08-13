@@ -74,6 +74,7 @@ class ConvertCoco(object):
         anno = [obj for obj in anno if "iscrowd" not in obj or obj["iscrowd"] == 0]
 
         boxes = [obj["bbox"] for obj in anno]
+
         # guard against no boxes via resizing
         boxes = torch.as_tensor(boxes, dtype=torch.float32).reshape(-1, 4)
         boxes[:, 2:] += boxes[:, :2]
@@ -83,14 +84,23 @@ class ConvertCoco(object):
         classes = [obj["category_id"] for obj in anno]
         classes = torch.tensor(classes, dtype=torch.int64)
 
+        has_orient = torch.tensor(["orient" in obj for obj in anno], dtype=torch.bool)
+        orient = torch.tensor(
+            [obj.get("orient", 0.0) for obj in anno], dtype=torch.float32
+        )
+
         keep = (boxes[:, 3] > boxes[:, 1]) & (boxes[:, 2] > boxes[:, 0])
         boxes = boxes[keep]
         classes = classes[keep]
+        has_orient = has_orient[keep]
+        orient = orient[keep]
 
         target = {}
         target["boxes"] = boxes
         target["labels"] = classes
         target["image_id"] = image_id
+        target["has_orient"] = has_orient
+        target["orient"] = orient
 
         # for conversion to coco api
         area = torch.tensor([obj["area"] for obj in anno])
