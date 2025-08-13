@@ -277,7 +277,6 @@ def get_logits(outputs):
         raise RuntimeError("Could not find class logits in outputs.")
 
     # Only want first 4 classes, rest is no-class
-    # no_class = logits[..., 4:].abs().sum(dim=-1, keepdim=True)  # rest of logits
     no_class = logits[..., -1, None]
     logits = torch.cat([logits[..., :4], no_class], dim=-1)
     assert logits.shape[-1] == 5
@@ -412,7 +411,9 @@ def visualize_queries(
             axes[i].axis("off")
     plt.tight_layout()
     # Save figure
-    fig.savefig("visualize_queries.png", bbox_inches="tight")
+    path = "visualize_queries.png"
+    fig.savefig(path, bbox_inches="tight")
+    print(f"Saved visualization to {path}")
     return fig
 
 
