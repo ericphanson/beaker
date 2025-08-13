@@ -270,10 +270,18 @@ def forward_and_capture_msda(model, inp):
 # ------------------------
 def get_logits(outputs):
     if isinstance(outputs, dict) and "pred_logits" in outputs:
-        return outputs["pred_logits"]
-    if hasattr(outputs, "logits"):
-        return outputs.logits
-    raise RuntimeError("Could not find class logits in outputs.")
+        logits = outputs["pred_logits"]
+    elif hasattr(outputs, "logits"):
+        logits = outputs.logits
+    else:
+        raise RuntimeError("Could not find class logits in outputs.")
+
+    # Only want first 4 classes, rest is no-class
+    # no_class = logits[..., 4:].abs().sum(dim=-1, keepdim=True)  # rest of logits
+    no_class = logits[..., -1, None]
+    logits = torch.cat([logits[..., :4], no_class], dim=-1)
+    assert logits.shape[-1] == 5
+    return logits  # (B, Q, C+1)
 
 
 def objectness_from_logits(logits):
@@ -314,7 +322,13 @@ def norm_to_image_xy(points_norm, img_w, img_h):
 # ------------------------
 # 6) Public API: visualize top-K queries (deformable)
 # ------------------------
-def visualize_queries(model, image_path, topk=6, per_head=False):
+def visualize_queries(
+    model,
+    image_path,
+    topk=6,
+    per_head=False,
+    class_names=["bird", "head", "eye", "beak"],
+):
     """
     Shows the deformable sampling points each top-K query uses (weighted by attention).
     If per_head=True, shows one panel per head for each query; otherwise, averages heads.
@@ -323,20 +337,18 @@ def visualize_queries(model, image_path, topk=6, per_head=False):
     inp, img_pil = prepare_image_like_model(image_path, model)
     model = model.model.model
     img_w, img_h = img_pil.size
+    outputs, attn, loc, spatial_shapes, _ = forward_and_capture_msda(model, inp)
 
-    # 2) forward & capture deformable internals
-    outputs, attn, loc, spatial_shapes, _ = forward_and_capture_msda(
-        model, inp
-    )  # attn: (B,Q,Hh,L,P), loc: (B,Q,Hh,L,P,2)
+    logits = get_logits(outputs)  # (B, Q, C+1)
+    objness = objectness_from_logits(logits)  # (B, Q)
+    probs = logits.softmax(-1)[:, :, :-1]  # strip "no object" column
 
-    # 3) pick top-K queries by objectness
-    logits = get_logits(outputs)
-    objness = objectness_from_logits(logits)  # (B,Q)
-    B, Q = objness.shape
-    k = min(topk, Q)
-    scores, q_idx = torch.topk(objness[0], k)
+    # filter to at least 10% objectness
+    keep = objness[0] > 0.1
+    items = objness[0][keep]
+    k = min(topk, len(items))
+    scores, q_idx = torch.topk(items, k)
 
-    # 4) plotting
     n_heads = attn.shape[2]
     n_panels = (k * n_heads) if per_head else k
     cols = min(n_panels, 6)
@@ -346,15 +358,18 @@ def visualize_queries(model, image_path, topk=6, per_head=False):
 
     panel = 0
     for qid, sc in zip(q_idx.cpu().tolist(), scores.cpu().tolist()):
-        # gather this query's points
-        w_q = attn[0, qid]  # (Hh,L,P)
-        loc_q = loc[0, qid]  # (Hh,L,P,2)
+        # predicted class for this query
+        cls_idx = probs[0, qid].argmax().item()
+        cls_conf = probs[0, qid, cls_idx].item()
+        cls_name = class_names[cls_idx] if class_names is not None else str(cls_idx)
+
+        w_q = attn[0, qid]
+        loc_q = loc[0, qid]
 
         if per_head:
             for h in range(n_heads):
-                w_h = w_q[h]  # (L,P)
+                w_h = w_q[h]
                 loc_h = loc_q[h]
-                # average over levels to a single set of points (concat levels)
                 w_hp = w_h.reshape(-1).cpu().numpy()
                 loc_hp = loc_h.reshape(-1, 2)
                 pts_img = norm_to_image_xy(loc_hp, img_w, img_h).cpu().numpy()
@@ -363,22 +378,24 @@ def visualize_queries(model, image_path, topk=6, per_head=False):
                     img_pil,
                     pts_img,
                     w_hp,
-                    title=f"Q{qid} H{h} | obj={sc:.2f}",
+                    title=f"Q{qid} H{h} | obj={sc:.2f}\n{cls_name} ({cls_conf:.2f})",
                 )
                 panel += 1
         else:
-            # average weights over heads, then concat levels
-            w_mean = w_q.mean(0)  # (L,P)
-            loc_mean = loc_q.mean(0)  # (L,P,2)  (averaging locs is okay for viz)
+            w_mean = w_q.mean(0)
+            loc_mean = loc_q.mean(0)
             w_lp = w_mean.reshape(-1).cpu().numpy()
             loc_lp = loc_mean.reshape(-1, 2)
             pts_img = norm_to_image_xy(loc_lp, img_w, img_h).cpu().numpy()
             overlay_points(
-                axes[panel], img_pil, pts_img, w_lp, title=f"Q{qid} | obj={sc:.2f}"
+                axes[panel],
+                img_pil,
+                pts_img,
+                w_lp,
+                title=f"Q{qid} | obj={sc:.2f}\n{cls_name} ({cls_conf:.2f})",
             )
             panel += 1
 
-    # tidy
     for i in range(panel, len(axes)):
         axes[i].axis("off")
     plt.tight_layout()
@@ -388,8 +405,11 @@ def visualize_queries(model, image_path, topk=6, per_head=False):
 
 
 model = RFDETRNano(num_classes=4, device="cpu")
+# model.model.reinitialize_detection_head(4)
 
-checkpoint = torch.load("output/checkpoint.pth", map_location="cpu", weights_only=False)
+checkpoint = torch.load(
+    "output/checkpoint_best_regular.pth", map_location="cpu", weights_only=False
+)
 model.model.model.load_state_dict(checkpoint["model"], strict=True)
 
 image_path = "../example.jpg"
