@@ -3,6 +3,7 @@
 Plot per-class mAP over epochs from training log JSON lines file.
 """
 
+import argparse
 import json
 import matplotlib.pyplot as plt
 import numpy as np
@@ -238,8 +239,20 @@ def plot_class_map(epochs, class_data, metric_name, output_file, title_suffix):
 
 
 def main():
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(
+        description="Plot per-class mAP over epochs from training log JSON lines file."
+    )
+    parser.add_argument(
+        "--log-file",
+        type=str,
+        default="output/log.txt",
+        help="Path to the log file (default: output/log.txt)",
+    )
+    args = parser.parse_args()
+
     # Path to the log file
-    log_file = Path("output/log.txt")
+    log_file = Path(args.log_file)
 
     if not log_file.exists():
         print(f"Error: Log file {log_file} not found!")
@@ -249,6 +262,9 @@ def main():
     epochs, data_dict = load_log_data(log_file)
 
     print(f"Found {len(epochs)} epochs")
+
+    # Get the directory where the log file is located
+    log_dir = log_file.parent
 
     # Define plot configurations
     plot_configs = [
@@ -263,8 +279,10 @@ def main():
         if data_key in data_dict and data_dict[data_key]:
             print(f"\nCreating plot for {data_key}...")
             print(f"Classes: {list(data_dict[data_key].keys())}")
+            # Save plot in the same directory as the log file
+            output_path = log_dir / output_file
             plot_class_map(
-                epochs, data_dict[data_key], metric_name, output_file, title_suffix
+                epochs, data_dict[data_key], metric_name, output_path, title_suffix
             )
         else:
             print(f"Warning: No data found for {data_key}")
