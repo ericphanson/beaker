@@ -42,20 +42,53 @@ def get_beak_parts():
     return [2]
 
 
+def get_crown_parts():
+    """Define which parts constitute the crown"""
+    # Crown part
+    return [5]
+
+
+def get_tail_parts():
+    """Define which parts constitute the tail"""
+    # Tail part
+    return [14]
+
+
+def calculate_orientation_angle(
+    from_point: Tuple[float, float], to_point: Tuple[float, float]
+) -> float:
+    """
+    Calculate orientation angle from one point to another relative to positive horizontal axis.
+
+    Args:
+        from_point: (x, y) starting point
+        to_point: (x, y) ending point
+
+    Returns:
+        Angle in radians relative to positive horizontal axis, or NaN if points coincide
+    """
+    dx = to_point[0] - from_point[0]
+    dy = to_point[1] - from_point[1]
+
+    # Return NaN if points coincide (dx=dy=0)
+    if dx == 0 and dy == 0:
+        return np.nan
+
+    return np.arctan2(dy, dx)
+
+
 class CUBtoCOCOConverter:
-    def __init__(self, cub_root: str, output_dir: str, use_parts: bool = False):
+    def __init__(self, cub_root: str, output_dir: str):
         """
         Initialize the converter.
 
         Args:
             cub_root: Path to CUB-200-2011 dataset root directory
             output_dir: Directory to save COCO format JSON files
-            use_parts: If True, use parts annotations for 4-class detection (bird, head, eye, beak)
         """
         self.cub_root = Path(cub_root)
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.use_parts = use_parts
 
         # CUB dataset file paths
         self.images_file = self.cub_root / "images.txt"
@@ -65,10 +98,10 @@ class CUBtoCOCOConverter:
         self.split_file = self.cub_root / "train_test_split.txt"
         self.images_dir = self.cub_root / "images"
 
-        # Parts dataset file (if using parts)
+        # Parts dataset file
         self.parts_file = self.cub_root / "parts" / "part_locs.txt"
 
-    def load_cub_data(self) -> Tuple[Dict, Dict, Dict, Dict, Dict, Optional[Dict]]:
+    def load_cub_data(self) -> Tuple[Dict, Dict, Dict, Dict, Dict, Dict]:
         """Load all CUB dataset files."""
         print("Loading CUB dataset files...")
 
@@ -109,11 +142,10 @@ class CUBtoCOCOConverter:
                 img_id, is_train = line.strip().split()
                 splits[int(img_id)] = int(is_train) == 1
 
-        # Load parts data if using parts mode
-        parts_data = None
-        if self.use_parts and self.parts_file.exists():
-            print("Loading parts annotations...")
-            parts_data = {}
+        # Load parts data
+        print("Loading parts annotations...")
+        parts_data = {}
+        if self.parts_file.exists():
             with open(self.parts_file, "r") as f:
                 for line in f:
                     parts = line.strip().split()
@@ -131,23 +163,14 @@ class CUBtoCOCOConverter:
         return images, labels, classes, bboxes, splits, parts_data
 
     def create_coco_categories(self, classes: Dict[int, str]) -> List[Dict]:
-        """Create COCO categories from CUB classes or parts."""
-        categories = []
-
-        if self.use_parts:
-            # Create 4-class categories for parts detection
-            categories = [
-                {"id": 1, "name": "bird", "supercategory": "bird"},
-                {"id": 2, "name": "head", "supercategory": "bird"},
-                {"id": 3, "name": "eye", "supercategory": "bird"},
-                {"id": 4, "name": "beak", "supercategory": "bird"},
-            ]
-        else:
-            # Original 200 bird species categories
-            for class_id, class_name in classes.items():
-                categories.append(
-                    {"id": class_id, "name": class_name, "supercategory": "bird"}
-                )
+        """Create COCO categories for parts detection."""
+        # Create 4-class categories for parts detection
+        categories = [
+            {"id": 1, "name": "bird", "supercategory": "bird"},
+            {"id": 2, "name": "head", "supercategory": "bird"},
+            {"id": 3, "name": "eye", "supercategory": "bird"},
+            {"id": 4, "name": "beak", "supercategory": "bird"},
+        ]
         return categories
 
     def create_parts_bounding_box(
@@ -181,6 +204,65 @@ class CUBtoCOCOConverter:
 
         return [float(x_min), float(y_min), float(width), float(height)]
 
+    def get_parts_center(
+        self, img_id: int, part_ids: List[int], parts_data: Dict
+    ) -> Optional[Tuple[float, float]]:
+        """Get the center point of specified parts."""
+        if img_id not in parts_data:
+            return None
+
+        # Collect visible parts coordinates
+        coords = []
+        for part_id in part_ids:
+            if part_id in parts_data[img_id] and parts_data[img_id][part_id]["visible"]:
+                coords.append(
+                    [parts_data[img_id][part_id]["x"], parts_data[img_id][part_id]["y"]]
+                )
+
+        if not coords:
+            return None
+
+        # Calculate center
+        coords = np.array(coords)
+        center_x = float(np.mean(coords[:, 0]))
+        center_y = float(np.mean(coords[:, 1]))
+
+        return (center_x, center_y)
+
+    def calculate_head_orientation(
+        self, img_id: int, parts_data: Dict
+    ) -> Optional[float]:
+        """Calculate head orientation from center of eyes to center of beak."""
+        # Get center of eyes
+        eye_center = self.get_parts_center(img_id, get_eye_parts(), parts_data)
+        if eye_center is None:
+            return None
+
+        # Get center of beak
+        beak_center = self.get_parts_center(img_id, get_beak_parts(), parts_data)
+        if beak_center is None:
+            return None
+
+        # Calculate angle from eyes to beak
+        return calculate_orientation_angle(eye_center, beak_center)
+
+    def calculate_bird_orientation(
+        self, img_id: int, parts_data: Dict
+    ) -> Optional[float]:
+        """Calculate bird orientation from crown to tail."""
+        # Get center of crown
+        crown_center = self.get_parts_center(img_id, get_crown_parts(), parts_data)
+        if crown_center is None:
+            return None
+
+        # Get center of tail
+        tail_center = self.get_parts_center(img_id, get_tail_parts(), parts_data)
+        if tail_center is None:
+            return None
+
+        # Calculate angle from crown to tail
+        return calculate_orientation_angle(crown_center, tail_center)
+
     def get_image_info(self, img_id: int, img_path: str) -> Dict:
         """Get image information including dimensions."""
         full_img_path = self.images_dir / img_path
@@ -203,6 +285,7 @@ class CUBtoCOCOConverter:
         bbox: List[float],
         img_width: int,
         img_height: int,
+        orientation: Optional[float] = None,
     ) -> Dict:
         """Create a COCO annotation from CUB data."""
         x, y, width, height = bbox
@@ -215,7 +298,7 @@ class CUBtoCOCOConverter:
 
         area = width * height
 
-        return {
+        annotation = {
             "id": ann_id,
             "image_id": img_id,
             "category_id": class_id,
@@ -223,6 +306,12 @@ class CUBtoCOCOConverter:
             "area": area,
             "iscrowd": 0,
         }
+
+        # Add orientation if provided and not NaN
+        if orientation is not None and not np.isnan(orientation):
+            annotation["orient"] = float(orientation)
+
+        return annotation
 
     def convert_split(
         self,
@@ -232,7 +321,7 @@ class CUBtoCOCOConverter:
         labels_data: Dict,
         classes_data: Dict,
         bboxes_data: Dict,
-        parts_data: Optional[Dict] = None,
+        parts_data: Dict,
     ) -> Dict:
         """Convert a data split to COCO format."""
         print(f"Converting {split_name} split with {len(img_ids)} images...")
@@ -240,8 +329,7 @@ class CUBtoCOCOConverter:
         # Create COCO structure
         coco_data = {
             "info": {
-                "description": f"CUB-200-2011 {split_name} set in COCO format"
-                + (" (parts mode)" if self.use_parts else ""),
+                "description": f"CUB-200-2011 {split_name} set in COCO format (parts mode with orientation)",
                 "url": "http://www.vision.caltech.edu/visipedia/CUB-200-2011.html",
                 "version": "1.0",
                 "year": 2011,
@@ -262,88 +350,76 @@ class CUBtoCOCOConverter:
             img_info = self.get_image_info(img_id, img_path)
             coco_data["images"].append(img_info)
 
-            if self.use_parts and parts_data:
-                # Create annotations for each part type
-                annotations = []
+            # Create annotations for each part type
+            annotations = []
 
-                # 1. Bird (whole bird) - use original bounding box
-                if img_id in bboxes_data:
-                    bbox = bboxes_data[img_id]
-                    annotation = self.create_coco_annotation(
-                        ann_id,
-                        img_id,
-                        1,
-                        bbox,  # category_id=1 for bird
-                        img_info["width"],
-                        img_info["height"],
-                    )
-                    annotations.append(annotation)
-                    ann_id += 1
-
-                # 2. Head parts
-                head_bbox = self.create_parts_bounding_box(
-                    img_id, get_head_parts(), parts_data
-                )
-                if head_bbox:
-                    annotation = self.create_coco_annotation(
-                        ann_id,
-                        img_id,
-                        2,
-                        head_bbox,  # category_id=2 for head
-                        img_info["width"],
-                        img_info["height"],
-                    )
-                    annotations.append(annotation)
-                    ann_id += 1
-
-                # 3. Eye parts
-                eye_bbox = self.create_parts_bounding_box(
-                    img_id, get_eye_parts(), parts_data
-                )
-                if eye_bbox:
-                    annotation = self.create_coco_annotation(
-                        ann_id,
-                        img_id,
-                        3,
-                        eye_bbox,  # category_id=3 for eye
-                        img_info["width"],
-                        img_info["height"],
-                    )
-                    annotations.append(annotation)
-                    ann_id += 1
-
-                # 4. Beak parts
-                beak_bbox = self.create_parts_bounding_box(
-                    img_id, get_beak_parts(), parts_data
-                )
-                if beak_bbox:
-                    annotation = self.create_coco_annotation(
-                        ann_id,
-                        img_id,
-                        4,
-                        beak_bbox,  # category_id=4 for beak
-                        img_info["width"],
-                        img_info["height"],
-                    )
-                    annotations.append(annotation)
-                    ann_id += 1
-
-                coco_data["annotations"].extend(annotations)
-            else:
-                # Original mode: single annotation per image
-                class_id = labels_data[img_id]
+            # 1. Bird (whole bird) - use original bounding box with orientation
+            if img_id in bboxes_data:
                 bbox = bboxes_data[img_id]
-
+                bird_orientation = self.calculate_bird_orientation(img_id, parts_data)
                 annotation = self.create_coco_annotation(
                     ann_id,
                     img_id,
-                    class_id,
+                    1,  # category_id=1 for bird
                     bbox,
                     img_info["width"],
                     img_info["height"],
+                    orientation=bird_orientation,
                 )
-                coco_data["annotations"].append(annotation)
+                annotations.append(annotation)
                 ann_id += 1
+
+            # 2. Head parts with orientation
+            head_bbox = self.create_parts_bounding_box(
+                img_id, get_head_parts(), parts_data
+            )
+            if head_bbox:
+                head_orientation = self.calculate_head_orientation(img_id, parts_data)
+                annotation = self.create_coco_annotation(
+                    ann_id,
+                    img_id,
+                    2,  # category_id=2 for head
+                    head_bbox,
+                    img_info["width"],
+                    img_info["height"],
+                    orientation=head_orientation,
+                )
+                annotations.append(annotation)
+                ann_id += 1
+
+            # 3. Eye parts (no orientation)
+            eye_bbox = self.create_parts_bounding_box(
+                img_id, get_eye_parts(), parts_data
+            )
+            if eye_bbox:
+                annotation = self.create_coco_annotation(
+                    ann_id,
+                    img_id,
+                    3,  # category_id=3 for eye
+                    eye_bbox,
+                    img_info["width"],
+                    img_info["height"],
+                )
+                annotations.append(annotation)
+                ann_id += 1
+
+            # 4. Beak parts (no orientation)
+            beak_bbox = self.create_parts_bounding_box(
+                img_id, get_beak_parts(), parts_data
+            )
+            if beak_bbox:
+                annotation = self.create_coco_annotation(
+                    ann_id,
+                    img_id,
+                    4,  # category_id=4 for beak
+                    beak_bbox,
+                    img_info["width"],
+                    img_info["height"],
+                )
+                annotations.append(annotation)
+                ann_id += 1
+
+            coco_data["annotations"].extend(annotations)
 
         return coco_data
 
@@ -366,7 +442,7 @@ class CUBtoCOCOConverter:
         if not self.images_dir.exists():
             raise FileNotFoundError(f"Images directory not found: {self.images_dir}")
 
-        if self.use_parts and not self.parts_file.exists():
+        if not self.parts_file.exists():
             raise FileNotFoundError(f"Parts file not found: {self.parts_file}")
 
         # Load CUB data
@@ -383,10 +459,8 @@ class CUBtoCOCOConverter:
         print(
             f"Found {len(train_img_ids)} training images and {len(test_img_ids)} test images"
         )
-        if self.use_parts:
-            print("Using parts mode: 4 classes (bird, head, eye, beak)")
-        else:
-            print(f"Total classes: {len(classes_data)}")
+        print("Using parts mode: 4 classes (bird, head, eye, beak) with orientation")
+        print(f"Total classes: {len(classes_data)}")
 
         # Convert train split
         train_coco = self.convert_split(
@@ -411,7 +485,7 @@ class CUBtoCOCOConverter:
         )
 
         # Save COCO format files
-        suffix = "_parts" if self.use_parts else ""
+        suffix = "_parts"
         train_file = self.output_dir / f"cub_train{suffix}.json"
         test_file = self.output_dir / f"cub_test{suffix}.json"
 
@@ -436,7 +510,7 @@ class CUBtoCOCOConverter:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Convert CUB-200-2011 dataset to COCO format"
+        description="Convert CUB-200-2011 dataset to COCO format with parts and orientation"
     )
     parser.add_argument(
         "--cub_root",
@@ -450,11 +524,6 @@ def main():
         default="../data/coco_annotations",
         help="Directory to save COCO format JSON files",
     )
-    parser.add_argument(
-        "--parts",
-        action="store_true",
-        help="Use parts annotations for 4-class detection (bird, head, eye, beak)",
-    )
 
     args = parser.parse_args()
 
@@ -465,7 +534,7 @@ def main():
         return
 
     # Create converter and run conversion
-    converter = CUBtoCOCOConverter(args.cub_root, args.output_dir, use_parts=args.parts)
+    converter = CUBtoCOCOConverter(args.cub_root, args.output_dir)
     try:
         converter.convert()
     except Exception as e:

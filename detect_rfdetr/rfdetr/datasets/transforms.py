@@ -39,15 +39,41 @@ import math
 
 
 def wrap_angle(theta):
-    """
-    Wrap angles in radians to (-pi, pi].
+    return (theta + math.pi) % (2 * math.pi) - math.pi  # (-pi, pi]
 
-    Args:
-        theta (Tensor or float): input angle(s) in radians.
-    Returns:
-        Tensor or float: wrapped angle(s) in radians.
+
+def update_angle_from_augs(
+    theta0, *, sx=1.0, sy=1.0, hflip=False, vflip=False, rot_rad=0.0
+):
     """
-    return (theta + math.pi) % (2 * math.pi) - math.pi
+    Update a stored base angle theta0 (radians) after applying:
+      - anisotropic scale by (sx, sy),
+      - optional horizontal/vertical flips (image coords: y down),
+      - rotation by rot_rad (CCW in your convention).
+    Works with float or torch tensors.
+    """
+    # scale acts on the unit vector components, then recompute angle
+    # (equivalent to applying diag(sx, sy) to [cos, sin])
+    if isinstance(theta0, torch.Tensor):
+        c, s = torch.cos(theta0), torch.sin(theta0)
+        c, s = sx * c, sy * s
+        theta = torch.atan2(s, c)
+        if hflip:
+            theta = math.pi - theta
+        if vflip:
+            theta = -theta
+        theta = theta + rot_rad
+        return wrap_angle(theta)
+    else:
+        c, s = math.cos(theta0), math.sin(theta0)
+        c, s = sx * c, sy * s
+        theta = math.atan2(s, c)
+        if hflip:
+            theta = math.pi - theta
+        if vflip:
+            theta = -theta
+        theta = theta + rot_rad
+        return wrap_angle(theta)
 
 
 def crop(image, target, region):
@@ -110,7 +136,7 @@ def hflip(image, target):
         target["masks"] = target["masks"].flip(-1)
 
     if "orient" in target:
-        target["orient"] = wrap_angle(torch.pi - target["orient"])
+        target["orient"] = update_angle_from_augs(target["orient"], hflip=True)
 
     return flipped_image, target
 
@@ -150,12 +176,14 @@ def resize(image, target, size, max_size=None):
     if target is None:
         return rescaled_image, None
 
+    # ratios are (new_w / old_w, new_h / old_h)
     ratios = tuple(
         float(s) / float(s_orig) for s, s_orig in zip(rescaled_image.size, image.size)
     )
-    ratio_width, ratio_height = ratios
+    ratio_width, ratio_height = ratios  # sx, sy
 
     target = target.copy()
+
     if "boxes" in target:
         boxes = target["boxes"]
         scaled_boxes = boxes * torch.as_tensor(
@@ -167,6 +195,12 @@ def resize(image, target, size, max_size=None):
         area = target["area"]
         scaled_area = area * (ratio_width * ratio_height)
         target["area"] = scaled_area
+
+    if "orient" in target:
+        # apply scaling to the unit vector components, then recompute angle
+        target["orient"] = update_angle_from_augs(
+            target["orient"], sx=ratio_width, sy=ratio_height
+        )
 
     h, w = size
     target["size"] = torch.tensor([h, w])
@@ -257,13 +291,16 @@ class SquareResize(object):
     def __call__(self, img, target=None):
         size = random.choice(self.sizes)
         rescaled_img = F.resize(img, (size, size))
-        w, h = rescaled_img.size
+        new_w, new_h = rescaled_img.size  # (size, size)
+
         if target is None:
             return rescaled_img, None
+
+        # ratios = (new_w / old_w, new_h / old_h)
         ratios = tuple(
             float(s) / float(s_orig) for s, s_orig in zip(rescaled_img.size, img.size)
         )
-        ratio_width, ratio_height = ratios
+        ratio_width, ratio_height = ratios  # sx, sy
 
         target = target.copy()
         if "boxes" in target:
@@ -278,8 +315,12 @@ class SquareResize(object):
             scaled_area = area * (ratio_width * ratio_height)
             target["area"] = scaled_area
 
-        target["size"] = torch.tensor([h, w])
+        if "orient" in target:
+            target["orient"] = update_angle_from_augs(
+                target["orient"], sx=ratio_width, sy=ratio_height
+            )
 
+        target["size"] = torch.tensor([new_h, new_w])
         return rescaled_img, target
 
 
