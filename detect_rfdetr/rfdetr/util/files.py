@@ -1,14 +1,14 @@
 import requests
 from tqdm import tqdm
-from logging import getLogger
+
 
 def download_file(url, filename):
     response = requests.get(url, stream=True)
-    total_size = int(response.headers['content-length'])
+    total_size = int(response.headers["content-length"])
     with open(filename, "wb") as f, tqdm(
         desc=filename,
         total=total_size,
-        unit='iB',
+        unit="iB",
         unit_scale=True,
         unit_divisor=1024,
     ) as pbar:
