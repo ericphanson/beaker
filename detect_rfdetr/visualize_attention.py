@@ -277,8 +277,8 @@ def get_logits(outputs):
         raise RuntimeError("Could not find class logits in outputs.")
 
     # Only want first 4 classes, rest is no-class
-    no_class = logits[..., -1, None]
-    logits = torch.cat([logits[..., :4], no_class], dim=-1)
+    # no_class = logits[..., -1, None]
+    # logits = torch.cat([logits[..., :4], no_class], dim=-1)
     assert logits.shape[-1] == 5
     return logits  # (B, Q, C+1)
 
@@ -417,15 +417,16 @@ def visualize_queries(
     return fig
 
 
-model = RFDETRNano(num_classes=4, device="cpu")
-# model.model.reinitialize_detection_head(4)
+model = RFDETRNano(num_classes=4, device="cpu", pretrain_weights=None)
+model.model.reinitialize_detection_head(5)
 
 checkpoint = torch.load(
-    "output/checkpoint_best_regular.pth", map_location="cpu", weights_only=False
+    "output2/checkpoint_best_regular.pth", map_location="cpu", weights_only=False
 )
 model.model.model.load_state_dict(checkpoint["model"], strict=True)
+assert model.model.model.class_embed.out_features == 5
 
 image_path = "../example.jpg"
-fig = visualize_queries(model, image_path)
+# fig = visualize_queries(model, image_path)
 
 fig = visualize_queries(model, image_path, per_head=True)

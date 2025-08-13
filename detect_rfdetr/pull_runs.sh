@@ -44,7 +44,7 @@ for arg in "$@"; do
             ;;
         *)
             # If it's not a flag, treat it as the subdirectory
-            if [[ "$SUBDIR" == "runs" ]]; then
+            if [[ "$SUBDIR" == "output" ]]; then
                 SUBDIR="$arg"
             else
                 echo "❌ Error: Multiple subdirectories specified"
