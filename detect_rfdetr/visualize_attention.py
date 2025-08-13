@@ -350,14 +350,26 @@ def visualize_queries(
     scores, q_idx = torch.topk(items, k)
 
     n_heads = attn.shape[2]
-    n_panels = (k * n_heads) if per_head else k
-    cols = min(n_panels, 6)
-    rows = int(np.ceil(n_panels / cols))
-    fig, axes = plt.subplots(rows, cols, figsize=(4 * cols, 4 * rows))
-    axes = np.atleast_1d(axes).ravel()
 
-    panel = 0
-    for qid, sc in zip(q_idx.cpu().tolist(), scores.cpu().tolist()):
+    if per_head:
+        # 1 row per query, 1 column per head
+        rows = k
+        cols = n_heads
+        fig, axes = plt.subplots(rows, cols, figsize=(4 * cols, 4 * rows))
+        if rows == 1:
+            axes = axes.reshape(1, -1)  # ensure 2D array
+        elif cols == 1:
+            axes = axes.reshape(-1, 1)  # ensure 2D array
+        axes = np.atleast_2d(axes)
+    else:
+        # Original layout for non-per-head case
+        n_panels = k
+        cols = min(n_panels, 6)
+        rows = int(np.ceil(n_panels / cols))
+        fig, axes = plt.subplots(rows, cols, figsize=(4 * cols, 4 * rows))
+        axes = np.atleast_1d(axes).ravel()
+
+    for i, (qid, sc) in enumerate(zip(q_idx.cpu().tolist(), scores.cpu().tolist())):
         # predicted class for this query
         cls_idx = probs[0, qid].argmax().item()
         cls_conf = probs[0, qid, cls_idx].item()
@@ -374,13 +386,12 @@ def visualize_queries(
                 loc_hp = loc_h.reshape(-1, 2)
                 pts_img = norm_to_image_xy(loc_hp, img_w, img_h).cpu().numpy()
                 overlay_points(
-                    axes[panel],
+                    axes[i, h],  # row=query, col=head
                     img_pil,
                     pts_img,
                     w_hp,
                     title=f"Q{qid} H{h} | obj={sc:.2f}\n{cls_name} ({cls_conf:.2f})",
                 )
-                panel += 1
         else:
             w_mean = w_q.mean(0)
             loc_mean = loc_q.mean(0)
@@ -388,16 +399,17 @@ def visualize_queries(
             loc_lp = loc_mean.reshape(-1, 2)
             pts_img = norm_to_image_xy(loc_lp, img_w, img_h).cpu().numpy()
             overlay_points(
-                axes[panel],
+                axes[i],  # linear indexing for non-per-head case
                 img_pil,
                 pts_img,
                 w_lp,
                 title=f"Q{qid} | obj={sc:.2f}\n{cls_name} ({cls_conf:.2f})",
             )
-            panel += 1
 
-    for i in range(panel, len(axes)):
-        axes[i].axis("off")
+    # Hide unused axes for non-per-head case
+    if not per_head:
+        for i in range(k, len(axes)):
+            axes[i].axis("off")
     plt.tight_layout()
     # Save figure
     fig.savefig("visualize_queries.png", bbox_inches="tight")
