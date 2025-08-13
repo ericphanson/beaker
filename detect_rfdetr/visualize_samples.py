@@ -34,7 +34,9 @@ def denormalize_image(tensor, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.2
     return torch.clamp(tensor, 0, 1)
 
 
-def visualize_sample(images, targets, sample_idx=0, class_names=None, save_path=None):
+def visualize_sample(
+    images, targets, sample_idx=0, class_names=None, save_path=None, show=True
+):
     """
     Visualize a single sample from the data loader
 
@@ -173,10 +175,13 @@ def visualize_sample(images, targets, sample_idx=0, class_names=None, save_path=
         print(f"Visualization saved to: {save_path}")
 
     plt.tight_layout()
-    plt.show()
+    if show:
+        plt.show()
 
 
-def visualize_batch(images, targets, num_samples=None, class_names=None, save_dir=None):
+def visualize_batch(
+    images, targets, num_samples=None, class_names=None, save_dir=None, show=True
+):
     """
     Visualize multiple samples from a batch
 
@@ -205,7 +210,12 @@ def visualize_batch(images, targets, num_samples=None, class_names=None, save_di
             save_path = save_dir / f"sample_{i}.png"
 
         visualize_sample(
-            images, targets, sample_idx=i, class_names=class_names, save_path=save_path
+            images,
+            targets,
+            sample_idx=i,
+            class_names=class_names,
+            save_path=save_path,
+            show=show,
         )
 
 
@@ -278,7 +288,7 @@ CLASS_NAMES = [
 ]  # Adjust based on your dataset
 
 
-def main():
+def main(show=False):
     """
     Main function to demonstrate the visualization
     """
@@ -301,6 +311,7 @@ def main():
         num_samples=2,
         class_names=CLASS_NAMES,
         save_dir="visualizations",
+        show=show,
     )
 
 
@@ -310,6 +321,7 @@ def visualize_random_samples(
     dataset_dir="../data/cub_coco_parts",
     save_dir="visualizations",
     class_names=CLASS_NAMES,
+    show=False,
 ):
     """
     Visualize random samples from multiple batches
@@ -319,6 +331,7 @@ def visualize_random_samples(
         samples_per_batch: Number of samples to visualize per batch
         dataset_dir: Path to the dataset directory
         save_dir: Directory to save visualizations
+        show: Whether to display plots interactively
     """
 
     # Create data loader
@@ -344,6 +357,7 @@ def visualize_random_samples(
                     sample_idx=sample_idx,
                     class_names=class_names,
                     save_path=save_path,
+                    show=show,
                 )
                 sample_count += 1
 
@@ -425,7 +439,10 @@ def find_samples_with_orientation(
 
 
 def find_oriented_samples(
-    max_batches=50, dataset_dir="../data/cub_coco_parts", save_dir="visualizations"
+    max_batches=50,
+    dataset_dir="../data/cub_coco_parts",
+    save_dir="visualizations",
+    show=False,
 ):
     """
     Find and visualize samples that have orientation data (has_orient=True)
@@ -434,6 +451,7 @@ def find_oriented_samples(
         max_batches: Maximum number of batches to search through
         dataset_dir: Path to the dataset directory
         save_dir: Directory to save visualizations
+        show: Whether to display plots interactively
     """
     class_names = CLASS_NAMES
 
@@ -488,6 +506,7 @@ def find_oriented_samples(
                             sample_idx=sample_idx,
                             class_names=class_names,
                             save_path=save_path,
+                            show=show,
                         )
                         oriented_samples_found += 1
 
@@ -535,6 +554,12 @@ if __name__ == "__main__":
         "--num_batches", type=int, default=3, help="Number of batches for random mode"
     )
     parser.add_argument(
+        "--show",
+        action="store_true",
+        default=False,
+        help="Whether to show the visualizations interactively",
+    )
+    parser.add_argument(
         "--samples_per_batch",
         type=int,
         default=2,
@@ -556,17 +581,16 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.mode == "single":
-        main()
+        main(show=args.show)
     elif args.mode == "random":
         visualize_random_samples(
-            args.num_batches, args.samples_per_batch, args.dataset_dir, args.save_dir
+            args.num_batches,
+            args.samples_per_batch,
+            args.dataset_dir,
+            args.save_dir,
+            show=args.show,
         )
     elif args.mode == "oriented":
-        find_oriented_samples(args.max_batches, args.dataset_dir, args.save_dir)
-    elif args.mode == "oriented":
-        find_oriented_samples(args.max_batches, args.dataset_dir, args.save_dir)
-        main()
-    elif args.mode == "random":
-        visualize_random_samples(
-            args.num_batches, args.samples_per_batch, args.dataset_dir, args.save_dir
+        find_oriented_samples(
+            args.max_batches, args.dataset_dir, args.save_dir, show=args.show
         )
