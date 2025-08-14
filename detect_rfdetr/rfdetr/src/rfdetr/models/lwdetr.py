@@ -758,31 +758,59 @@ class PostProcess(nn.Module):
                           For evaluation, this must be the original image size (before any data augmentation)
                           For visualization, this should be the image size after data augment, but before padding
         """
-        out_logits, out_bbox = outputs["pred_logits"], outputs["pred_boxes"]
+        out_logits = outputs["pred_logits"]  # [B, Q, C]
+        out_bbox = outputs["pred_boxes"]  # [B, Q, 4] (cx,cy,w,h in [0,1])
+        out_orient = outputs["pred_orients"]  # [B, Q, 2] (cos,sin raw)
 
         assert len(out_logits) == len(target_sizes)
         assert target_sizes.shape[1] == 2
 
-        prob = out_logits.sigmoid()
-        topk_values, topk_indexes = torch.topk(
-            prob.view(out_logits.shape[0], -1), self.num_select, dim=1
-        )
+        # class selection (flatten queries x classes)
+        prob = out_logits.sigmoid()  # per-class probs
+        B, Q, C = prob.shape
+        topk_values, topk_indexes = torch.topk(prob.view(B, -1), self.num_select, dim=1)
         scores = topk_values
-        topk_boxes = topk_indexes // out_logits.shape[2]
-        labels = topk_indexes % out_logits.shape[2]
-        boxes = box_ops.box_cxcywh_to_xyxy(out_bbox)
-        boxes = torch.gather(boxes, 1, topk_boxes.unsqueeze(-1).repeat(1, 1, 4))
+        topk_boxes = topk_indexes // C  # [B, N] -> query indices
+        labels = topk_indexes % C  # [B, N] -> class indices
 
-        # and from relative [0, 1] to absolute [0, height] coordinates
+        # gather boxes for those queries
+        boxes_xyxy = box_ops.box_cxcywh_to_xyxy(out_bbox)  # [B, Q, 4]
+        boxes = torch.gather(
+            boxes_xyxy,
+            1,
+            topk_boxes.unsqueeze(-1).repeat(1, 1, 4),  # [B, N, 4]
+        )
+
+        # gather orientations for those queries
+        orients = torch.gather(
+            out_orient,
+            1,
+            topk_boxes.unsqueeze(-1).repeat(1, 1, 2),  # [B, N, 2]
+        )
+
+        # (optional) normalize and/or convert to angle
+        orients_unit = torch.nn.functional.normalize(orients, dim=-1)  # keep (cos,sin)
+        angles = torch.atan2(
+            orients_unit[..., 1], orients_unit[..., 0]
+        )  # [B, N] radians
+
+        # scale boxes to absolute pixels
         img_h, img_w = target_sizes.unbind(1)
-        scale_fct = torch.stack([img_w, img_h, img_w, img_h], dim=1)
+        scale_fct = torch.stack([img_w, img_h, img_w, img_h], dim=1)  # [B, 4]
         boxes = boxes * scale_fct[:, None, :]
 
-        results = [
-            {"scores": s, "labels": l, "boxes": b}
-            for s, l, b in zip(scores, labels, boxes)
-        ]
-
+        # package results; choose whether to expose cos/sin or angle
+        results = []
+        for s, l, b, u, th in zip(scores, labels, boxes, orients_unit, angles):
+            results.append(
+                {
+                    "scores": s,  # [N]
+                    "labels": l,  # [N]
+                    "boxes": b,  # [N,4] (abs xyxy)
+                    "orients": u,  # [N,2] unit (cos,sin)
+                    "angles": th,  # [N] radians in (-pi, pi]
+                }
+            )
         return results
 
 

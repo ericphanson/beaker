@@ -12,6 +12,10 @@ import numpy as np
 from pathlib import Path
 import onnxruntime as ort
 
+from rfdetr.models.lwdetr import PostProcess
+from rfdetr.util import box_ops
+
+
 sys.path.append("rfdetr")
 
 from rfdetr.main import populate_args
@@ -94,19 +98,11 @@ def find_class_mapping(gt_boxes, gt_labels, pred_boxes, pred_classes):
                 best_iou = iou
                 best_gt_idx = j
 
-        pred_class_name = (
-            CLASS_NAMES[pred_class]
-            if pred_class < len(CLASS_NAMES)
-            else f"Unknown({pred_class})"
-        )
+        pred_class_name = CLASS_NAMES[pred_class]
 
         if best_iou > 0.1:  # Minimum IoU threshold
             gt_label = gt_labels[best_gt_idx]
-            gt_class_name = (
-                CLASS_NAMES[gt_label]
-                if gt_label < len(CLASS_NAMES)
-                else f"Unknown({gt_label})"
-            )
+            gt_class_name = CLASS_NAMES[gt_label]
 
             print(
                 f"Pred class {pred_class} ({pred_class_name}) -> GT class {gt_label} ({gt_class_name}), IoU: {best_iou:.3f}"
@@ -131,7 +127,10 @@ def find_class_mapping(gt_boxes, gt_labels, pred_boxes, pred_classes):
 
     print(f"Inferred mapping: {final_mapping}")
     if unmatched_predictions:
-        print(f"Unmatched predictions (possibly background): {unmatched_predictions}")
+        first_10 = unmatched_predictions[:10]
+        print(
+            f"Unmatched predictions (possibly background): {first_10} and {len(unmatched_predictions) - 10} more"
+        )
 
     return final_mapping
 
@@ -160,6 +159,7 @@ class ONNXInferenceModel:
         input_shape = self.session.get_inputs()[0].shape
         self.expected_height = input_shape[2]
         self.expected_width = input_shape[3]
+        self.post_process = PostProcess(num_select=20)
 
         print(f"Loaded ONNX model from {model_path}")
         print(f"Input name: {self.input_name}")
@@ -200,136 +200,92 @@ class ONNXInferenceModel:
 
         return image_tensor.cpu().numpy()
 
-    def postprocess_predictions(self, outputs, original_image_size):
+    def postprocess_predictions(self, onnx_outputs, original_image_size):
         """
         Post-process ONNX model outputs
 
         Args:
-            outputs: Raw ONNX model outputs
+            onnx_outputs: Raw ONNX model outputs
             original_image_size: (height, width) of the original input image
 
         Returns:
             Dictionary with processed predictions
         """
-        # This will need to be adapted based on your ONNX model's output format
-        # Based on the export script, outputs should be [dets, labels, orients]
 
-        if len(outputs) >= 3:
-            dets = outputs[0]  # Bounding boxes
-            labels = outputs[1]  # Class logits
-            orients = outputs[2]  # Orientations
-        elif len(outputs) >= 2:
-            dets = outputs[0]  # Bounding boxes
-            labels = outputs[1]  # Class logits
+        outputs = {
+            "pred_boxes": torch.tensor(onnx_outputs[0]),
+            "pred_logits": torch.tensor(onnx_outputs[1]),
+            "pred_orients": torch.tensor(onnx_outputs[2]),
+        }
+        # Repeated batch-size many times
+        target_sizes = torch.tensor(
+            [original_image_size for _ in range(onnx_outputs[0].shape[0])]
+        )
+        results = self.post_process(outputs, target_sizes)
+        # print(results)
+        # we expect batch size to be 1:
+        assert len(results) == 1
+        r = results[0]
+
+        # Here we undo some of the postprocessing to match the visualization outputs
+        # Rescale outputs to be in 0-1 range with cxcywh format
+        boxes = box_ops.box_xyxy_to_cxcywh(r["boxes"])
+        r["boxes"] = [
+            [
+                box[0] / original_image_size[0],
+                box[1] / original_image_size[1],
+                box[2] / original_image_size[0],
+                box[3] / original_image_size[1],
+            ]
+            for box in boxes
+        ]
+
+        # Empirical -1.. not sure why this is necessary!
+        # This makes the classes -1, 0, 1, 2, 3...
+        # background is supposed to be the final class, but maybe somehow it is the
+        # first class, so by doing this we filter it out?
+        r["labels"] = torch.tensor([r - 1 for r in r["labels"]])
+
+        # Now we keep the top-k predictions per class
+        selected_boxes = []
+        selected_scores = []
+        selected_labels = []
+        top_k = 1
+
+        for c in r["labels"].unique():
+            idx = (r["labels"] == c).nonzero(as_tuple=True)[0]
+            if len(idx) > top_k:
+                idx = idx[torch.topk(r["scores"][idx], top_k).indices]
+
+            # Convert tensor indices to list for proper indexing
+            idx_list = idx.tolist()
+
+            # Extract the corresponding boxes, scores, and labels
+            class_boxes = [r["boxes"][i] for i in idx_list]
+            class_scores = r["scores"][idx]
+            class_labels = r["labels"][idx]
+
+            selected_boxes.extend(class_boxes)
+            selected_scores.append(class_scores)
+            selected_labels.append(class_labels)
+
+        # Concatenate all tensors
+        if selected_scores:
+            final_scores = torch.cat(selected_scores)
+            final_labels = torch.cat(selected_labels)
         else:
-            # Single output case - need to split based on your model
-            raise ValueError(f"Unexpected number of outputs: {len(outputs)}")
+            final_scores = torch.tensor([])
+            final_labels = torch.tensor([])
 
-        # Convert to torch tensors for easier processing
-        dets = torch.from_numpy(dets).squeeze(0)  # Remove batch dimension
-        labels = torch.from_numpy(labels).squeeze(0)  # Remove batch dimension
+        out = {
+            "boxes": selected_boxes,
+            "scores": final_scores,
+            "labels": final_labels,
+            "num_predictions": len(selected_boxes),
+            "orients": r.get("orients", None),
+        }
 
-        # Apply softmax to get probabilities
-        probs = torch.softmax(labels, dim=-1)
-
-        if self.remap:
-            # CRITICAL: Apply class mapping correction BEFORE selecting top-1 per class
-            # This ensures we get the correct top-1 predictions for each GT class
-            # rather than the mixed-up model classes.
-            #
-            # Discovered mapping (verified across 10 samples with 100% consistency):
-            # - Model class 0 (bird) → GT class 0 (bird)       - Alternative bird detection
-            # - Model class 1 (head) → GT class 0 (bird)       - Primary bird detection
-            # - Model class 2 (eye)  → GT class 1 (head)       - Actually detects heads, not eyes!
-            # - Model class 3 (beak) → GT class 3 (beak)       - Correctly detects beaks
-            # - Model class 4 (background) → GT class 2 (eye)  - Background actually detects eyes!
-
-            # Create remapped probability tensor for correct class selection
-            # Initialize with zeros for 5 GT classes (0-4 indexing)
-            remapped_probs = torch.zeros(probs.shape[0], 5)  # [num_queries, n_classes]
-
-            # # Apply the mapping to redistribute probabilities to correct GT classes
-            # # Model class 0 → GT class 0 (bird) - index 0 in remapped tensor
-            # # Model class 1 → GT class 0 (bird) - index 0 in remapped tensor
-            remapped_probs[:, 0] = (
-                probs[:, 0] + probs[:, 1]
-            )  # Combine both bird detectors
-
-            # # Model class 2 → GT class 1 (head) - index 1 in remapped tensor
-            remapped_probs[:, 1] = probs[:, 2]
-
-            # # Model class 4 → GT class 2 (eye) - index 2 in remapped tensor
-            remapped_probs[:, 2] = probs[:, 3]
-
-            # # Model class 3 → GT class 3 (beak) - index 3 in remapped tensor
-            remapped_probs[:, 3] = probs[:, 4]
-        else:
-            remapped_probs = probs
-        # Now select top-1 prediction per corrected GT class
-        num_gt_classes = 5  # bird, head, eye, beak, background
-
-        selected_indices = []
-        selected_probs = []
-        selected_classes = []
-
-        for gt_class_idx in range(num_gt_classes):
-            # Get probabilities for this corrected GT class across all queries
-            class_probs = remapped_probs[:, gt_class_idx]
-
-            # Find the query with highest probability for this GT class
-            best_query_idx = torch.argmax(class_probs)
-            best_prob = class_probs[best_query_idx]
-
-            # Only include if probability is reasonable
-            if best_prob > 0.05:
-                selected_indices.append(best_query_idx)
-                selected_probs.append(best_prob)
-                selected_classes.append(gt_class_idx)  # Use 0-indexed GT classes (0-3)
-
-        if len(selected_indices) > 0:
-            # Convert to tensors
-            selected_indices = torch.tensor(selected_indices)
-            selected_probs = torch.tensor(selected_probs)
-            selected_classes = torch.tensor(selected_classes)
-
-        if len(selected_indices) > 0:
-            # Convert to tensors
-            selected_indices = torch.tensor(selected_indices)
-            selected_probs = torch.tensor(selected_probs)
-            selected_classes = torch.tensor(selected_classes)
-
-            # Extract selected predictions - classes are already corrected from early mapping
-            confident_boxes = dets[selected_indices]
-            confident_probs = selected_probs
-            confident_classes = (
-                selected_classes  # Already contains corrected GT classes (1-4)
-            )
-
-            # Handle orientation predictions if available
-            confident_orients = None
-            if len(outputs) >= 3 and orients is not None:
-                orients_tensor = torch.from_numpy(orients).squeeze(
-                    0
-                )  # Remove batch dimension
-                confident_orients = orients_tensor[selected_indices]
-
-            # No need for class mapping here - it was applied early during selection
-
-            return {
-                "boxes": confident_boxes,
-                "scores": confident_probs,
-                "labels": confident_classes,  # Already contains corrected GT classes (1-4)
-                "num_predictions": len(confident_boxes),
-                "orients": confident_orients,
-            }
-        else:
-            return {
-                "boxes": torch.empty(0, 4),
-                "scores": torch.empty(0),
-                "labels": torch.empty(0, dtype=torch.long),
-                "orients": None,
-                "num_predictions": 0,
-            }
+        return out
 
     def predict(self, image_tensor):
         """
@@ -365,6 +321,8 @@ def visualize_sample(
     show=True,
     predictions=None,
     onnx_model=None,
+    show_eye=False,
+    show_beak=False,
 ):
     """
     Visualize a single sample from the data loader
@@ -378,6 +336,8 @@ def visualize_sample(
         show: Whether to display the plot
         predictions: Dictionary with prediction results (optional)
         onnx_model: ONNXInferenceModel instance for inference (optional)
+        show_eye: Whether to show eye boxes (default: False)
+        show_beak: Whether to show beak boxes (default: False)
     """
     # Extract the image and target for the specified sample
     if sample_idx >= images.tensors.shape[0]:
@@ -430,11 +390,15 @@ def visualize_sample(
 
             # Analyze class mapping by comparing bounding boxes
             if predictions["num_predictions"] > 0:
-                pred_boxes_np = (
-                    predictions["boxes"].cpu().numpy()
-                    if hasattr(predictions["boxes"], "cpu")
-                    else predictions["boxes"]
-                )
+                # Handle boxes - convert list to numpy array
+                if isinstance(predictions["boxes"], list):
+                    pred_boxes_np = np.array(predictions["boxes"])
+                else:
+                    pred_boxes_np = (
+                        predictions["boxes"].cpu().numpy()
+                        if hasattr(predictions["boxes"], "cpu")
+                        else predictions["boxes"]
+                    )
                 pred_labels_np = (
                     predictions["labels"].cpu().numpy()
                     if hasattr(predictions["labels"], "cpu")
@@ -442,11 +406,12 @@ def visualize_sample(
                 )
 
                 # Find class mapping based on IoU for debugging/analysis
-                find_class_mapping(
-                    boxes, labels, pred_boxes_np, pred_labels_np
-                )  # Both GT and pred labels are now 0-indexed
+                # find_class_mapping(
+                # boxes, labels, pred_boxes_np, pred_labels_np
+                # )  # Both GT and pred labels are now 0-indexed
 
     # Create the plot
+    print(f"Creating plot with {len(boxes)} GT boxes...")
     fig, ax = plt.subplots(1, 1, figsize=(12, 8))
     ax.imshow(image_np)
     title = f"Sample {sample_idx} - Image ID: {image_id}"
@@ -471,7 +436,30 @@ def visualize_sample(
         "cyan",
     ]
 
-    for i, (box, label) in enumerate(zip(boxes, labels)):
+    # Filter boxes and labels based on show_eye and show_beak flags
+    # Keep bird (0) and head (1) always, filter eye (2) and beak (3) based on flags
+    filtered_indices = []
+    for i, label in enumerate(labels):
+        if label == 0 or label == 1:  # bird and head - always show
+            filtered_indices.append(i)
+        elif label == 2 and show_eye:  # eye - show only if flag set
+            filtered_indices.append(i)
+        elif label == 3 and show_beak:  # beak - show only if flag set
+            filtered_indices.append(i)
+
+    filtered_boxes = boxes[filtered_indices]
+    filtered_labels = labels[filtered_indices]
+    if has_orient is not None:
+        filtered_has_orient = has_orient[filtered_indices]
+    else:
+        filtered_has_orient = None
+    if orient is not None:
+        filtered_orient = orient[filtered_indices]
+    else:
+        filtered_orient = None
+
+    for i, (box, label) in enumerate(zip(filtered_boxes, filtered_labels)):
+        print(f"Processing box {box}")
         cx, cy, bw, bh = box
 
         # Convert to pixel coordinates
@@ -492,8 +480,12 @@ def visualize_sample(
         ax.add_patch(rect)
 
         # Draw orientation line if orientation data is present
-        if has_orient is not None and has_orient[i] and orient is not None:
-            angle = orient[i]
+        if (
+            filtered_has_orient is not None
+            and filtered_has_orient[i]
+            and filtered_orient is not None
+        ):
+            angle = filtered_orient[i]
             # Draw a line through the center of the bbox at the given angle
             # Line length is proportional to the bbox size
             line_length = min(bw_px, bh_px) * 0.4
@@ -516,8 +508,12 @@ def visualize_sample(
             label_text = f"{class_names[label]} ({label})"
 
         # Add orientation info to label if present
-        if has_orient is not None and has_orient[i] and orient is not None:
-            angle_deg = np.degrees(orient[i])
+        if (
+            filtered_has_orient is not None
+            and filtered_has_orient[i]
+            and filtered_orient is not None
+        ):
+            angle_deg = np.degrees(filtered_orient[i])
             label_text += f" ({angle_deg:.1f}°)"
 
         ax.text(
@@ -531,11 +527,16 @@ def visualize_sample(
 
     # Visualize predictions if available
     if predictions and predictions["num_predictions"] > 0:
-        pred_boxes = (
-            predictions["boxes"].cpu().numpy()
-            if hasattr(predictions["boxes"], "cpu")
-            else predictions["boxes"]
-        )
+        print(f"Visualizing {predictions['num_predictions']} predictions...")
+        # Handle boxes - convert list to numpy array
+        if isinstance(predictions["boxes"], list):
+            pred_boxes = np.array(predictions["boxes"])
+        else:
+            pred_boxes = (
+                predictions["boxes"].cpu().numpy()
+                if hasattr(predictions["boxes"], "cpu")
+                else predictions["boxes"]
+            )
         pred_scores = (
             predictions["scores"].cpu().numpy()
             if hasattr(predictions["scores"], "cpu")
@@ -565,10 +566,30 @@ def visualize_sample(
             "lightgreen",
         ]
 
+        # Filter predictions based on show_eye and show_beak flags
+        # Keep bird (0) and head (1) always, filter eye (2) and beak (3) based on flags
+        filtered_pred_indices = []
+        for i, pred_label in enumerate(pred_labels):
+            if pred_label == 0 or pred_label == 1:  # bird and head - always show
+                filtered_pred_indices.append(i)
+            elif pred_label == 2 and show_eye:  # eye - show only if flag set
+                filtered_pred_indices.append(i)
+            elif pred_label == 3 and show_beak:  # beak - show only if flag set
+                filtered_pred_indices.append(i)
+
+        filtered_pred_boxes = pred_boxes[filtered_pred_indices]
+        filtered_pred_scores = pred_scores[filtered_pred_indices]
+        filtered_pred_labels = pred_labels[filtered_pred_indices]
+        if pred_orients is not None:
+            filtered_pred_orients = pred_orients[filtered_pred_indices]
+        else:
+            filtered_pred_orients = None
+
         for i, (pred_box, pred_score, pred_label) in enumerate(
-            zip(pred_boxes, pred_scores, pred_labels)
+            zip(filtered_pred_boxes, filtered_pred_scores, filtered_pred_labels)
         ):
             cx, cy, bw, bh = pred_box
+            print(f"Processing prediction {pred_box}")
 
             # Convert to pixel coordinates
             cx_px = cx * w
@@ -594,9 +615,9 @@ def visualize_sample(
             ax.add_patch(rect)
 
             # Draw predicted orientation line if orientation data is available
-            if pred_orients is not None and i < len(pred_orients):
-                # pred_orients contains [cos(θ), sin(θ)] for each prediction
-                cos_theta, sin_theta = pred_orients[i]
+            if filtered_pred_orients is not None and i < len(filtered_pred_orients):
+                # filtered_pred_orients contains [cos(θ), sin(θ)] for each prediction
+                cos_theta, sin_theta = filtered_pred_orients[i]
 
                 # Draw a line through the center of the bbox at the predicted angle
                 # (angle calculated directly from arctan2(sin_theta, cos_theta))
@@ -647,8 +668,11 @@ def visualize_sample(
     ax.axis("off")
 
     if save_path:
+        print(f"Working on saving to {save_path}")
         plt.savefig(save_path, bbox_inches="tight", dpi=150)
         print(f"Visualization saved to: {save_path}")
+    else:
+        print("No save path specified")
 
     plt.tight_layout()
     if show:
@@ -700,6 +724,8 @@ def visualize_batch(
             save_path=save_path,
             show=show,
             onnx_model=onnx_model,
+            show_eye=args.eye,
+            show_beak=args.beak,
         )
 
 
@@ -872,6 +898,8 @@ def visualize_random_samples(
                     save_path=save_path,
                     show=show,
                     onnx_model=onnx_model,
+                    show_eye=args.eye,
+                    show_beak=args.beak,
                 )
                 sample_count += 1
 
@@ -931,6 +959,8 @@ def find_samples_with_orientation(
                         sample_idx=sample_idx,
                         class_names=class_names,
                         save_path=save_path,
+                        show_eye=args.eye,
+                        show_beak=args.beak,
                     )
 
                     found_count += 1
@@ -1038,6 +1068,8 @@ def find_oriented_samples(
                             save_path=save_path,
                             show=show,
                             onnx_model=onnx_model,
+                            show_eye=args.eye,
+                            show_beak=args.beak,
                         )
                         oriented_samples_found += 1
 
@@ -1106,11 +1138,17 @@ def analyze_class_mappings_across_samples(
             predictions = onnx_model.predict(image_tensor)
 
             if predictions["num_predictions"] > 0:
-                pred_boxes_np = (
-                    predictions["boxes"].cpu().numpy()
-                    if hasattr(predictions["boxes"], "cpu")
-                    else predictions["boxes"]
-                )
+                # Handle boxes - convert list to numpy array
+                if isinstance(predictions["boxes"], list):
+                    pred_boxes_np = np.array(predictions["boxes"])
+                else:
+                    pred_boxes_np = (
+                        predictions["boxes"].cpu().numpy()
+                        if hasattr(predictions["boxes"], "cpu")
+                        else predictions["boxes"]
+                    )
+
+                # Handle labels - convert tensor to numpy
                 pred_labels_np = (
                     predictions["labels"].cpu().numpy()
                     if hasattr(predictions["labels"], "cpu")
@@ -1133,7 +1171,9 @@ def analyze_class_mappings_across_samples(
                         "image_id": image_id,
                         "mapping": class_mapping,
                         "gt_labels": labels.tolist(),
-                        "pred_labels": pred_labels_np.tolist(),
+                        "pred_labels": pred_labels_np.tolist()
+                        if hasattr(pred_labels_np, "tolist")
+                        else list(pred_labels_np),
                     }
                 )
 
@@ -1271,6 +1311,16 @@ if __name__ == "__main__":
         type=int,
         default=10,
         help="Number of samples to analyze for mapping mode",
+    )
+    parser.add_argument(
+        "--eye",
+        action="store_true",
+        help="Show eye predictions and ground truth boxes",
+    )
+    parser.add_argument(
+        "--beak",
+        action="store_true",
+        help="Show beak predictions and ground truth boxes",
     )
 
     args = parser.parse_args()
