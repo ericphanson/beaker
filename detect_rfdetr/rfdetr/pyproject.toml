@@ -94,10 +94,11 @@ Homepage = "https://github.com/roboflow/rf-detr"
 rfdetr = "rfdetr.cli.main:trainer"
 
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["rfdetr", "rfdetr.*"]   # ← explicit
+where = ["src"]
+include = ["rfdetr", "rfdetr.*"]
 
 [tool.setuptools]
+package-dir = {"" = "src"}
 include-package-data = false
 
 [tool.setuptools.package-data]
