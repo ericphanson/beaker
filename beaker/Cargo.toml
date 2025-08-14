@@ -1,6 +1,6 @@
 [package]
 name         = "beaker"
-version      = "0.2.0"
+version      = "0.3.0"
 edition      = "2021"
 description  = "Process bird images with ML models"
 readme       = "README.md"

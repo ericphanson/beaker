@@ -11,7 +11,10 @@ This is for the model used by `beaker detect`.
 | Origin | Original terms | What that means for these weights |
 |--------|----------------|-----------------------------------|
 | **Dataset:** Caltech-UCSD Birds-200-2011 | "Images are for **non-commercial research and educational purposes only**." | ➜ **No commercial use** of the weights or any derivative work. |
+| **Training code:** RF-DETR | Source and official models released under **Apache 2.0** |  |
 | **Training code:** Ultralytics YOLOv8 | Source and official models released under **GNU AGPL-3.0** | ➜ If you **redistribute or serve** the weights, you must also release the full source & weights **under AGPL-3.0**. |
+
+Some of the YOLO-based ultralytics-derived code is in the `yolo_preprocessing.rs` and `yolo_postprocessing.rs` files; I may delete these and switch to Apache 2.0 later once I'm sure I don't want to use the YOLO-based models.
 
 ### Summary
 Because the weights were trained on CUB images *and* with AGPL-licensed code, they are provided **solely for non-commercial research/education** under **AGPL-3.0**.
@@ -76,24 +79,23 @@ yielding the output crop saved as `example_crop_head.jpg`:
 
 Here we describe the model used by `beaker detect`, which has been finetuned to detect bird objects including heads. The model used by `beaker cutout` is `isnet-general-use` and has not been finetuned.
 
-- **Architecture:** YOLOv8n, ~3M parameters
+- **Architecture:** RF-DETR Nano, ~27M parameters
 - **Finetuning dataset:** CUB-200-2011 bird parts (head regions only). ~6k train images, ~6k validation images
-- **Classes:** 1 (bird_head)
-- **Input size:** 640×640 pixels
+- **Classes:** 5 (bird, head, eye, beak, background)
+- **Input size:** 384x384 pixels
+- **Epochs**: 7
 
-Here are the validation metrics from the [v1](https://github.com/ericphanson/beaker/releases/tag/bird-head-detector-v1.0.0) model currently used by `beaker`:
+Here are the validation metrics from the [v0.1](https://github.com/ericphanson/beaker/releases/tag/bird-orientation-detector-v0.1.0) orientation model currently used by `beaker`:
 
-| **Precision** | **Recall** | **mAP@0.5** | **mAP@0.5:0.95** | **Val Box Loss** | **Val CLS Loss** | **Val DFL Loss** |
-|--------------:|-----------:|------------:|-----------------:|-----------------:|-----------------:|-----------------:|
-| 0.9771        | 0.9646     | 0.9851      | 0.6779           | 1.1704           | 0.4518           | 1.2195           |
+| Class | mAP@50:95 | mAP@50 | Precision | Recall |
+|-------|-----------|--------|-----------|--------|
+| bird  | 0.8907    | 0.9898 | 0.9996    | 0.91   |
+| head  | 0.6548    | 0.9888 | 0.9970    | 0.91   |
+| eye   | 0.4027    | 0.9204 | 0.8900    | 0.91   |
+| beak  | 0.3703    | 0.9157 | 0.8958    | 0.91   |
+| all   | 0.5796    | 0.9537 | 0.9456    | 0.91   |
 
-- **Precision**: Proportion of predicted bird heads that are correct (≈ 97.7%).
-- **Recall**: Proportion of actual bird heads detected (≈ 96.5%).
-- **mAP@0.5**: Mean Average Precision at IoU threshold 0.5 — primary object detection metric; high (≈ 98.5%).
-- **mAP@0.5:0.95**: Averaged mAP over IoU thresholds from 0.5 to 0.95 (in steps of 0.05); more stringent (≈ 67.8%).
-- **Box Loss**: Localization loss – how well bounding boxes fit bird heads.
-- **CLS Loss**: Classification loss – low, as expected for single-class task.
-- **DFL Loss**: Distribution Focal Loss – helps with bounding box quality.
+This model additionally produces an orientation angle which has been trained for the head/bird classes. I don't have a proper metric for it, but the test loss for the orientation at epoch 7 was 0.0109 which corresponds to an average cosine similarity of 0.989.
 
 ## 4. Development & Training
 
@@ -108,65 +110,15 @@ Download and prepare the CUB-200-2011 dataset:
    # Extract to: data/CUB_200_2011/
    ```
 
-2. **Convert to YOLO format:**
-   ```bash
-   cd training
-   uv run beaker-convert
-   ```
-
-   This creates `data/yolo/` with train/val splits and YOLO-format labels. The conversion extracts head-related parts (beak, crown, forehead, eyes, nape, throat) and creates bounding boxes around them.
-
-### 4.2. Install Dependencies
-
-```bash
-# Install all dependencies (training + preprocessing + release tools)
-cd training
-uv sync --extra dev
-```
-
-Requires Python 3.12+. On M1/M2 Macs, verify MPS is available:
-```bash
-cd training
-uv run python -c "import torch; print(f'MPS available: {torch.backends.mps.is_available()}')"
-```
-
-### 4.3. Training
-
-If using [comet](https://www.comet.com/), update [`.envrc`](./.envrc) to set the `COMET_WORKSPACE` variable and add your API key to your environment (`export COMET_API_KEY="your-api-key"`).
-
-**Basic training:**
-```bash
-cd training
-uv run beaker-train
-```
-
-**Debug mode** (faster, less data):
-Edit `training/train.py` and set `'debug_run': True` in `TRAINING_CONFIG`.
-
-**Training notes:**
-- Expects ~2-4 hours on M1 MacBook Pro for full training
-- Model converges quickly but benefits from longer training
-- Batch size may need adjustment based on available memory
-- No hyperparameter tuning has been performed
+Then see [detect_rfdetr](./detect_rfdetr/) for further dataset preparation steps.
 
 ### 4.4. Upload training results as GitHub releases
 
 Create GitHub releases with trained models:
 
-```bash
-# Ensure clean repository state
-git add . && git commit -m "Update before release"
-
-# Create release
-cd training
-uv run beaker-upload
-
-# Follow prompts for version number and model selection
-```
-
-The script uploads the selected model as `bird-head-detector.pt` along with training artifacts (plots, configs, results) and an ONNX export `bird-head-detector.onnx`.
-
-Note: the `isnet-general-use` model was uploaded using the [`training/upload_cutout.sh`](./training/upload_cutout.sh) which simply copies the ONNX model from [rembg](https://github.com/danielgatis/rembg).
+- See [./detect_rfdetr/create_release.sh](./detect_rfdetr/create_release.sh) for uploading RF-DETR models.
+- the `isnet-general-use` model was uploaded using the [`training/upload_cutout.sh`](./training/upload_cutout.sh) which simply copies the ONNX model from [rembg](https://github.com/danielgatis/rembg)
+- older YOLO based models use scripts in [./detect_model](./detect_model/)
 
 ## 5. How to build `beaker` from source
 
