@@ -159,7 +159,7 @@ def generate_onnx_model(model_path, output_dir=None):
             output_dir.mkdir(exist_ok=True)
 
         # Generate ONNX file path
-        onnx_path = output_dir / f"{model_path.stem}.onnx"
+        onnx_path = output_dir / "bird-multi-detector.onnx"
 
         # Export to ONNX with optimized settings
         print("   🚀 Exporting to ONNX format...")
@@ -260,22 +260,9 @@ def collect_run_assets(model_path):
     """Collect all assets from the training run directory, including only the selected model."""
     # Get the run directory from the model path
     # Model path should be like: runs/multi-detect/run_name/weights/best.pt
-    if "runs/multi-detect" in str(model_path):
-        run_dir = model_path.parent.parent  # Go up from weights/ to run directory
-    else:
-        # If not from a training run, just return the model file itself
-        assets = [model_path]
-        # Generate ONNX model (will raise exception if it fails)
-        onnx_path = generate_onnx_model(model_path)
-        assets.append(onnx_path)
-        return assets
-
+    run_dir = model_path.parent.parent  # Go up from weights/ to run directory
     if not run_dir.exists():
-        assets = [model_path]
-        # Generate ONNX model (will raise exception if it fails)
-        onnx_path = generate_onnx_model(model_path)
-        assets.append(onnx_path)
-        return assets
+        raise FileNotFoundError(f"Run directory not found: {run_dir}")
 
     # Define file patterns to include in the release (excluding other .pt files)
     include_patterns = [

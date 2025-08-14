@@ -35,7 +35,7 @@ echo "🚀 Starting data transfer to remote system..."
 # Check if remote directory exists, create if not
 if [[ -z "$DRY_RUN" ]]; then
     echo "📁 Ensuring remote directory structure exists..."
-    ssh $REMOTE "mkdir -p $REMOTE_DIR/data $REMOTE_DIR/head_model/runs"
+    ssh $REMOTE "mkdir -p $REMOTE_DIR/data $REMOTE_DIR/detect_model/runs"
 else
     echo "📁 [DRY RUN] Would ensure remote directory structure exists..."
 fi
@@ -69,8 +69,8 @@ rsync -a --info=progress2 $DRY_RUN \
 
 # Copy runs directory
 echo "🏃 Copying runs directory (normal mode for fewer, larger files)..."
-echo "   Source: $LOCAL_DIR/head_model/runs"
-echo "   Destination: $REMOTE:$REMOTE_DIR/head_model/runs"
+echo "   Source: $LOCAL_DIR/detect_model/runs"
+echo "   Destination: $REMOTE:$REMOTE_DIR/detect_model/runs"
 
 # Normal mode for runs: balanced compression and speed
 rsync -az --info=progress2 $DRY_RUN \
@@ -89,7 +89,7 @@ rsync -az --info=progress2 $DRY_RUN \
     --whole-file \
     --inplace \
     --partial \
-    $LOCAL_DIR/head_model/runs/ $REMOTE:$REMOTE_DIR/head_model/runs/
+    $LOCAL_DIR/detect_model/runs/ $REMOTE:$REMOTE_DIR/detect_model/runs/
 
 # Verify the transfer
 if [[ -z "$DRY_RUN" ]]; then
@@ -98,7 +98,7 @@ if [[ -z "$DRY_RUN" ]]; then
     ssh $REMOTE "ls -la $REMOTE_DIR/data/ | head -10"
     echo ""
     echo "Remote runs directory contents:"
-    ssh $REMOTE "ls -la $REMOTE_DIR/head_model/runs/ | head -10"
+    ssh $REMOTE "ls -la $REMOTE_DIR/detect_model/runs/ | head -10"
 
     echo "🎉 Data transfer completed successfully!"
 else

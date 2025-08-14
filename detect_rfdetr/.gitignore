@@ -3,6 +3,7 @@ output
 output2
 output3
 output4
+*.onnx
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

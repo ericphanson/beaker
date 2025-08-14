@@ -8,7 +8,7 @@ Data lives in `../data`
 
 The `convert_cub_to_coco_format.py` script converts the CUB-200-2011 bird dataset to COCO JSON format for training object detection models.
 
-### Usage
+## Steps
 
 ```bash
 
@@ -19,6 +19,15 @@ uv run python convert_cub_to_coco_format.py --parts
 uv run python symlink_data.py
 
 # train
-
 uv run python train.py
 ```
+
+Then ONNX export can be done with `./export_output/run_export.py` and quantization with `../quantizations/rfdetr.py`.
+
+Additionally:
+
+- `plot_class_map.py` can parse a `log.txt` from RFDETR training and generate plots
+- `visualize_samples` can load data from a dataloader, and optionally an ONNX model, and plot labels/predictions
+- `visualize_attention.py` can load a pytorch model and attempt to plot the deformable attention from RFDETR
+- `lens.py` uses torchlens to try to visualize an RFDETR model.
+- `rfdetr` contains a fork of https://github.com/roboflow/rf-detr at commit `cf066357f42ffae1d12325f3df6a09d602b849e8`, modified to add an orientation head
