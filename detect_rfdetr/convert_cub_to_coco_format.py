@@ -166,10 +166,10 @@ class CUBtoCOCOConverter:
         """Create COCO categories for parts detection."""
         # Create 4-class categories for parts detection
         categories = [
-            {"id": 1, "name": "bird", "supercategory": "bird"},
-            {"id": 2, "name": "head", "supercategory": "bird"},
-            {"id": 3, "name": "eye", "supercategory": "bird"},
-            {"id": 4, "name": "beak", "supercategory": "bird"},
+            {"id": 0, "name": "bird", "supercategory": "bird"},
+            {"id": 1, "name": "head", "supercategory": "bird"},
+            {"id": 2, "name": "eye", "supercategory": "bird"},
+            {"id": 3, "name": "beak", "supercategory": "bird"},
         ]
         return categories
 
@@ -360,7 +360,7 @@ class CUBtoCOCOConverter:
                 annotation = self.create_coco_annotation(
                     ann_id,
                     img_id,
-                    1,  # category_id=1 for bird
+                    0,  # category_id=0 for bird
                     bbox,
                     img_info["width"],
                     img_info["height"],
@@ -378,7 +378,7 @@ class CUBtoCOCOConverter:
                 annotation = self.create_coco_annotation(
                     ann_id,
                     img_id,
-                    2,  # category_id=2 for head
+                    1,  # category_id=1 for head
                     head_bbox,
                     img_info["width"],
                     img_info["height"],
@@ -395,7 +395,7 @@ class CUBtoCOCOConverter:
                 annotation = self.create_coco_annotation(
                     ann_id,
                     img_id,
-                    3,  # category_id=3 for eye
+                    2,  # category_id=2 for eye
                     eye_bbox,
                     img_info["width"],
                     img_info["height"],
@@ -411,7 +411,7 @@ class CUBtoCOCOConverter:
                 annotation = self.create_coco_annotation(
                     ann_id,
                     img_id,
-                    4,  # category_id=4 for beak
+                    3,  # category_id=3 for beak
                     beak_bbox,
                     img_info["width"],
                     img_info["height"],
