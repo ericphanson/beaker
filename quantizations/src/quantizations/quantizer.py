@@ -276,6 +276,9 @@ def quantize_model(model_path: Path, output_dir: Path, quantization_level: str) 
     if not success:
         raise RuntimeError(f"Quantization failed for {model_path}")
 
+    print(
+        f"Quantization complete: {output_path}. Model size: {get_model_size(output_path) / (1024 * 1024):.2f} MB"
+    )
     return output_path
 
 
