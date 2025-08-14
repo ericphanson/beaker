@@ -3,12 +3,13 @@ data
 *.pt
 runs
 crops
-models
+/models
 __pycache__
 onnxruntime-libs
 
 # Rust build artifacts
 beaker/target/
+target/
 beaker/Cargo.lock
 target/
 example-raw.rw2

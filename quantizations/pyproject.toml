@@ -19,6 +19,7 @@ dependencies = [
     "click>=8.0.0",
     "onnxsim>=0.4.0",
     "matplotlib>=3.7.0",
+    "ptpython>=3.0.30",
 ]
 
 [project.scripts]
