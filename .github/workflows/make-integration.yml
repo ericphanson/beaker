@@ -44,7 +44,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: ~/.cache/onnx-models
-        key: onnx-models-${{ hashFiles('beaker/build.rs') }}
+        key: onnx-models
         restore-keys: onnx-models-
 
     - name: Run Make integration tests

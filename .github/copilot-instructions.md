@@ -193,7 +193,6 @@ cargo test --release --all --target <platform> --verbose
 ### Important Files
 - **Root**: `Cargo.toml` - Workspace configuration and shared dependencies
 - `beaker/Cargo.toml` - Main CLI crate configuration and dependencies
-- `beaker/build.rs` - Build script that downloads ONNX models
 - `beaker-stamp/Cargo.toml` - Core stamp crate configuration
 - `beaker-stamp-derive/Cargo.toml` - Proc macro crate configuration
 - `.pre-commit-config.yaml` - Pre-commit hook configuration

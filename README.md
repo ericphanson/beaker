@@ -170,7 +170,7 @@ Note: the `isnet-general-use` model was uploaded using the [`training/upload_cut
 
 ## 5. How to build `beaker` from source
 
-`beaker` is the CLI tool developed in [./beaker](./beaker/) which is used for inference. It automatically pulls the latest ONNX model from `bird-head-detector-vX.Y.Z` Github releases at build time.
+`beaker` is the CLI tool developed in [./beaker](./beaker/) which is used for inference.
 
 ```bash
 git clone https://github.com/ericphanson/beaker

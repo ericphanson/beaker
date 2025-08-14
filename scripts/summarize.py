@@ -17,8 +17,10 @@ cutout_files = {
 }
 
 head_files = {
+    "detection_obj.rs",
     "yolo_preprocessing.rs",
     "yolo_postprocessing.rs",
+    "rfdetr_postprocessing.rs",
     "head_detection.rs",
 }
 
@@ -104,8 +106,7 @@ summary_lines = [
     f"- **Cutout Main Code**: {cutout_main} (Tests: {cutout_test})  ",
     f"- **Head Main Code**: {head_main} (Tests: {head_test})  ",
     f"- **Common Main Code**: {common_main} (Tests: {common_test})  ",
-    f"- **Total Main Code (excluding build.rs)**: {actual_total_excl_build}  ",
-    f"- **Total Main Code (including build.rs)**: {actual_total} (Reported: {reported_main_total})  ",
+    f"- **Total Main Code**: {actual_total} (Reported: {reported_main_total})  ",
 ]
 
 summary_lines.append(

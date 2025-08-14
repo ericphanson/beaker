@@ -59,13 +59,13 @@ jobs:
       uses: Swatinem/rust-cache@v2
       with:
         # Workspace structure - cache at root level
-        key: ${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('beaker/build.rs') }}
+        key: ${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}
 
     - name: Cache ONNX model
       uses: actions/cache@v4
       with:
         path: ~/.cache/onnx-models
-        key: onnx-model-${{ hashFiles('beaker/build.rs') }}
+        key: onnx-model
         restore-keys: |
           onnx-model-
         enableCrossOsArchive: true
