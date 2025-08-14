@@ -103,8 +103,8 @@ def find_class_mapping(gt_boxes, gt_labels, pred_boxes, pred_classes):
         if best_iou > 0.1:  # Minimum IoU threshold
             gt_label = gt_labels[best_gt_idx]
             gt_class_name = (
-                CLASS_NAMES[gt_label - 1]
-                if gt_label - 1 < len(CLASS_NAMES)
+                CLASS_NAMES[gt_label]
+                if gt_label < len(CLASS_NAMES)
                 else f"Unknown({gt_label})"
             )
 
@@ -237,28 +237,28 @@ class ONNXInferenceModel:
         # rather than the mixed-up model classes.
         #
         # Discovered mapping (verified across 10 samples with 100% consistency):
-        # - Model class 0 (bird) → GT class 1 (bird)       - Alternative bird detection
-        # - Model class 1 (head) → GT class 1 (bird)       - Primary bird detection
-        # - Model class 2 (eye)  → GT class 2 (head)       - Actually detects heads, not eyes!
-        # - Model class 3 (beak) → GT class 4 (beak)       - Correctly detects beaks
-        # - Model class 4 (background) → GT class 3 (eye)  - Background actually detects eyes!
+        # - Model class 0 (bird) → GT class 0 (bird)       - Alternative bird detection
+        # - Model class 1 (head) → GT class 0 (bird)       - Primary bird detection
+        # - Model class 2 (eye)  → GT class 1 (head)       - Actually detects heads, not eyes!
+        # - Model class 3 (beak) → GT class 3 (beak)       - Correctly detects beaks
+        # - Model class 4 (background) → GT class 2 (eye)  - Background actually detects eyes!
 
         # Create remapped probability tensor for correct class selection
-        # Initialize with zeros for 4 GT classes (1-4, but we'll use 0-3 indexing)
+        # Initialize with zeros for 4 GT classes (0-3 indexing)
         remapped_probs = torch.zeros(probs.shape[0], 4)  # [num_queries, 4_gt_classes]
 
         # Apply the mapping to redistribute probabilities to correct GT classes
-        # Model class 0 → GT class 1 (bird) - index 0 in remapped tensor
-        # Model class 1 → GT class 1 (bird) - index 0 in remapped tensor
+        # Model class 0 → GT class 0 (bird) - index 0 in remapped tensor
+        # Model class 1 → GT class 0 (bird) - index 0 in remapped tensor
         remapped_probs[:, 0] = probs[:, 0] + probs[:, 1]  # Combine both bird detectors
 
-        # Model class 2 → GT class 2 (head) - index 1 in remapped tensor
+        # Model class 2 → GT class 1 (head) - index 1 in remapped tensor
         remapped_probs[:, 1] = probs[:, 2]
 
-        # Model class 4 → GT class 3 (eye) - index 2 in remapped tensor
+        # Model class 4 → GT class 2 (eye) - index 2 in remapped tensor
         remapped_probs[:, 2] = probs[:, 4]
 
-        # Model class 3 → GT class 4 (beak) - index 3 in remapped tensor
+        # Model class 3 → GT class 3 (beak) - index 3 in remapped tensor
         remapped_probs[:, 3] = probs[:, 3]
 
         # Now select top-1 prediction per corrected GT class
@@ -280,9 +280,7 @@ class ONNXInferenceModel:
             if best_prob > 0.05:
                 selected_indices.append(best_query_idx)
                 selected_probs.append(best_prob)
-                selected_classes.append(
-                    gt_class_idx + 1
-                )  # Convert back to 1-4 indexing
+                selected_classes.append(gt_class_idx)  # Use 0-indexed GT classes (0-3)
 
         if len(selected_indices) > 0:
             # Convert to tensors
@@ -439,10 +437,10 @@ def visualize_sample(
                     else predictions["labels"]
                 )
 
-                # Find class mapping based on IoU
-                class_mapping = find_class_mapping(
-                    boxes, labels, pred_boxes_np, pred_labels_np - 1
-                )  # Convert back to 0-indexed for analysis
+                # Find class mapping based on IoU for debugging/analysis
+                find_class_mapping(
+                    boxes, labels, pred_boxes_np, pred_labels_np
+                )  # Both GT and pred labels are now 0-indexed
 
     # Create the plot
     fig, ax = plt.subplots(1, 1, figsize=(12, 8))
@@ -510,8 +508,8 @@ def visualize_sample(
 
         # Add label
         label_text = f"Class {label}"
-        if class_names and label - 1 < len(class_names):
-            label_text = f"{class_names[label-1]} ({label})"
+        if class_names and label < len(class_names):
+            label_text = f"{class_names[label]} ({label})"
 
         # Add orientation info to label if present
         if has_orient is not None and has_orient[i] and orient is not None:
@@ -596,10 +594,8 @@ def visualize_sample(
                 # pred_orients contains [cos(θ), sin(θ)] for each prediction
                 cos_theta, sin_theta = pred_orients[i]
 
-                # Calculate the angle from cos and sin
-                pred_angle = np.arctan2(sin_theta, cos_theta)
-
                 # Draw a line through the center of the bbox at the predicted angle
+                # (angle calculated directly from arctan2(sin_theta, cos_theta))
                 # Line length is proportional to the bbox size
                 line_length = min(bw_px, bh_px) * 0.4
 
@@ -624,10 +620,8 @@ def visualize_sample(
 
             # Add prediction label
             pred_label_text = f"Pred: Class {pred_label} ({pred_score:.2f})"
-            if class_names and pred_label - 1 < len(class_names):
-                pred_label_text = (
-                    f"Pred: {class_names[pred_label-1]} ({pred_score:.2f})"
-                )
+            if class_names and pred_label < len(class_names):
+                pred_label_text = f"Pred: {class_names[pred_label]} ({pred_score:.2f})"
 
             # Add predicted orientation info to label if available
             if pred_orients is not None and i < len(pred_orients):
@@ -1120,14 +1114,14 @@ def analyze_class_mappings_across_samples(
                 )
 
                 print(f"\nSample {sample_count + 1} (Image ID: {image_id}):")
-                print(f"GT: {labels} -> {[CLASS_NAMES[l-1] for l in labels]}")
+                print(f"GT: {labels} -> {[CLASS_NAMES[label] for label in labels]}")
                 print(
-                    f"Pred raw: {pred_labels_np - 1} -> {[CLASS_NAMES[l-1] if l-1 < len(CLASS_NAMES) else f'Unknown({l-1})' for l in pred_labels_np]}"
+                    f"Pred raw: {pred_labels_np} -> {[CLASS_NAMES[label] if label < len(CLASS_NAMES) else f'Unknown({label})' for label in pred_labels_np]}"
                 )
 
                 # Find class mapping based on IoU
                 class_mapping = find_class_mapping(
-                    boxes, labels, pred_boxes_np, pred_labels_np - 1
+                    boxes, labels, pred_boxes_np, pred_labels_np
                 )
                 all_mappings.append(
                     {
@@ -1135,7 +1129,7 @@ def analyze_class_mappings_across_samples(
                         "image_id": image_id,
                         "mapping": class_mapping,
                         "gt_labels": labels.tolist(),
-                        "pred_labels": (pred_labels_np - 1).tolist(),
+                        "pred_labels": pred_labels_np.tolist(),
                     }
                 )
 
@@ -1182,8 +1176,8 @@ def analyze_class_mappings_across_samples(
         print(f"\nModel class {model_class} ({model_class_name}):")
         for gt_class, count in most_common:
             gt_class_name = (
-                CLASS_NAMES[gt_class - 1]
-                if gt_class - 1 < len(CLASS_NAMES)
+                CLASS_NAMES[gt_class]
+                if gt_class < len(CLASS_NAMES)
                 else f"Unknown({gt_class})"
             )
             percentage = count / len(gt_classes) * 100
@@ -1203,8 +1197,8 @@ def analyze_class_mappings_across_samples(
             else f"Unknown({model_class})"
         )
         gt_class_name = (
-            CLASS_NAMES[gt_class - 1]
-            if gt_class - 1 < len(CLASS_NAMES)
+            CLASS_NAMES[gt_class]
+            if gt_class < len(CLASS_NAMES)
             else f"Unknown({gt_class})"
         )
         print(
