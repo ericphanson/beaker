@@ -8,32 +8,61 @@ use std::time::Instant;
 
 use crate::color_utils::symbols;
 use crate::config::DetectionConfig;
+use crate::detection_obj::Detection;
 use crate::model_access::{ModelAccess, ModelInfo};
 use crate::model_processing::{ModelProcessor, ModelResult};
 use crate::onnx_session::ModelSource;
 use crate::output_manager::OutputManager;
+use crate::rfdetr_postprocessing;
 use crate::shared_metadata::IoTiming;
-use crate::yolo_postprocessing::{
-    create_square_crop, postprocess_output, save_bounding_box_image, Detection,
-};
+use crate::yolo_postprocessing;
+use crate::yolo_postprocessing::{create_square_crop, save_bounding_box_image};
 use crate::yolo_preprocessing::preprocess_image;
 use log::debug;
 
-// Embed the ONNX model at compile time
-pub const MODEL_BYTES: &[u8] =
-    include_bytes!(concat!(env!("OUT_DIR"), "/bird-multi-detector.onnx"));
+pub fn get_default_detect_model_info() -> ModelInfo {
+    ModelInfo {
+        name: "bird-orientation-detector-v0.1.0".to_string(),
+        url: "https://github.com/ericphanson/beaker/releases/download/bird-orientation-detector-v0.1.0/rfdetr-dynamic-int8.onnx".to_string(),
+        md5_checksum: "256548ae718eb5da232f2c9823828447".to_string(),
+        filename: "bird-orientation-detector-v0.1.0.onnx".to_string(),
+    }
+}
 
-// Get model version from build script
-pub const MODEL_VERSION: &str =
-    include_str!(concat!(env!("OUT_DIR"), "/bird-multi-detector.version"));
+#[derive(Debug)]
+enum DetectionModelVariants {
+    HeadOnlyModelVariant,
+    MultiDetectModelVariant,
+    OrientationModelVariant,
+}
+
+impl DetectionModelVariants {
+    /// Determine the model variant from output dimensions
+    fn from_outputs(output_dimensions: &[i64], n_outputs: usize) -> Self {
+        // Check if legacy model based on output channels
+        let is_legacy_model = output_dimensions[1] < 8;
+
+        if is_legacy_model {
+            DetectionModelVariants::HeadOnlyModelVariant
+        } else if n_outputs == 1 {
+            DetectionModelVariants::MultiDetectModelVariant
+        } else {
+            DetectionModelVariants::OrientationModelVariant
+        }
+    }
+
+    /// Convert to boolean for compatibility with existing postprocessing function
+    fn is_legacy_model(&self) -> bool {
+        matches!(self, DetectionModelVariants::HeadOnlyModelVariant)
+    }
+}
 
 /// Head detection model access implementation.
 pub struct HeadAccess;
 
 impl ModelAccess for HeadAccess {
     fn get_embedded_bytes() -> Option<&'static [u8]> {
-        // Reference to the embedded model bytes
-        Some(MODEL_BYTES)
+        None
     }
 
     fn get_env_var_name() -> &'static str {
@@ -46,7 +75,7 @@ impl ModelAccess for HeadAccess {
         // Only provide this for CLI usage when --model-url is specified
         // The get_model_source_with_cli_and_env_override will use embedded bytes
         // unless CLI args or env vars override it
-        None
+        Some(get_default_detect_model_info())
     }
 }
 
@@ -302,29 +331,42 @@ impl ModelProcessor for DetectionProcessor {
         debug!("Input: {}, shape: {:?}", input_md.name, dimensions);
         let model_size = dimensions[3] as u32; // Assuming square input, use width
 
+        let output0_name = session.outputs[0].name.clone();
         let output_dimensions = match &session.outputs[0].output_type {
             ort::value::ValueType::Tensor {
                 ty,
                 shape,
                 dimension_symbols: _,
             } => {
-                debug!(
-                    "Output: {}, type: {:?}, shape: {:?}",
-                    session.outputs[0].name, ty, shape
-                );
+                debug!("Output: {output0_name}, type: {ty:?}, shape: {shape:?}");
                 shape.to_vec()
             }
             _ => {
-                debug!(
-                    "Unexpected output type for {}. Defaulting to 1x1x1x1",
-                    session.outputs[0].name
-                );
+                debug!("Unexpected output type for {output0_name}. Defaulting to 1x1x1x1");
                 vec![1, 1, 1, 1]
             }
         };
 
-        let legacy_model = output_dimensions[1] < 8; // Check if legacy model based on output channels
-        debug!("Output dimensions: {output_dimensions:?}, legacy model: {legacy_model}");
+        for (i, output) in session.outputs.iter().enumerate() {
+            match &output.output_type {
+                ort::value::ValueType::Tensor {
+                    ty,
+                    shape,
+                    dimension_symbols,
+                } => {
+                    debug!(
+                        "Output {}: {}, type: {:?}, shape: {:?}, dimension_symbols: {:?}",
+                        i, output.name, ty, shape, dimension_symbols
+                    );
+                }
+                other => {
+                    debug!("Unexpected output type {:?} for {}", other, output.name);
+                }
+            };
+        }
+        let n_outputs = session.outputs.len();
+        let model_variant = DetectionModelVariants::from_outputs(&output_dimensions, n_outputs);
+        debug!("Output dimensions: {output_dimensions:?}, model variant: {model_variant:?}");
 
         let input_tensor = preprocess_image(&img, model_size)?;
 
@@ -333,27 +375,18 @@ impl ModelProcessor for DetectionProcessor {
         let input_value = Value::from_array(input_tensor)
             .map_err(|e| anyhow::anyhow!("Failed to create input value: {}", e))?;
         let outputs = session
-            .run(ort::inputs!["images" => &input_value])
+            .run(ort::inputs![input_md.name.clone() => &input_value])
             .map_err(|e| anyhow::anyhow!("Failed to run inference: {}", e))?;
         let inference_time = inference_start.elapsed();
 
-        // Extract the output tensor using ORT v2 API and convert to owned array
-        let output_view = outputs["output0"]
-            .try_extract_array::<f32>()
-            .map_err(|e| anyhow::anyhow!("Failed to extract output array: {}", e))?;
-        let output_array =
-            Array::from_shape_vec(output_view.shape(), output_view.iter().cloned().collect())?;
-
         // Postprocess to get detections
-        // For now, assume legacy head model until we have multi-class model support
         let detections = postprocess_output(
-            &output_array,
-            config.confidence,
-            config.iou_threshold,
+            model_variant,
+            config,
+            &outputs,
             orig_width,
             orig_height,
             model_size,
-            legacy_model, // Pass legacy model flag
         )?;
 
         debug!(
@@ -374,7 +407,7 @@ impl ModelProcessor for DetectionProcessor {
         )?;
 
         Ok(DetectionResult {
-            model_version: MODEL_VERSION.to_string(),
+            model_version: get_default_detect_model_info().name,
             processing_time_ms: total_processing_time,
             bounding_box_path,
             detections: detections_with_paths,
@@ -386,6 +419,49 @@ impl ModelProcessor for DetectionProcessor {
 
     fn serialize_config(config: &Self::Config) -> Result<toml::Value> {
         Ok(toml::Value::try_from(config)?)
+    }
+}
+
+fn postprocess_output(
+    model_variant: DetectionModelVariants,
+    config: &DetectionConfig,
+    outputs: &ort::session::SessionOutputs,
+    orig_width: u32,
+    orig_height: u32,
+    model_size: u32,
+) -> Result<Vec<Detection>> {
+    match model_variant {
+        DetectionModelVariants::HeadOnlyModelVariant
+        | DetectionModelVariants::MultiDetectModelVariant => {
+            // Extract the output tensor using ORT v2 API and convert to owned array
+            let output_view: ndarray::ArrayBase<
+                ndarray::ViewRepr<&f32>,
+                ndarray::Dim<ndarray::IxDynImpl>,
+            > = outputs["output0"]
+                .try_extract_array::<f32>()
+                .map_err(|e| anyhow::anyhow!("Failed to extract output array: {}", e))?;
+            let output_array =
+                Array::from_shape_vec(output_view.shape(), output_view.iter().cloned().collect())?;
+
+            yolo_postprocessing::postprocess_output(
+                &output_array,
+                config.confidence,
+                config.iou_threshold,
+                orig_width,
+                orig_height,
+                model_size,
+                model_variant.is_legacy_model(), // Pass legacy model flag
+            )
+        }
+        DetectionModelVariants::OrientationModelVariant => {
+            rfdetr_postprocessing::postprocess_output(
+                outputs,
+                orig_width,
+                orig_height,
+                model_size,
+                config,
+            )
+        }
     }
 }
 

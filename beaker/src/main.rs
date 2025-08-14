@@ -12,6 +12,7 @@ mod cutout_preprocessing;
 mod cutout_processing;
 mod depfile_generator;
 mod detection;
+mod detection_obj;
 mod image_input;
 mod mask_encoding;
 mod model_access;
@@ -19,6 +20,7 @@ mod model_processing;
 mod onnx_session;
 mod output_manager;
 mod progress;
+mod rfdetr_postprocessing;
 mod shared_metadata;
 mod stamp_manager;
 mod yolo_postprocessing;
@@ -27,7 +29,7 @@ mod yolo_preprocessing;
 use color_utils::{colors, symbols};
 use config::{CutoutCommand, CutoutConfig, DetectCommand, DetectionConfig, GlobalArgs};
 use cutout_processing::{get_default_cutout_model_info, run_cutout_processing};
-use detection::{run_detection, MODEL_VERSION};
+use detection::{get_default_detect_model_info, run_detection};
 use progress::global_mp;
 use shared_metadata::RELEVANT_ENV_VARS;
 use std::io::Write;
@@ -229,7 +231,10 @@ fn main() {
         Some(Commands::Version) => {
             // Print version information
             println!("beaker v{}", env!("CARGO_PKG_VERSION"));
-            println!("Detection model version: {}", MODEL_VERSION.trim());
+            println!(
+                "Detection model version: {}",
+                get_default_detect_model_info().name.trim()
+            );
             println!(
                 "Cutout model version: {}",
                 get_default_cutout_model_info().name.trim()
