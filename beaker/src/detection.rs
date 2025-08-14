@@ -195,6 +195,11 @@ fn handle_image_outputs_with_timing(
                 .any(|class| class.to_string() == detection.class_name);
 
             if !should_crop {
+                // Still add to output so we see it in the metadata
+                detections_with_paths.push(DetectionWithPath {
+                    detection: detection.clone(),
+                    crop_path: None,
+                });
                 continue; // Skip this detection if its class is not in crop_classes
             }
 

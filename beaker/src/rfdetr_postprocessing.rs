@@ -75,6 +75,11 @@ pub fn postprocess_output(
     let out_logits = to_array(&outputs[1])?; // [B, Q, C] - class logits
     let out_orient = to_array(&outputs[2])?; // [B, Q, 2] - orientation vectors
 
+    log::debug!(
+        "Postprocessing RF-DETR outputs. Got: {:?}",
+        out_bbox.shape()
+    );
+
     // Apply sigmoid to get per-class probabilities
     let prob = out_logits.mapv(|x| 1.0 / (1.0 + (-x).exp()));
 
@@ -132,31 +137,54 @@ pub fn postprocess_output(
             let scaled_y2 = y2 * scale_y;
 
             // Get orientation for this query (optional for now)
-            let _orient_cos = out_orient[[batch_idx, query_idx, 0]];
-            let _orient_sin = out_orient[[batch_idx, query_idx, 1]];
-            // let angle = orient_sin.atan2(orient_cos); // radians
+            let orient_cos = out_orient[[batch_idx, query_idx, 0]];
+            let orient_sin = out_orient[[batch_idx, query_idx, 1]];
+            let angle = orient_sin.atan2(orient_cos); // radians
+
+            // // Map class index to class name
+            // let class_name = match class_idx {
+            //     0 => "bird",
+            //     1 => "head",
+            //     2 => "eye",
+            //     3 => "beak",
+            //     _ => "unknown",
+            // }
+            // .to_string();
 
             // Map class index to class name
             let class_name = match class_idx {
-                0 => "bird",
-                1 => "head",
-                2 => "eye",
-                3 => "beak",
+                0 => "background",
+                1 => "bird",
+                2 => "head",
+                3 => "eye",
+                4 => "beak",
                 _ => "unknown",
             }
             .to_string();
 
-            detections.push(Detection {
-                x1: scaled_x1,
-                y1: scaled_y1,
-                x2: scaled_x2,
-                y2: scaled_y2,
-                confidence: score,
-                class_id: class_idx as u32,
-                class_name,
-            });
+            if ["bird", "head", "eye", "beak"].contains(&class_name.as_str()) {
+                detections.push(Detection {
+                    angle_radians: angle,
+                    x1: scaled_x1,
+                    y1: scaled_y1,
+                    x2: scaled_x2,
+                    y2: scaled_y2,
+                    confidence: score,
+                    class_id: class_idx as u32,
+                    class_name,
+                });
+            }
         }
     }
+    let classes = detections
+        .iter()
+        .map(|d| d.class_name.clone())
+        .collect::<Vec<_>>();
+    log::debug!(
+        "Postprocessed {} detections with classes {:?}",
+        detections.len(),
+        classes
+    );
 
     Ok(detections)
 }

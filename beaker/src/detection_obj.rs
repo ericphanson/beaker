@@ -4,6 +4,7 @@ use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Detection {
+    pub angle_radians: f32,
     pub x1: f32,
     pub y1: f32,
     pub x2: f32,

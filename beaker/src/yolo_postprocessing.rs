@@ -92,6 +92,7 @@ pub fn postprocess_output(
                 let scale_y = img_height as f32 / model_size as f32;
 
                 detections.push(Detection {
+                    angle_radians: f32::NAN, // No angle for legacy model
                     x1: x1 * scale_x,
                     y1: y1 * scale_y,
                     x2: x2 * scale_x,
@@ -138,6 +139,7 @@ pub fn postprocess_output(
                 .to_string();
 
                 detections.push(Detection {
+                    angle_radians: f32::NAN, // No angle
                     x1: x1 * scale_x,
                     y1: y1 * scale_y,
                     x2: x2 * scale_x,
