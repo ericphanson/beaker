@@ -4,17 +4,17 @@ use std::path::Path;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let out_dir = env::var("OUT_DIR")?;
-    let model_path = Path::new(&out_dir).join("bird-head-detector.onnx");
-    let version_path = Path::new(&out_dir).join("bird-head-detector.version");
+    let model_path = Path::new(&out_dir).join("bird-multi-detector.onnx");
+    let version_path = Path::new(&out_dir).join("bird-multi-detector.version");
 
     // Check if we have a cached model from CI
     let cache_dir = env::var("ONNX_MODEL_CACHE_DIR").ok();
     let cached_model = cache_dir
         .as_ref()
-        .map(|dir| Path::new(dir).join("bird-head-detector.onnx"));
+        .map(|dir| Path::new(dir).join("bird-multi-detector.onnx"));
     let cached_version = cache_dir
         .as_ref()
-        .map(|dir| Path::new(dir).join("bird-head-detector.version"));
+        .map(|dir| Path::new(dir).join("bird-multi-detector.version"));
 
     // Check if cached model is up-to-date
     let mut use_cache = false;
@@ -123,18 +123,18 @@ fn get_latest_release_tag() -> Result<String, Box<dyn std::error::Error>> {
 
     let releases_array = releases.as_array().ok_or("No releases found")?;
 
-    // Find the latest release that matches the bird-head-detector pattern
+    // Find the latest release that matches the bird-multi-detector pattern
     for release in releases_array {
         let tag_name = release["tag_name"]
             .as_str()
             .ok_or("No tag_name found in release")?;
 
-        if tag_name.starts_with("bird-head-detector-v") {
+        if tag_name.starts_with("bird-multi-detector-v") {
             return Ok(tag_name.to_string());
         }
     }
 
-    Err("No bird-head-detector release found".into())
+    Err("No bird-multi-detector release found".into())
 }
 
 fn download_latest_model(output_path: &Path) -> Result<String, Box<dyn std::error::Error>> {
@@ -162,13 +162,13 @@ fn download_latest_model(output_path: &Path) -> Result<String, Box<dyn std::erro
 
     let releases_array = releases.as_array().ok_or("No releases found")?;
 
-    // Find the latest release that matches the bird-head-detector pattern
+    // Find the latest release that matches the bird-multi-detector pattern
     for release in releases_array {
         let tag_name = release["tag_name"]
             .as_str()
             .ok_or("No tag_name found in release")?;
 
-        if tag_name.starts_with("bird-head-detector-v") {
+        if tag_name.starts_with("bird-multi-detector-v") {
             // Find the ONNX model asset in this release
             let assets = release["assets"]
                 .as_array()
@@ -182,7 +182,7 @@ fn download_latest_model(output_path: &Path) -> Result<String, Box<dyn std::erro
                         .map(|name| name.ends_with(".onnx"))
                         .unwrap_or(false)
                 })
-                .ok_or("No ONNX model found in bird-head-detector release")?;
+                .ok_or("No ONNX model found in bird-multi-detector release")?;
 
             let download_url = onnx_asset["browser_download_url"]
                 .as_str()
@@ -190,7 +190,7 @@ fn download_latest_model(output_path: &Path) -> Result<String, Box<dyn std::erro
 
             let model_name = onnx_asset["name"]
                 .as_str()
-                .unwrap_or("bird-head-detector.onnx");
+                .unwrap_or("bird-multi-detector.onnx");
 
             println!("Downloading {model_name} (version: {tag_name}) from: {download_url}");
 
@@ -213,5 +213,5 @@ fn download_latest_model(output_path: &Path) -> Result<String, Box<dyn std::erro
         }
     }
 
-    Err("No bird-head-detector release found".into())
+    Err("No bird-multi-detector release found".into())
 }

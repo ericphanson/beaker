@@ -44,7 +44,7 @@ def download(output_dir: Path, model_type: str) -> None:
 
     if model_type in ["head", "all"]:
         logger.info("Downloading head detection model...")
-        downloader.download_head_model(output_dir)
+        downloader.download_detect_model(output_dir)
 
     if model_type in ["cutout", "all"]:
         logger.info("Downloading cutout model...")

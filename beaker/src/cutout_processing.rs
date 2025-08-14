@@ -4,9 +4,9 @@ use crate::cutout_postprocessing::{
     apply_alpha_matting, create_cutout, create_cutout_with_background, postprocess_mask,
 };
 use crate::cutout_preprocessing::preprocess_image_for_isnet_v2;
-use crate::model_access::{get_model_source_with_env_override, ModelAccess, ModelInfo};
+use crate::model_access::{ModelAccess, ModelInfo};
 use crate::onnx_session::ModelSource;
-use crate::output_manager::OutputManager;
+use crate::shared_metadata::IoTiming;
 use anyhow::Result;
 use image::GenericImageView;
 use log::debug;
@@ -30,10 +30,6 @@ pub fn get_default_cutout_model_info() -> ModelInfo {
 pub struct CutAccess;
 
 impl ModelAccess for CutAccess {
-    fn get_model_source<'a>() -> Result<ModelSource<'a>> {
-        get_model_source_with_env_override::<Self>()
-    }
-
     fn get_embedded_bytes() -> Option<&'static [u8]> {
         // Cutout models are not embedded, they are downloaded
         None
@@ -65,6 +61,31 @@ pub struct CutoutResult {
     pub output_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mask_path: Option<String>,
+    #[serde(skip_serializing)]
+    pub io_timing: IoTiming,
+    // Store raw mask data for metadata encoding
+    #[serde(skip)]
+    pub raw_mask_data: Option<(Vec<u8>, u32, u32)>, // (mask_data, width, height)
+    pub input_img_width: u32,  // Original input image width
+    pub input_img_height: u32, // Original input image height
+}
+
+/// Extract binary mask data from a GrayImage by thresholding at 128
+/// Returns (binary_data, width, height)
+fn extract_binary_mask_data(mask: &image::GrayImage) -> (Vec<u8>, u32, u32) {
+    let (width, height) = mask.dimensions();
+    let mut binary_data = Vec::with_capacity((width * height) as usize);
+
+    for y in 0..height {
+        for x in 0..width {
+            let pixel = mask.get_pixel(x, y);
+            // Threshold at 128: >= 128 becomes 1, < 128 becomes 0
+            let binary_value = if pixel[0] >= 128 { 1 } else { 0 };
+            binary_data.push(binary_value);
+        }
+    }
+
+    (binary_data, width, height)
 }
 
 /// Process multiple images sequentially
@@ -96,6 +117,24 @@ impl ModelResult for CutoutResult {
             format!("→ {}", self.output_path)
         }
     }
+
+    fn get_io_timing(&self) -> crate::shared_metadata::IoTiming {
+        self.io_timing.clone()
+    }
+
+    fn get_mask_entry(&self) -> Option<crate::mask_encoding::MaskEntry> {
+        if let Some((mask_data, width, height)) = &self.raw_mask_data {
+            match crate::mask_encoding::encode_mask_to_entry(mask_data, *width, *height, 0) {
+                Ok(entry) => Some(entry),
+                Err(e) => {
+                    log::warn!("Failed to encode mask data: {e}");
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    }
 }
 
 /// Cutout processor implementing the generic ModelProcessor trait
@@ -105,22 +144,36 @@ impl ModelProcessor for CutoutProcessor {
     type Config = CutoutConfig;
     type Result = CutoutResult;
 
-    fn get_model_source<'a>() -> Result<ModelSource<'a>> {
-        // Use the new model access interface for cutout models
-        CutAccess::get_model_source()
+    fn get_model_source<'a>(
+        config: &Self::Config,
+    ) -> Result<(
+        ModelSource<'a>,
+        Option<crate::shared_metadata::OnnxCacheStats>,
+    )> {
+        // Create CLI model info from config
+        let cli_model_info = crate::model_access::CliModelInfo {
+            model_path: config.model_path.clone(),
+            model_url: config.model_url.clone(),
+            model_checksum: config.model_checksum.clone(),
+        };
+
+        // Use CLI-aware model access
+        CutAccess::get_model_source_with_cli(&cli_model_info)
     }
 
     fn process_single_image(
         session: &mut Session,
         image_path: &Path,
         config: &Self::Config,
+        output_manager: &crate::output_manager::OutputManager,
     ) -> Result<Self::Result> {
         let start_time = Instant::now();
+        let mut io_timing = IoTiming::new();
 
         debug!("🖼️  Processing: {}", image_path.display());
 
-        // Load and preprocess the image
-        let img = image::open(image_path)?;
+        // Load and preprocess the image with timing
+        let img = io_timing.time_image_read(image_path)?;
         let original_size = img.dimensions();
 
         let input_array = preprocess_image_for_isnet_v2(&img)?;
@@ -147,11 +200,14 @@ impl ModelProcessor for CutoutProcessor {
         // Post-process the mask
         let mask = postprocess_mask(&mask_2d, original_size, config.post_process_mask)?;
 
-        // Generate output paths using OutputManager
-        let output_manager = OutputManager::new(config, image_path);
-        let output_path = output_manager.generate_main_output_path("cutout", "png")?;
+        // Extract binary mask data for metadata (threshold at 128)
+        let raw_mask_data = extract_binary_mask_data(&mask);
+
+        // Generate output paths using OutputManager (tracking enabled by default)
+        let output_path =
+            output_manager.generate_main_output_path_with_tracking("cutout", "png", true)?;
         let mask_path = if config.save_mask {
-            Some(output_manager.generate_auxiliary_output("mask", "png")?)
+            Some(output_manager.generate_auxiliary_output_with_tracking("mask", "png", true)?)
         } else {
             None
         };
@@ -171,22 +227,24 @@ impl ModelProcessor for CutoutProcessor {
             create_cutout(&img, &mask)?
         };
 
-        // Save the cutout (always PNG for transparency)
+        // Save the cutout (always PNG for transparency) with timing
         if let Some(parent) = output_path.parent() {
             fs::create_dir_all(parent)?;
         }
-        cutout_result.save(&output_path)?;
+        io_timing.time_save_operation(|| Ok(cutout_result.save(&output_path)?))?;
+
         debug!(
             "{} Cutout saved to: {}",
             symbols::completed_successfully(),
             output_path.display()
         );
-        // Save mask if requested
+        // Save mask if requested with timing
         if let Some(mask_path_val) = &mask_path {
             if let Some(parent) = Path::new(mask_path_val).parent() {
                 fs::create_dir_all(parent)?;
             }
-            mask.save(mask_path_val)?;
+            io_timing.time_save_operation(|| Ok(mask.save(mask_path_val)?))?;
+
             debug!(
                 "{} Mask saved to: {}",
                 symbols::completed_successfully(),
@@ -202,6 +260,10 @@ impl ModelProcessor for CutoutProcessor {
             model_version: get_default_cutout_model_info().name,
             processing_time_ms: processing_time,
             mask_path: mask_path.map(|p| p.to_string_lossy().to_string()),
+            io_timing,
+            raw_mask_data: Some(raw_mask_data),
+            input_img_width: original_size.0,
+            input_img_height: original_size.1,
         };
 
         Ok(cutout_result)
@@ -215,8 +277,6 @@ impl ModelProcessor for CutoutProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env;
-    use tempfile::NamedTempFile;
 
     #[test]
     fn test_cut_access_env_vars() {
@@ -256,55 +316,7 @@ mod tests {
         assert_eq!(info.filename, "isnet-general-use.onnx");
     }
 
-    #[test]
-    fn test_cut_access_path_override() {
-        // Clean up any existing env vars
-        env::remove_var("BEAKER_CUTOUT_MODEL_PATH");
-        env::remove_var("BEAKER_CUTOUT_MODEL_URL");
-        env::remove_var("BEAKER_CUTOUT_MODEL_CHECKSUM");
-
-        // Create a temporary file to act as a model
-        let temp_file = NamedTempFile::new().unwrap();
-        let temp_path = temp_file.path().to_str().unwrap();
-
-        // Set environment variable for path override
-        env::set_var("BEAKER_CUTOUT_MODEL_PATH", temp_path);
-
-        let source = CutAccess::get_model_source().unwrap();
-
-        match source {
-            ModelSource::FilePath(path) => {
-                assert_eq!(path, temp_path);
-            }
-            _ => panic!("Expected file path when env var is set"),
-        }
-
-        // Clean up
-        env::remove_var("BEAKER_CUTOUT_MODEL_PATH");
-    }
-
-    #[test]
-    fn test_cut_access_invalid_path() {
-        // Clean up any existing env vars
-        env::remove_var("BEAKER_CUTOUT_MODEL_PATH");
-        env::remove_var("BEAKER_CUTOUT_MODEL_URL");
-        env::remove_var("BEAKER_CUTOUT_MODEL_CHECKSUM");
-
-        // Set environment variable to non-existent path
-        env::set_var("BEAKER_CUTOUT_MODEL_PATH", "/non/existent/path.onnx");
-
-        let result = CutAccess::get_model_source();
-        assert!(result.is_err(), "Should fail with non-existent path");
-
-        let error_msg = result.err().unwrap().to_string();
-        assert!(
-            error_msg.contains("does not exist"),
-            "Error should mention non-existent path"
-        );
-
-        // Clean up
-        env::remove_var("BEAKER_CUTOUT_MODEL_PATH");
-    }
+    // Environment variable tests are now in integration tests to avoid race conditions
 
     #[test]
     fn test_get_default_cutout_model_info() {
@@ -319,41 +331,19 @@ mod tests {
     fn test_runtime_model_info_with_cutout_overrides() {
         use crate::model_access::RuntimeModelInfo;
 
-        // Test RuntimeModelInfo creation with env var overrides
+        // Test RuntimeModelInfo creation without env var modification
         let default_info = get_default_cutout_model_info();
 
         // Test without any env vars (should use default info)
-        env::remove_var("TEST_URL");
-        env::remove_var("TEST_CHECKSUM");
-
         let runtime_info = RuntimeModelInfo::from_model_info_with_overrides(
             &default_info,
-            Some("TEST_URL"),
-            Some("TEST_CHECKSUM"),
+            Some("NONEXISTENT_TEST_URL"),
+            Some("NONEXISTENT_TEST_CHECKSUM"),
         );
 
         assert_eq!(runtime_info.name, default_info.name);
         assert_eq!(runtime_info.url, default_info.url);
         assert_eq!(runtime_info.md5_checksum, default_info.md5_checksum);
         assert_eq!(runtime_info.filename, default_info.filename);
-
-        // Test with env var overrides
-        env::set_var("TEST_URL", "https://custom-domain.test/custom.onnx");
-        env::set_var("TEST_CHECKSUM", "abcd1234");
-
-        let runtime_info = RuntimeModelInfo::from_model_info_with_overrides(
-            &default_info,
-            Some("TEST_URL"),
-            Some("TEST_CHECKSUM"),
-        );
-
-        assert_eq!(runtime_info.name, default_info.name);
-        assert_eq!(runtime_info.url, "https://custom-domain.test/custom.onnx");
-        assert_eq!(runtime_info.md5_checksum, "abcd1234");
-        assert_eq!(runtime_info.filename, default_info.filename);
-
-        // Clean up
-        env::remove_var("TEST_URL");
-        env::remove_var("TEST_CHECKSUM");
     }
 }

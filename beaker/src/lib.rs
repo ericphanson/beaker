@@ -9,13 +9,19 @@ pub mod config;
 pub mod cutout_postprocessing;
 pub mod cutout_preprocessing;
 pub mod cutout_processing;
-pub mod head_detection;
+pub mod depfile_generator;
+pub mod detection;
 pub mod image_input;
+pub mod mask_encoding;
 pub mod model_access;
 pub mod model_processing;
 pub mod onnx_session;
 pub mod output_manager;
 pub mod progress;
 pub mod shared_metadata;
+pub mod stamp_manager;
 pub mod yolo_postprocessing;
 pub mod yolo_preprocessing;
+
+#[cfg(test)]
+mod proc_macro_stamp_tests;

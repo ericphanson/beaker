@@ -93,6 +93,7 @@ pub struct ModelInfo {
     pub model_size_bytes: usize,
     pub description: String,
     pub execution_providers: Vec<String>,
+    pub model_checksum: String,
 }
 
 /// Device selection result
@@ -104,20 +105,28 @@ pub struct DeviceSelection {
 }
 
 /// Determine optimal device based on user preference
-pub fn determine_optimal_device(requested_device: &str) -> DeviceSelection {
+pub fn determine_optimal_device(requested_device: &str, tool_name: &str) -> DeviceSelection {
     match requested_device {
         "auto" => {
-            // For auto, prefer CoreML if available, otherwise CPU
-            let coreml = CoreMLExecutionProvider::default();
-            match coreml.is_available() {
-                Ok(true) => DeviceSelection {
-                    device: "coreml".to_string(),
-                    reason: "Auto-selected CoreML (available)".to_string(),
-                },
-                _ => DeviceSelection {
+            match tool_name {
+                "detect" => DeviceSelection {
                     device: "cpu".to_string(),
-                    reason: "Auto-selected CPU (CoreML not available)".to_string(),
+                    reason: "Multi-detect does not work on CoreML currently".to_string(),
                 },
+                _other_tool => {
+                    // For auto, prefer CoreML if available, otherwise CPU
+                    let coreml = CoreMLExecutionProvider::default();
+                    match coreml.is_available() {
+                        Ok(true) => DeviceSelection {
+                            device: "coreml".to_string(),
+                            reason: "Auto-selected CoreML (available)".to_string(),
+                        },
+                        _ => DeviceSelection {
+                            device: "cpu".to_string(),
+                            reason: "Auto-selected CPU (CoreML not available)".to_string(),
+                        },
+                    }
+                }
             }
         }
         other => DeviceSelection {
@@ -128,30 +137,41 @@ pub fn determine_optimal_device(requested_device: &str) -> DeviceSelection {
 }
 
 /// Create an ONNX Runtime session with the specified configuration
+/// Returns (Session, ModelInfo, CoremlCacheStats) where CoremlCacheStats contain CoreML cache information when CoreML is used
 pub fn create_onnx_session(
     model_source: ModelSource,
     config: &SessionConfig,
-) -> Result<(Session, ModelInfo)> {
+) -> Result<(
+    Session,
+    ModelInfo,
+    Option<crate::shared_metadata::CoremlCacheStats>,
+)> {
+    let mut coreml_cache_stats: Option<crate::shared_metadata::CoremlCacheStats> = None;
+
     // Get model bytes for cache key generation and session creation
     let (bytes, model_info_base) = match model_source {
         ModelSource::EmbeddedBytes(bytes) => {
+            let model_checksum = cache_common::calculate_md5_bytes(bytes);
             let model_info = ModelInfo {
                 model_source: "Embedded".to_string(),
                 model_path: None,
                 model_size_bytes: bytes.len(),
                 description: "Embedded model bytes".to_string(),
                 execution_providers: vec![], // Will be populated later
+                model_checksum,
             };
             (bytes.to_vec(), model_info)
         }
         ModelSource::FilePath(path) => {
             let bytes = fs::read(&path)?;
+            let model_checksum = cache_common::calculate_md5_bytes(&bytes);
             let model_info = ModelInfo {
                 model_source: "File".to_string(),
                 model_path: Some(path.clone()),
                 model_size_bytes: bytes.len(),
                 description: format!("Model loaded from: {path}"),
                 execution_providers: vec![], // Will be populated later
+                model_checksum,
             };
             (bytes, model_info)
         }
@@ -171,13 +191,36 @@ pub fn create_onnx_session(
                     );
                     None
                 } else {
-                    // Check if cache already exists
-                    let compiled_model_path = cache_dir.join("compiled_model.mlmodelc");
-                    if compiled_model_path.exists() {
+                    // Check if cache already exists - this determines cache hit/miss
+                    let cache_hit = cache_dir.is_dir()
+                        && std::fs::read_dir(&cache_dir)
+                            .map(|mut dir| dir.next().is_some())
+                            .unwrap_or(false);
+
+                    if cache_hit {
                         log::debug!("♻️  Reusing existing CoreML cache: {}", cache_dir.display());
                     } else {
                         log::debug!("🆕 Creating new CoreML cache: {}", cache_dir.display());
                     }
+
+                    // Collect CoreML cache statistics (single traversal) - only when CoreML is used
+                    let mut coreml_stats = crate::shared_metadata::CoremlCacheStats {
+                        cache_hit: Some(cache_hit),
+                        ..Default::default()
+                    };
+
+                    if let Ok(base_coreml_cache) = crate::model_access::get_coreml_cache_dir() {
+                        if let Ok((count, size_mb)) =
+                            crate::shared_metadata::get_cache_info(&base_coreml_cache)
+                        {
+                            coreml_stats.cache_count = Some(count);
+                            coreml_stats.cache_size_mb = Some(size_mb);
+                        }
+                    }
+
+                    // Set CoreML cache stats
+                    coreml_cache_stats = Some(coreml_stats);
+
                     Some(cache_dir)
                 }
             }
@@ -368,5 +411,5 @@ pub fn create_onnx_session(
         model_info.execution_providers.join(" -> ")
     );
 
-    Ok((session, model_info))
+    Ok((session, model_info, coreml_cache_stats))
 }
