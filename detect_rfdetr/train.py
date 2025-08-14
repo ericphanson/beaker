@@ -24,4 +24,4 @@ model.model.reinitialize_detection_head(5)
 assert model.model.model.class_embed.out_features == 5
 
 dataset_dir = "../data/cub_coco_parts"
-model.train(dataset_dir=dataset_dir, epochs=100, output_dir="output3")
+model.train(dataset_dir=dataset_dir, epochs=50, output_dir="output4")
