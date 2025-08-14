@@ -139,7 +139,7 @@ def find_class_mapping(gt_boxes, gt_labels, pred_boxes, pred_classes):
 class ONNXInferenceModel:
     """ONNX model wrapper for inference"""
 
-    def __init__(self, model_path, confidence_threshold=0.5):
+    def __init__(self, model_path, confidence_threshold=0.5, remap=True):
         """
         Initialize ONNX model
 
@@ -150,7 +150,7 @@ class ONNXInferenceModel:
         self.model_path = Path(model_path)
         if not self.model_path.exists():
             raise FileNotFoundError(f"ONNX model not found at {model_path}")
-
+        self.remap = remap
         # Create ONNX Runtime session
         self.session = ort.InferenceSession(str(self.model_path))
         self.input_name = self.session.get_inputs()[0].name
@@ -232,37 +232,41 @@ class ONNXInferenceModel:
         # Apply softmax to get probabilities
         probs = torch.softmax(labels, dim=-1)
 
-        # CRITICAL: Apply class mapping correction BEFORE selecting top-1 per class
-        # This ensures we get the correct top-1 predictions for each GT class
-        # rather than the mixed-up model classes.
-        #
-        # Discovered mapping (verified across 10 samples with 100% consistency):
-        # - Model class 0 (bird) → GT class 0 (bird)       - Alternative bird detection
-        # - Model class 1 (head) → GT class 0 (bird)       - Primary bird detection
-        # - Model class 2 (eye)  → GT class 1 (head)       - Actually detects heads, not eyes!
-        # - Model class 3 (beak) → GT class 3 (beak)       - Correctly detects beaks
-        # - Model class 4 (background) → GT class 2 (eye)  - Background actually detects eyes!
+        if self.remap:
+            # CRITICAL: Apply class mapping correction BEFORE selecting top-1 per class
+            # This ensures we get the correct top-1 predictions for each GT class
+            # rather than the mixed-up model classes.
+            #
+            # Discovered mapping (verified across 10 samples with 100% consistency):
+            # - Model class 0 (bird) → GT class 0 (bird)       - Alternative bird detection
+            # - Model class 1 (head) → GT class 0 (bird)       - Primary bird detection
+            # - Model class 2 (eye)  → GT class 1 (head)       - Actually detects heads, not eyes!
+            # - Model class 3 (beak) → GT class 3 (beak)       - Correctly detects beaks
+            # - Model class 4 (background) → GT class 2 (eye)  - Background actually detects eyes!
 
-        # Create remapped probability tensor for correct class selection
-        # Initialize with zeros for 4 GT classes (0-3 indexing)
-        remapped_probs = torch.zeros(probs.shape[0], 4)  # [num_queries, 4_gt_classes]
+            # Create remapped probability tensor for correct class selection
+            # Initialize with zeros for 5 GT classes (0-4 indexing)
+            remapped_probs = torch.zeros(probs.shape[0], 5)  # [num_queries, n_classes]
 
-        # Apply the mapping to redistribute probabilities to correct GT classes
-        # Model class 0 → GT class 0 (bird) - index 0 in remapped tensor
-        # Model class 1 → GT class 0 (bird) - index 0 in remapped tensor
-        remapped_probs[:, 0] = probs[:, 0] + probs[:, 1]  # Combine both bird detectors
+            # # Apply the mapping to redistribute probabilities to correct GT classes
+            # # Model class 0 → GT class 0 (bird) - index 0 in remapped tensor
+            # # Model class 1 → GT class 0 (bird) - index 0 in remapped tensor
+            remapped_probs[:, 0] = (
+                probs[:, 0] + probs[:, 1]
+            )  # Combine both bird detectors
 
-        # Model class 2 → GT class 1 (head) - index 1 in remapped tensor
-        remapped_probs[:, 1] = probs[:, 2]
+            # # Model class 2 → GT class 1 (head) - index 1 in remapped tensor
+            remapped_probs[:, 1] = probs[:, 2]
 
-        # Model class 4 → GT class 2 (eye) - index 2 in remapped tensor
-        remapped_probs[:, 2] = probs[:, 4]
+            # # Model class 4 → GT class 2 (eye) - index 2 in remapped tensor
+            remapped_probs[:, 2] = probs[:, 3]
 
-        # Model class 3 → GT class 3 (beak) - index 3 in remapped tensor
-        remapped_probs[:, 3] = probs[:, 3]
-
+            # # Model class 3 → GT class 3 (beak) - index 3 in remapped tensor
+            remapped_probs[:, 3] = probs[:, 4]
+        else:
+            remapped_probs = probs
         # Now select top-1 prediction per corrected GT class
-        num_gt_classes = 4  # bird, head, eye, beak
+        num_gt_classes = 5  # bird, head, eye, beak, background
 
         selected_indices = []
         selected_probs = []
@@ -1074,8 +1078,8 @@ def analyze_class_mappings_across_samples(
     if not onnx_model_path:
         onnx_model_path = "onnx_export/export_output/inference_model.sim.onnx"
 
-    # Initialize ONNX model
-    onnx_model = ONNXInferenceModel(onnx_model_path)
+    # Initialize ONNX model, no mapping here
+    onnx_model = ONNXInferenceModel(onnx_model_path, remap=False)
 
     # Create data loader
     data_loader = create_dataloader(batch_size=4, image_set=image_set)

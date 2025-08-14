@@ -2,6 +2,7 @@
 output
 output2
 output3
+output4
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

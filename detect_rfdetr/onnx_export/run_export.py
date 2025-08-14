@@ -12,9 +12,9 @@ from rfdetr.deploy.export import (
 model = RFDETRNano(num_classes=4, device="cpu", pretrain_weights=None)
 model.model.reinitialize_detection_head(5)
 
-# output3 trained w detect head
+# output4 trained w orient head, 0-based classes
 checkpoint = torch.load(
-    "../output3/checkpoint_best_regular.pth", map_location="cpu", weights_only=False
+    "../output4/checkpoint_best_regular.pth", map_location="cpu", weights_only=False
 )
 model.model.model.load_state_dict(checkpoint["model"], strict=True)
 
