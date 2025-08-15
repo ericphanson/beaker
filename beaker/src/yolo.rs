@@ -165,6 +165,7 @@ pub fn postprocess_output(
                     confidence,
                     class_id: 1, // Map old head detection to new class ID 1 (head)
                     class_name: "head".to_string(),
+                    quality: None,
                 });
             }
         } else {
@@ -212,6 +213,7 @@ pub fn postprocess_output(
                     confidence: max_confidence,
                     class_id: best_class_id,
                     class_name,
+                    quality: None,
                 });
             }
         }

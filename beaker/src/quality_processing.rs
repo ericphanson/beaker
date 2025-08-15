@@ -91,9 +91,8 @@ impl ModelResult for QualityResult {
         self.io_timing.clone()
     }
 
-    fn get_mask_entry(&self) -> Option<crate::mask_encoding::MaskEntry> {
-        // Quality assessment doesn't produce masks
-        None
+    fn get_local_quality(&self) -> Option<[[u8; 20]; 20]> {
+        Some(self.local_quality_grid)
     }
 }
 

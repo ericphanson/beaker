@@ -12,6 +12,8 @@ pub struct Detection {
     pub confidence: f32,
     pub class_id: u32,
     pub class_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality: Option<f32>,
 }
 
 impl Detection {

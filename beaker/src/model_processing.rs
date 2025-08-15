@@ -9,6 +9,7 @@ use anyhow::Result;
 use colored::Colorize;
 use log::warn;
 use ort::session::Session;
+use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
 
@@ -48,6 +49,10 @@ pub trait ModelResult {
     fn get_mask_entry(&self) -> Option<crate::mask_encoding::MaskEntry> {
         None
     }
+
+    fn get_local_quality(&self) -> Option<[[u8; 20]; 20]> {
+        None
+    }
 }
 
 /// Core trait that all models must implement
@@ -79,11 +84,29 @@ pub trait ModelProcessor {
     fn serialize_config(config: &Self::Config) -> Result<toml::Value>;
 }
 
-/// Generic batch processing function that works with any model
 pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usize> {
+    match run_model_processing_with_quality_outputs::<P>(config) {
+        Ok((successful_count, _local_quality_grids)) => {
+            // Process successful results
+            // Do something with _local_quality_grids
+            Ok(successful_count)
+        }
+        Err(errors) => {
+            // Handle errors
+            Err(errors)
+        }
+    }
+}
+/// Generic batch processing function that works with any model
+pub fn run_model_processing_with_quality_outputs<P: ModelProcessor>(
+    config: P::Config,
+) -> Result<(usize, HashMap<String, [[u8; 20]; 20]>)> {
     use crate::onnx_session::determine_optimal_device;
     use chrono::Utc;
     use std::time::Instant;
+
+    // Hashmap from image path to local quality grid
+    let mut local_quality_grids: HashMap<String, [[u8; 20]; 20]> = HashMap::new();
 
     let start_timestamp = Utc::now();
     let total_processing_start = Instant::now();
@@ -99,7 +122,7 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
 
     if image_files.is_empty() {
         log::warn!("No valid images found to process");
-        return Ok(0);
+        return Ok((0, local_quality_grids));
     }
 
     if image_files.len() > 1 {
@@ -187,6 +210,7 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
 
     // Create vector to contain failed image paths
     let mut failed_images = Vec::new();
+
     for (index, (image_path, (source_type, source_string))) in image_files.iter().enumerate() {
         // Create input processing info
         let input = InputProcessing {
@@ -225,7 +249,9 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
         match P::process_single_image(&mut session, image_path, &config, &output_manager) {
             Ok(result) => {
                 successful_count += 1;
-
+                if let Some(quality) = result.get_local_quality() {
+                    local_quality_grids.insert(image_path.to_string_lossy().to_string(), quality);
+                };
                 if !config.base().skip_metadata {
                     save_enhanced_metadata_for_file::<P>(
                         &result,
@@ -318,7 +344,7 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
             failed_count
         ));
     }
-    Ok(successful_count)
+    Ok((successful_count, local_quality_grids))
 }
 
 /// Save enhanced metadata for a single processed file

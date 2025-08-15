@@ -270,7 +270,7 @@ pub fn create_onnx_session(
             }
         },
         "cpu" => {
-            log::info!("🖥️  Using CPU execution provider");
+            log::debug!("🖥️  Using CPU execution provider");
             vec![CPUExecutionProvider::default().build()]
         }
         _ => {

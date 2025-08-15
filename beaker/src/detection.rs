@@ -5,6 +5,7 @@ use crate::model_access::{ModelAccess, ModelInfo};
 use crate::model_processing::{ModelProcessor, ModelResult};
 use crate::onnx_session::ModelSource;
 use crate::output_manager::OutputManager;
+use crate::quality_processing::QualityProcessor;
 use crate::rfdetr;
 use crate::shared_metadata::IoTiming;
 use crate::yolo;
@@ -104,6 +105,21 @@ pub struct DetectionWithPath {
 
 /// Process multiple images sequentially
 pub fn run_detection(config: DetectionConfig) -> Result<usize> {
+    log::info!("   Analyzing image quality");
+    let quality_config = crate::config::QualityConfig::from_detection_config(&config);
+    let local_quality_grids = crate::model_processing::run_model_processing_with_quality_outputs::<
+        QualityProcessor,
+    >(quality_config);
+
+    let config = match local_quality_grids {
+        Ok((_count, grids)) => DetectionConfig {
+            local_quality_grids: Some(grids),
+            ..config
+        },
+        Err(_) => config,
+    };
+
+    log::info!("   Detecting...");
     crate::model_processing::run_model_processing::<DetectionProcessor>(config)
 }
 
@@ -416,6 +432,56 @@ impl ModelProcessor for DetectionProcessor {
             "⚡ Inference completed in {:.1} ms",
             inference_time.as_secs_f64() * 1000.0
         );
+
+        // Now we want to populate quality for each detection
+        let detections = if let Some(grids) = &config.local_quality_grids {
+            if let Some(grid) = grids.get(image_path.to_string_lossy().as_ref()) {
+                // Populate quality for detections based on quality grids.
+                // Quality grids are 20x20 grids corresponding to sections of the image
+                // Detections have bounding boxes in pixel units relative to original image size
+                // We need to find the quality cells that overlap with each detection, then find the average quality per detection
+
+                let mut detections_with_quality = Vec::new();
+                for mut detection in detections {
+                    // Calculate which grid cells this detection overlaps with
+                    let grid_x1 = ((detection.x1 / orig_width as f32) * 20.0).floor() as usize;
+                    let grid_y1 = ((detection.y1 / orig_height as f32) * 20.0).floor() as usize;
+                    let grid_x2 = ((detection.x2 / orig_width as f32) * 20.0).ceil() as usize;
+                    let grid_y2 = ((detection.y2 / orig_height as f32) * 20.0).ceil() as usize;
+
+                    // Clamp to grid boundaries
+                    let grid_x1 = grid_x1.min(19);
+                    let grid_y1 = grid_y1.min(19);
+                    let grid_x2 = grid_x2.min(20);
+                    let grid_y2 = grid_y2.min(20);
+
+                    // Calculate average quality across overlapping cells
+                    let mut quality_sum = 0u32;
+                    let mut cell_count = 0u32;
+
+                    for y in grid_y1..grid_y2 {
+                        for x in grid_x1..grid_x2 {
+                            quality_sum += grid[y][x] as u32;
+                            cell_count += 1;
+                        }
+                    }
+
+                    if cell_count > 0 {
+                        detection.quality = Some(quality_sum as f32 / cell_count as f32);
+                    } else {
+                        detection.quality = None;
+                    }
+
+                    detections_with_quality.push(detection);
+                }
+                detections_with_quality
+            } else {
+                log::debug!("No grid found for {}", image_path.to_string_lossy());
+                detections
+            }
+        } else {
+            detections
+        };
 
         let total_processing_time = processing_start.elapsed().as_secs_f64() * 1000.0;
 

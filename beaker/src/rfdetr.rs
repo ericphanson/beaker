@@ -224,6 +224,7 @@ pub fn postprocess_output(
                     confidence: score,
                     class_id: class_idx as u32,
                     class_name,
+                    quality: None,
                 });
             }
         }

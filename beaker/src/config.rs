@@ -12,7 +12,10 @@ use beaker_stamp_derive::Stamp as DeriveStamp;
 use clap::Parser;
 use clap_verbosity_flag::Verbosity;
 use serde::Serialize;
-use std::collections::HashSet;
+use std::{
+    collections::{HashMap, HashSet},
+    hash::Hash,
+};
 
 /// Supported detection classes for multi-class detection
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
@@ -224,6 +227,10 @@ pub struct DetectionConfig {
     #[serde(skip)]
     #[stamp]
     pub output_dir: Option<String>,
+    // Stores local quality grid results
+    #[serde(skip)]
+    #[stamp]
+    pub local_quality_grids: Option<HashMap<String, [[u8; 20]; 20]>>,
 }
 
 /// CLI command for cutout processing (only command-specific arguments)
@@ -373,6 +380,19 @@ pub struct QualityConfig {
     pub output_dir: Option<String>,
 }
 
+impl QualityConfig {
+    /// Create configuration from detection config
+    pub fn from_detection_config(config: &DetectionConfig) -> Self {
+        Self {
+            base: config.base.clone(), // Clone the base config
+            model_checksum: None,
+            model_url: None,
+            model_path: None,
+            output_dir: config.output_dir.clone(),
+        }
+    }
+}
+
 // Conversion traits from CLI commands to internal configurations
 
 impl From<GlobalArgs> for BaseModelConfig {
@@ -410,6 +430,7 @@ impl DetectionConfig {
             model_url: cmd.model_url,
             model_checksum: cmd.model_checksum,
             output_dir, // Use the cloned value
+            local_quality_grids: None,
         })
     }
 }
@@ -614,6 +635,7 @@ mod tests {
             model_url: None,
             model_checksum: None,
             output_dir: Some("/tmp".to_string()), // Add the stamped output_dir
+            local_quality_grids: None,
         };
 
         // Test field access through base config
