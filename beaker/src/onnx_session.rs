@@ -113,6 +113,10 @@ pub fn determine_optimal_device(requested_device: &str, tool_name: &str) -> Devi
                     device: "cpu".to_string(),
                     reason: "Multi-detect does not work on CoreML currently".to_string(),
                 },
+                "quality" => DeviceSelection {
+                    device: "cpu".to_string(),
+                    reason: "Quality is faster on CPU than CoreML".to_string(),
+                },
                 _other_tool => {
                     // For auto, prefer CoreML if available, otherwise CPU
                     let coreml = CoreMLExecutionProvider::default();
