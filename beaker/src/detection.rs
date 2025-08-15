@@ -14,10 +14,11 @@ use crate::model_processing::{ModelProcessor, ModelResult};
 use crate::onnx_session::ModelSource;
 use crate::output_manager::OutputManager;
 use crate::rfdetr_postprocessing;
+use crate::rfdetr_preprocessing;
 use crate::shared_metadata::IoTiming;
 use crate::yolo_postprocessing;
 use crate::yolo_postprocessing::{create_square_crop, save_bounding_box_image};
-use crate::yolo_preprocessing::preprocess_image;
+use crate::yolo_preprocessing;
 use log::debug;
 
 pub fn get_default_detect_model_info() -> ModelInfo {
@@ -161,6 +162,25 @@ fn get_output_extension(input_path: &Path) -> &'static str {
         }
     } else {
         "jpg"
+    }
+}
+
+/// Dispatch preprocessing based on model variant
+fn preprocess_image_for_model(
+    model_variant: &DetectionModelVariants,
+    img: &DynamicImage,
+    model_size: u32,
+) -> Result<Array<f32, ndarray::IxDyn>> {
+    match model_variant {
+        DetectionModelVariants::HeadOnlyModelVariant
+        | DetectionModelVariants::MultiDetectModelVariant => {
+            // YOLO models use letterboxing with gray padding
+            yolo_preprocessing::preprocess_image(img, model_size)
+        }
+        DetectionModelVariants::OrientationModelVariant => {
+            // RF-DETR models use square resize with ImageNet normalization
+            rfdetr_preprocessing::preprocess_image(img, model_size)
+        }
     }
 }
 
@@ -373,7 +393,7 @@ impl ModelProcessor for DetectionProcessor {
         let model_variant = DetectionModelVariants::from_outputs(&output_dimensions, n_outputs);
         debug!("Output dimensions: {output_dimensions:?}, model variant: {model_variant:?}");
 
-        let input_tensor = preprocess_image(&img, model_size)?;
+        let input_tensor = preprocess_image_for_model(&model_variant, &img, model_size)?;
 
         // Run inference using ORT v2 API with timing
         let inference_start = Instant::now();
@@ -478,6 +498,39 @@ mod tests {
     #[test]
     fn test_head_access_env_var_name() {
         assert_eq!(HeadAccess::get_env_var_name(), "BEAKER_DETECT_MODEL_PATH");
+    }
+
+    #[test]
+    fn test_preprocessing_dispatch() {
+        use image::{Rgb, RgbImage};
+
+        // Create a test image
+        let img = RgbImage::from_fn(100, 100, |x, y| {
+            Rgb([(x % 256) as u8, (y % 256) as u8, ((x + y) % 256) as u8])
+        });
+        let dynamic_img = DynamicImage::ImageRgb8(img);
+
+        // Test YOLO preprocessing (should use letterboxing)
+        let yolo_result = preprocess_image_for_model(
+            &DetectionModelVariants::HeadOnlyModelVariant,
+            &dynamic_img,
+            640,
+        )
+        .unwrap();
+        assert_eq!(yolo_result.shape(), &[1, 3, 640, 640]);
+
+        // Test RF-DETR preprocessing (should use square resize)
+        let rfdetr_result = preprocess_image_for_model(
+            &DetectionModelVariants::OrientationModelVariant,
+            &dynamic_img,
+            640,
+        )
+        .unwrap();
+        assert_eq!(rfdetr_result.shape(), &[1, 3, 640, 640]);
+
+        // The results should be different because the preprocessing methods differ
+        // (YOLO uses letterboxing with gray padding, RF-DETR uses square resize with ImageNet normalization)
+        assert_ne!(yolo_result.as_slice(), rfdetr_result.as_slice());
     }
 
     #[test]

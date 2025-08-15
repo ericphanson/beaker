@@ -20,6 +20,7 @@ head_files = {
     "detection_obj.rs",
     "yolo_preprocessing.rs",
     "yolo_postprocessing.rs",
+    "rfdetr_preprocessing.rs",
     "rfdetr_postprocessing.rs",
     "head_detection.rs",
 }

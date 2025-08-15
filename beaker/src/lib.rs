@@ -20,6 +20,7 @@ pub mod onnx_session;
 pub mod output_manager;
 pub mod progress;
 pub mod rfdetr_postprocessing;
+pub mod rfdetr_preprocessing;
 pub mod shared_metadata;
 pub mod stamp_manager;
 pub mod yolo_postprocessing;

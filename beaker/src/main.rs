@@ -21,6 +21,7 @@ mod onnx_session;
 mod output_manager;
 mod progress;
 mod rfdetr_postprocessing;
+mod rfdetr_preprocessing;
 mod shared_metadata;
 mod stamp_manager;
 mod yolo_postprocessing;
