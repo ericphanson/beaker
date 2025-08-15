@@ -731,6 +731,79 @@ fn draw_detections(rgba_img: &mut image::RgbaImage, filtered_detections: &[&Dete
                     );
                 }
             }
+
+            // Draw arrowhead at the end of the line
+            let arrowhead_length = 8.0; // Length of arrowhead sides
+            let arrowhead_angle = std::f32::consts::PI / 6.0; // 30 degrees
+
+            // Calculate arrowhead points
+            let arrow_angle1 = detection.angle_radians + std::f32::consts::PI - arrowhead_angle;
+            let arrow_angle2 = detection.angle_radians + std::f32::consts::PI + arrowhead_angle;
+
+            let arrow_x1 = end_x + arrowhead_length * arrow_angle1.cos();
+            let arrow_y1 = end_y + arrowhead_length * arrow_angle1.sin();
+            let arrow_x2 = end_x + arrowhead_length * arrow_angle2.cos();
+            let arrow_y2 = end_y + arrowhead_length * arrow_angle2.sin();
+
+            // Draw arrowhead lines with same thickness as main line
+            for thickness_offset in -1..=1i32 {
+                for extra_thickness in 0..3i32 {
+                    // First arrowhead line
+                    draw_line_segment_mut(
+                        rgba_img,
+                        (
+                            end_x + thickness_offset as f32,
+                            end_y + extra_thickness as f32,
+                        ),
+                        (
+                            arrow_x1 + thickness_offset as f32,
+                            arrow_y1 + extra_thickness as f32,
+                        ),
+                        box_color,
+                    );
+                    // Second arrowhead line
+                    draw_line_segment_mut(
+                        rgba_img,
+                        (
+                            end_x + thickness_offset as f32,
+                            end_y + extra_thickness as f32,
+                        ),
+                        (
+                            arrow_x2 + thickness_offset as f32,
+                            arrow_y2 + extra_thickness as f32,
+                        ),
+                        box_color,
+                    );
+                }
+                for extra_thickness in 0..3i32 {
+                    // First arrowhead line (vertical thickness)
+                    draw_line_segment_mut(
+                        rgba_img,
+                        (
+                            end_x + extra_thickness as f32,
+                            end_y + thickness_offset as f32,
+                        ),
+                        (
+                            arrow_x1 + extra_thickness as f32,
+                            arrow_y1 + thickness_offset as f32,
+                        ),
+                        box_color,
+                    );
+                    // Second arrowhead line (vertical thickness)
+                    draw_line_segment_mut(
+                        rgba_img,
+                        (
+                            end_x + extra_thickness as f32,
+                            end_y + thickness_offset as f32,
+                        ),
+                        (
+                            arrow_x2 + extra_thickness as f32,
+                            arrow_y2 + thickness_offset as f32,
+                        ),
+                        box_color,
+                    );
+                }
+            }
         }
     }
 }

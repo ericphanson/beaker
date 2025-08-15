@@ -244,7 +244,7 @@ class ONNXInferenceModel:
         # This makes the classes -1, 0, 1, 2, 3...
         # background is supposed to be the final class, but maybe somehow it is the
         # first class, so by doing this we filter it out?
-        r["labels"] = torch.tensor([r - 1 for r in r["labels"]])
+        # r["labels"] = torch.tensor([r - 1 for r in r["labels"]])
 
         # Now we keep the top-k predictions per class
         selected_boxes = []

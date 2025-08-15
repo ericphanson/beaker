@@ -1,4 +1,4 @@
-from rfdetr import RFDETRNano
+from rfdetr import RFDETRMedium
 import torch
 import os
 from rfdetr.deploy.export import (
@@ -9,12 +9,14 @@ from rfdetr.deploy.export import (
 )
 
 
-model = RFDETRNano(num_classes=4, device="cpu", pretrain_weights=None)
+model = RFDETRMedium(
+    num_classes=4, device="cpu", pretrain_weights=None, num_queries=100
+)
 model.model.reinitialize_detection_head(5)
 
 # output4 trained w orient head, 0-based classes
 checkpoint = torch.load(
-    "../output4/checkpoint_best_regular.pth", map_location="cpu", weights_only=False
+    "../output5/checkpoint_best_regular.pth", map_location="cpu", weights_only=False
 )
 model.model.model.load_state_dict(checkpoint["model"], strict=True)
 
@@ -48,9 +50,12 @@ inner_model.to(device)
 
 infer_dir = "../../example.jpg"
 res = model.model.resolution
+print(f"Model resolution: {res}")
+
 input_tensors = make_infer_image(
     infer_dir, shape=(res, res), batch_size=1, device=device
 )
+print(f"Input tensors shape: {input_tensors.shape}")
 input_names = ["input"]
 output_names = ["dets", "labels", "orients"]
 dynamic_axes = None
@@ -104,6 +109,7 @@ os.makedirs(output_dir, exist_ok=True)
 
 # export_model model.model.inference_model
 export_model = model.model.inference_model
+print(f"Export model resolution: {model._optimized_resolution}")
 output_file = export_onnx(
     output_dir=output_dir,
     model=export_model,
@@ -111,6 +117,7 @@ output_file = export_onnx(
     input_tensors=input_tensors,
     output_names=output_names,
     dynamic_axes=dynamic_axes,
+    verbose=False,
 )
 
 # onnx_dir: str, input_names, input_tensors, force
@@ -137,4 +144,4 @@ outputs = ort_session.run(output_names, onnx_inputs)
 output_names = [output.name for output in ort_session.get_outputs()]
 named_outputs = {name: output for name, output in zip(output_names, outputs)}
 
-print("It works! Got outputs {named_outputs.keys()}")
+print(f"It works! Got outputs {named_outputs.keys()}")

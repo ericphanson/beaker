@@ -191,25 +191,28 @@ pub fn postprocess_output(
             let angle = orient_sin.atan2(orient_cos); // radians
 
             // // Map class index to class name
-            // let class_name = match class_idx {
-            //     0 => "bird",
-            //     1 => "head",
-            //     2 => "eye",
-            //     3 => "beak",
-            //     _ => "unknown",
-            // }
-            // .to_string();
-
-            // Map class index to class name
-            let class_name = match class_idx {
-                0 => "background",
-                1 => "bird",
-                2 => "head",
-                3 => "eye",
-                4 => "beak",
-                _ => "unknown",
-            }
-            .to_string();
+            let class_name = if _model_size == 384 {
+                // hack: detect the weird model by size
+                log::debug!("Detected model size 384, using weird class mapping");
+                match class_idx {
+                    0 => "background",
+                    1 => "bird",
+                    2 => "head",
+                    3 => "eye",
+                    4 => "beak",
+                    _ => "unknown",
+                }
+                .to_string()
+            } else {
+                match class_idx {
+                    0 => "bird",
+                    1 => "head",
+                    2 => "eye",
+                    3 => "beak",
+                    _ => "unknown",
+                }
+                .to_string()
+            };
 
             if ["bird", "head", "eye", "beak"].contains(&class_name.as_str()) {
                 detections.push(Detection {
