@@ -2,6 +2,7 @@ import comet_ml
 import os
 
 from rfdetr import RFDETRMedium
+import argparse
 
 api_key = os.getenv("COMET_API_KEY")
 
@@ -14,9 +15,18 @@ experiment = comet_ml.Experiment(
     workspace=workspace,
 )
 
+
 output_dir = "output5"
 
-if os.path.isdir(output_dir):
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description="Train RFDETR bird head detector")
+parser.add_argument(
+    "--force", action="store_true", help="Overwrite output directory if it exists"
+)
+args = parser.parse_args()
+
+# only overwrite with `--force` option
+if not args.force and os.path.isdir(output_dir):
     raise Exception("Output dir already exists")
 
 # resolution = 560
