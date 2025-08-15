@@ -104,7 +104,6 @@ pub struct DetectionWithPath {
 
 /// Process multiple images sequentially
 pub fn run_detection(config: DetectionConfig) -> Result<usize> {
-    // Use the new generic processing framework
     crate::model_processing::run_model_processing::<DetectionProcessor>(config)
 }
 
