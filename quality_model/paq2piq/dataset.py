@@ -1,5 +1,4 @@
 from pathlib import Path
-from typing import Tuple
 
 import pandas as pd
 import torch
@@ -43,12 +42,27 @@ test_df.to_csv(p/'test.csv', index=False)
 
 
 class FLIVE(Dataset):
-    fn_col = 'name_image'
-    label_cols = 'mos_image', 'mos_patch_1', 'mos_patch_2', 'mos_patch_3'
-    rois_cols = ['left_image', 'top_image', 'right_image', 'bottom_image',
-                 'left_patch_1', 'top_patch_1', 'right_patch_1', 'bottom_patch_1',
-                 'left_patch_2', 'top_patch_2', 'right_patch_2', 'bottom_patch_2',
-                 'left_patch_3', 'top_patch_3', 'right_patch_3', 'bottom_patch_3']
+    fn_col = "name_image"
+    label_cols = "mos_image", "mos_patch_1", "mos_patch_2", "mos_patch_3"
+    rois_cols = [
+        "left_image",
+        "top_image",
+        "right_image",
+        "bottom_image",
+        "left_patch_1",
+        "top_patch_1",
+        "right_patch_1",
+        "bottom_patch_1",
+        "left_patch_2",
+        "top_patch_2",
+        "right_patch_2",
+        "bottom_patch_2",
+        "left_patch_3",
+        "top_patch_3",
+        "right_patch_3",
+        "bottom_patch_3",
+    ]
+
     def __init__(self, path_to_csv: Path, images_path: Path, transform):
         self.df = pd.read_csv(path_to_csv)
         self.images_path = images_path

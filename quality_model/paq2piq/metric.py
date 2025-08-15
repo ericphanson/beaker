@@ -2,6 +2,7 @@ import torch
 from scipy import stats
 import numpy as np
 
+
 class IQAMetric(object):
     idx_col = 0
 
@@ -23,6 +24,7 @@ class IQAMetric(object):
             if x.dim() != 1:
                 x = x[:, self.idx_col].view(1, -1)[0]
             return np.asarray(x.cpu())
+
         return func(get_column(self.preds), get_column(self.targs))[0]
 
     @property

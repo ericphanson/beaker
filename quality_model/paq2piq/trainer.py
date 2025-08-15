@@ -54,14 +54,26 @@ def get_dataloaders(
 ) -> Tuple[DataLoader, DataLoader, DataLoader]:
     transform = Transform()
 
-    train_ds = FLIVE(path_to_save_csv / "train.csv", path_to_images, transform.train_transform)
-    val_ds = FLIVE(path_to_save_csv / "val.csv", path_to_images, transform.val_transform)
-    test_ds = FLIVE(path_to_save_csv / "test.csv", path_to_images, transform.val_transform)
+    train_ds = FLIVE(
+        path_to_save_csv / "train.csv", path_to_images, transform.train_transform
+    )
+    val_ds = FLIVE(
+        path_to_save_csv / "val.csv", path_to_images, transform.val_transform
+    )
+    test_ds = FLIVE(
+        path_to_save_csv / "test.csv", path_to_images, transform.val_transform
+    )
 
-    train_loader = DataLoader(train_ds, batch_size=batch_size, num_workers=num_workers, shuffle=True)
-    val_loader = DataLoader(val_ds, batch_size=batch_size, num_workers=num_workers, shuffle=False)
+    train_loader = DataLoader(
+        train_ds, batch_size=batch_size, num_workers=num_workers, shuffle=True
+    )
+    val_loader = DataLoader(
+        val_ds, batch_size=batch_size, num_workers=num_workers, shuffle=False
+    )
     # sizes are different, set batch size to 1
-    test_loader = DataLoader(test_ds, batch_size=1, num_workers=num_workers, shuffle=False)
+    test_loader = DataLoader(
+        test_ds, batch_size=1, num_workers=num_workers, shuffle=False
+    )
     return train_loader, val_loader, test_loader
 
 
@@ -73,7 +85,10 @@ def validate_and_test(
     path_to_model_state: Path,
 ) -> None:
     _, val_loader, test_loader = get_dataloaders(
-        path_to_save_csv=path_to_save_csv, path_to_images=path_to_images, batch_size=batch_size, num_workers=num_workers
+        path_to_save_csv=path_to_save_csv,
+        path_to_images=path_to_images,
+        batch_size=batch_size,
+        num_workers=num_workers,
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -90,16 +105,15 @@ def validate_and_test(
     test_loss = 0
 
     with torch.no_grad():
-        for (x, y) in tqdm(val_loader):
+        for x, y in tqdm(val_loader):
             x = x.to(device)
             y = y.to(device)
             y_pred = model(x)
             val_loss += criterion(y_pred, y)
             val_metrics.update(y, y_pred)
 
-
     with torch.no_grad():
-        for (x, y) in tqdm(test_loader):
+        for x, y in tqdm(test_loader):
             x = x.to(device)
             y = y.to(device)
             y_pred = model(x)
@@ -109,15 +123,21 @@ def validate_and_test(
     val_loss /= len(val_loader.dataset)
     test_loss /= len(test_loader.dataset)
 
-    logger.info(f"val loss={val_loss}, SRCC={val_metrics.srcc}, LCC={val_metrics.lcc};"
-                f"test loss={test_loss}, SRCC={test_metrics.srcc}, LCC={test_metrics.lcc};")
+    logger.info(
+        f"val loss={val_loss}, SRCC={val_metrics.srcc}, LCC={val_metrics.lcc};"
+        f"test loss={test_loss}, SRCC={test_metrics.srcc}, LCC={test_metrics.lcc};"
+    )
 
 
-def get_optimizer(optimizer_type: str, model: RoIPoolModel, init_lr: float) -> torch.optim.Optimizer:
+def get_optimizer(
+    optimizer_type: str, model: RoIPoolModel, init_lr: float
+) -> torch.optim.Optimizer:
     if optimizer_type == "adam":
         optimizer = torch.optim.Adam(model.parameters(), lr=init_lr)
     elif optimizer_type == "sgd":
-        optimizer = torch.optim.SGD(model.parameters(), lr=init_lr, momentum=0.5, weight_decay=9)
+        optimizer = torch.optim.SGD(
+            model.parameters(), lr=init_lr, momentum=0.5, weight_decay=9
+        )
     else:
         raise ValueError(f"not such optimizer {optimizer_type}")
     return optimizer
@@ -138,7 +158,6 @@ class Trainer:
         # drop_out: float,
         optimizer_type: str,
     ):
-
         train_loader, val_loader, _ = get_dataloaders(
             path_to_save_csv=path_to_save_csv,
             path_to_images=path_to_images,
@@ -158,8 +177,10 @@ class Trainer:
         self.model = model
         self.optimizer = optimizer
 
-        self.scheduler = torch.optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=list(lr_arr), max_lr=list(lr_arr*100))
-        #torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer=self.optimizer, mode="min", patience=5)
+        self.scheduler = torch.optim.lr_scheduler.CyclicLR(
+            self.optimizer, base_lr=list(lr_arr), max_lr=list(lr_arr * 100)
+        )
+        # torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer=self.optimizer, mode="min", patience=5)
         self.criterion = model.criterion.to(self.device)
         self.model_type = model_type
 
@@ -178,7 +199,7 @@ class Trainer:
             train_loss = self.train()
             val_loss = self.validate()
             self.scheduler.step()
-            #self.scheduler.step(metrics=val_loss) # for lr_scheduler.ReduceLROnPlateau
+            # self.scheduler.step(metrics=val_loss) # for lr_scheduler.ReduceLROnPlateau
 
             self.writer.add_scalar("train/loss", train_loss, global_step=e)
             self.writer.add_scalar("val/loss", val_loss, global_step=e)
@@ -187,7 +208,7 @@ class Trainer:
                 logger.info(f"updated loss from {best_loss} to {val_loss}")
                 best_loss = val_loss
                 best_state = {
-                    "model": self.model.state_dict(), # compatible with fastai model
+                    "model": self.model.state_dict(),  # compatible with fastai model
                     "model_type": self.model_type,
                     "epoch": e,
                     "best_loss": best_loss,
@@ -205,24 +226,28 @@ class Trainer:
             x = x.to(self.device)
             y = y.to(self.device)
 
-
             self.optimizer.zero_grad()
             y_pred = self.model(x)
             loss = self.criterion(y_pred, y)
             loss.backward()
             self.optimizer.step()
 
-            train_loss += loss #loss.item()
+            train_loss += loss  # loss.item()
 
             self.writer.add_scalar("train/current_loss", loss, self.global_train_step)
-            #self.writer.add_scalar("train/avg_loss", train_loss/(idx+1), self.global_train_step)
+            # self.writer.add_scalar("train/avg_loss", train_loss/(idx+1), self.global_train_step)
             self.global_train_step += 1
 
             e = time.monotonic()
             if idx % self.print_freq:
                 log_time = self.print_freq * (e - s)
                 eta = ((total_iter - idx) * log_time) / 60.0
-                print(f"iter #[{idx}/{total_iter}] " f"loss = {loss:.3f} " f"time = {log_time:.2f} " f"eta = {eta:.2f}")
+                print(
+                    f"iter #[{idx}/{total_iter}] "
+                    f"loss = {loss:.3f} "
+                    f"time = {log_time:.2f} "
+                    f"eta = {eta:.2f}"
+                )
 
         train_loss /= len(self.train_loader.dataset)
         return train_loss
@@ -240,7 +265,7 @@ class Trainer:
                 loss = self.criterion(y_pred, y)
                 val_loss += loss
                 self.writer.add_scalar("val/current_loss", loss, self.global_val_step)
-                #self.writer.add_scalar("val/avg_loss", val_loss/(idx+1), self.global_val_step)
+                # self.writer.add_scalar("val/avg_loss", val_loss/(idx+1), self.global_val_step)
                 val_metrics.update(y, y_pred)
 
                 self.global_val_step += 1
