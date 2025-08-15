@@ -136,7 +136,7 @@ pub fn postprocess_output(
             let scaled_x2 = x2 * scale_x;
             let scaled_y2 = y2 * scale_y;
 
-            // Get orientation for this query (optional for now)
+            // Get orientation for this query
             let orient_cos = out_orient[[batch_idx, query_idx, 0]];
             let orient_sin = out_orient[[batch_idx, query_idx, 1]];
             let angle = orient_sin.atan2(orient_cos); // radians
