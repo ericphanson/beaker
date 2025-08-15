@@ -64,12 +64,18 @@ For example, the example image
 can be processed with
 
 ```sh
-beaker detect --crop=head example.jpg
+beaker detect --crop=head --bounding-bonx example.jpg
 ```
 
 yielding the output crop saved as `example_crop_head.jpg`:
 
 ![](./example_crop_head.jpg)
+
+and the bounding-box image:
+
+![](./example_bounding-box.jpg)
+
+Here we draw a bounding box around each `head` and `bird` detection, with an arrow showing the detected orientation. The `head` orientation is defined as the angle from the eye-to-beak line (vs the positive horizontal axis) and similarly the `bird` orientation is defined as the angle from the crown-to-tail line (vs the positive horizontal axis). The lines with arrows are drawn simply from the center of the bounding-box for the detection, at the angle predicted by the model.
 
 **Limitations:**
 - Works best on clear, well-lit images of single birds

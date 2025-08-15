@@ -36,6 +36,6 @@ beaker/*.tif
 *_cutout.*
 *.pth
 
-# Exception: example_crop.jpg is shown in README.md and should be committed
-!example_crop.jpg
-
+# Exception: example_crop.jpg and example_bounding-box.jpg are shown in README.md and should be committed
+!/example_crop.jpg
+!/example_bounding-box.jpg

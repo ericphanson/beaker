@@ -157,7 +157,7 @@ pub struct DetectCommand {
     pub sources: Vec<String>,
 
     /// Confidence threshold for detections (0.0-1.0)
-    #[arg(short, long, default_value = "0.25")]
+    #[arg(short, long, default_value = "0.5")]
     pub confidence: f32,
 
     /// IoU threshold for non-maximum suppression (0.0-1.0)
