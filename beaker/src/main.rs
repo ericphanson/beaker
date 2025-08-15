@@ -20,12 +20,10 @@ mod model_processing;
 mod onnx_session;
 mod output_manager;
 mod progress;
-mod rfdetr_postprocessing;
-mod rfdetr_preprocessing;
+mod rfdetr;
 mod shared_metadata;
 mod stamp_manager;
-mod yolo_postprocessing;
-mod yolo_preprocessing;
+mod yolo;
 
 use color_utils::{colors, symbols};
 use config::{CutoutCommand, CutoutConfig, DetectCommand, DetectionConfig, GlobalArgs};

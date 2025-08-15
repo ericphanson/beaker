@@ -19,12 +19,10 @@ pub mod model_processing;
 pub mod onnx_session;
 pub mod output_manager;
 pub mod progress;
-pub mod rfdetr_postprocessing;
-pub mod rfdetr_preprocessing;
+pub mod rfdetr;
 pub mod shared_metadata;
 pub mod stamp_manager;
-pub mod yolo_postprocessing;
-pub mod yolo_preprocessing;
+pub mod yolo;
 
 #[cfg(test)]
 mod proc_macro_stamp_tests;

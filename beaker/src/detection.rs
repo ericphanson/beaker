@@ -1,11 +1,3 @@
-use anyhow::Result;
-use image::{DynamicImage, GenericImageView};
-use ndarray::Array;
-use ort::{session::Session, value::Value};
-use serde::Serialize;
-use std::path::Path;
-use std::time::Instant;
-
 use crate::color_utils::symbols;
 use crate::config::DetectionConfig;
 use crate::detection_obj::Detection;
@@ -13,13 +5,21 @@ use crate::model_access::{ModelAccess, ModelInfo};
 use crate::model_processing::{ModelProcessor, ModelResult};
 use crate::onnx_session::ModelSource;
 use crate::output_manager::OutputManager;
-use crate::rfdetr_postprocessing;
-use crate::rfdetr_preprocessing;
+use crate::rfdetr;
 use crate::shared_metadata::IoTiming;
-use crate::yolo_postprocessing;
-use crate::yolo_postprocessing::{create_square_crop, save_bounding_box_image};
-use crate::yolo_preprocessing;
+use crate::yolo;
+use ab_glyph::{FontRef, PxScale};
+use anyhow::Result;
+use image::{DynamicImage, GenericImageView};
+use imageproc::drawing::{draw_hollow_rect_mut, draw_line_segment_mut, draw_text_mut, text_size};
 use log::debug;
+use ndarray::Array;
+use ort::{session::Session, value::Value};
+use serde::Serialize;
+use std::path::Path;
+use std::time::Instant;
+
+static FONT_BYTES: &[u8] = include_bytes!("../fonts/NotoSans-Regular.ttf");
 
 pub fn get_default_detect_model_info() -> ModelInfo {
     ModelInfo {
@@ -174,11 +174,11 @@ fn preprocess_image_for_model(
     match model_variant {
         DetectionModelVariants::HeadOnly | DetectionModelVariants::MultiDetect => {
             // YOLO models use letterboxing with gray padding
-            yolo_preprocessing::preprocess_image(img, model_size)
+            yolo::preprocess_image(img, model_size)
         }
         DetectionModelVariants::Orientation => {
             // RF-DETR models use square resize with ImageNet normalization
-            rfdetr_preprocessing::preprocess_image(img, model_size)
+            rfdetr::preprocess_image(img, model_size)
         }
     }
 }
@@ -466,7 +466,7 @@ fn postprocess_output(
             let output_array =
                 Array::from_shape_vec(output_view.shape(), output_view.iter().cloned().collect())?;
 
-            yolo_postprocessing::postprocess_output(
+            yolo::postprocess_output(
                 &output_array,
                 config.confidence,
                 config.iou_threshold,
@@ -476,13 +476,262 @@ fn postprocess_output(
                 model_variant.is_legacy_model(), // Pass legacy model flag
             )
         }
-        DetectionModelVariants::Orientation => rfdetr_postprocessing::postprocess_output(
-            outputs,
-            orig_width,
-            orig_height,
-            model_size,
-            config,
-        ),
+        DetectionModelVariants::Orientation => {
+            rfdetr::postprocess_output(outputs, orig_width, orig_height, model_size, config)
+        }
+    }
+}
+
+pub fn create_square_crop(
+    img: &DynamicImage,
+    bbox: &Detection,
+    output_path: &Path,
+    padding: f32,
+) -> Result<()> {
+    let (img_width, img_height) = img.dimensions();
+
+    // Extract bounding box coordinates
+    let x1 = bbox.x1.max(0.0) as u32;
+    let y1 = bbox.y1.max(0.0) as u32;
+    let x2 = bbox.x2.min(img_width as f32) as u32;
+    let y2 = bbox.y2.min(img_height as f32) as u32;
+
+    // Calculate center and dimensions with padding
+    let bbox_width = x2 - x1;
+    let bbox_height = y2 - y1;
+    let expand_w = (bbox_width as f32 * padding) as u32;
+    let expand_h = (bbox_height as f32 * padding) as u32;
+
+    let expanded_x1 = x1.saturating_sub(expand_w);
+    let expanded_y1 = y1.saturating_sub(expand_h);
+    let expanded_x2 = (x2 + expand_w).min(img_width);
+    let expanded_y2 = (y2 + expand_h).min(img_height);
+
+    // Calculate center and make square
+    let center_x = (expanded_x1 + expanded_x2) / 2;
+    let center_y = (expanded_y1 + expanded_y2) / 2;
+    let new_width = expanded_x2 - expanded_x1;
+    let new_height = expanded_y2 - expanded_y1;
+    let size = new_width.max(new_height);
+    let half_size = size / 2;
+
+    // Calculate square crop bounds
+    let crop_x1 = center_x.saturating_sub(half_size);
+    let crop_y1 = center_y.saturating_sub(half_size);
+    let crop_x2 = (center_x + half_size).min(img_width);
+    let crop_y2 = (center_y + half_size).min(img_height);
+
+    // Adjust if we hit image boundaries to maintain square
+    let actual_width = crop_x2 - crop_x1;
+    let actual_height = crop_y2 - crop_y1;
+
+    let (final_x1, final_y1, final_x2, final_y2) = if actual_width < actual_height {
+        let diff = actual_height - actual_width;
+        (
+            crop_x1.saturating_sub(diff / 2),
+            crop_y1,
+            (crop_x2 + diff / 2).min(img_width),
+            crop_y2,
+        )
+    } else if actual_height < actual_width {
+        let diff = actual_width - actual_height;
+        (
+            crop_x1,
+            crop_y1.saturating_sub(diff / 2),
+            crop_x2,
+            (crop_y2 + diff / 2).min(img_height),
+        )
+    } else {
+        (crop_x1, crop_y1, crop_x2, crop_y2)
+    };
+
+    // Crop the image
+    let cropped = image::imageops::crop_imm(
+        img,
+        final_x1,
+        final_y1,
+        final_x2 - final_x1,
+        final_y2 - final_y1,
+    );
+
+    // Create output directory if it doesn't exist
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    // Convert to appropriate format based on output file extension
+    let cropped_dynamic = DynamicImage::ImageRgba8(cropped.to_image());
+    let output_img = if let Some(ext) = output_path.extension() {
+        let ext_lower = ext.to_string_lossy().to_lowercase();
+        if ext_lower == "png" {
+            // For PNG, preserve alpha channel if present
+            cropped_dynamic
+        } else {
+            // For JPEG and other formats, convert to RGB
+            DynamicImage::ImageRgb8(cropped_dynamic.to_rgb8())
+        }
+    } else {
+        // Default to RGB if no extension
+        DynamicImage::ImageRgb8(cropped_dynamic.to_rgb8())
+    };
+
+    // Save the cropped image
+    output_img.save(output_path)?;
+
+    Ok(())
+}
+
+pub fn save_bounding_box_image(
+    img: &DynamicImage,
+    detections: &[Detection],
+    output_path: &Path,
+) -> Result<()> {
+    // Create a copy of the image for drawing bounding boxes
+    let mut output_img = img.clone();
+
+    // Filter detections to only include bird and head classes
+    let filtered_detections: Vec<&Detection> = detections
+        .iter()
+        .filter(|detection| detection.class_name == "bird" || detection.class_name == "head")
+        .collect();
+
+    // Determine if we should preserve alpha channel based on output format
+    let preserve_alpha = if let Some(ext) = output_path.extension() {
+        ext.to_string_lossy().to_lowercase() == "png"
+    } else {
+        false
+    };
+
+    // Always work in RGBA for drawing (preserves translucent text backgrounds)
+    let mut rgba_img = output_img.to_rgba8();
+    draw_detections(&mut rgba_img, &filtered_detections);
+
+    // Convert back to appropriate format for output
+    if preserve_alpha {
+        output_img = DynamicImage::ImageRgba8(rgba_img);
+    } else {
+        // Convert back to RGB for JPEG output
+        output_img = DynamicImage::ImageRgb8(image::DynamicImage::ImageRgba8(rgba_img).to_rgb8());
+    }
+
+    // Create output directory if it doesn't exist
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    // Save the image with bounding boxes
+    output_img.save(output_path)?;
+
+    Ok(())
+}
+
+/// Unified function to draw detections on an RGBA image
+fn draw_detections(rgba_img: &mut image::RgbaImage, filtered_detections: &[&Detection]) {
+    for detection in filtered_detections {
+        let x1 = detection.x1.max(0.0) as u32;
+        let y1 = detection.y1.max(0.0) as u32;
+        let x2 = detection.x2.min(rgba_img.width() as f32) as u32;
+        let y2 = detection.y2.min(rgba_img.height() as f32) as u32;
+
+        // Choose color based on class_name: bird = forest green, head = blue
+        let box_color = if detection.class_name == "bird" {
+            image::Rgba([34, 139, 34, 255]) // Forest green for bird (nicer than bright green)
+        } else {
+            image::Rgba([0, 100, 255, 255]) // Bright blue for head
+        };
+
+        // Draw thick bounding box using imageproc (3 pixels thick)
+        for thickness_offset in 0..3i32 {
+            let thick_rect = imageproc::rect::Rect::at(
+                (x1 as i32) - thickness_offset,
+                (y1 as i32) - thickness_offset,
+            )
+            .of_size(
+                (x2 - x1) + (thickness_offset * 2) as u32,
+                (y2 - y1) + (thickness_offset * 2) as u32,
+            );
+            draw_hollow_rect_mut(rgba_img, thick_rect, box_color);
+        }
+
+        // Draw confidence text at top-left corner of bounding box
+        let confidence_text = format!("{:.2}", detection.confidence);
+        let text_x = x1 + 2; // Position text 2 pixels from left edge
+        let text_y = y1.saturating_sub(25).max(2); // Position text above box, adjusted for larger text
+
+        let font = FontRef::try_from_slice(FONT_BYTES).expect("Font load failed");
+        let scale = PxScale::from(20.0); // Larger font size
+        let text_color = image::Rgba([255, 255, 255, 255]); // White text
+        let bg_color = image::Rgba([0, 0, 0, 120]); // More transparent black background
+        let (text_width, text_height) = text_size(scale, &font, &confidence_text);
+
+        // Draw background rectangle (adjusted to properly center around text)
+        let y_offset: i32 = 4;
+        let bg_x = text_x;
+        let bg_y = text_y + 2 + (y_offset as u32); // empirical offsets
+        for dx in 0..(text_width + 4) {
+            for dy in 0..(text_height + 4) {
+                let px = bg_x + dx;
+                let py = bg_y + dy;
+                if px < rgba_img.width() && py < rgba_img.height() {
+                    rgba_img.put_pixel(px, py, bg_color);
+                }
+            }
+        }
+        draw_text_mut(
+            rgba_img,
+            text_color,
+            text_x as i32 + 2,
+            text_y as i32 + y_offset,
+            scale,
+            &font,
+            &confidence_text,
+        );
+
+        // Draw angle line if angle is not NaN (make it same thickness as box)
+        if !detection.angle_radians.is_nan() {
+            let center_x = (x1 + x2) as f32 / 2.0;
+            let center_y = (y1 + y2) as f32 / 2.0;
+            let box_width = (x2 - x1) as f32;
+            let box_height = (y2 - y1) as f32;
+            let line_length = box_width.min(box_height) / 2.0; // half the smaller dimension
+
+            let end_x = center_x + line_length * detection.angle_radians.cos();
+            let end_y = center_y + line_length * detection.angle_radians.sin();
+
+            // Draw thick line (3 pixels thick like the box)
+            for thickness_offset in -1..=1i32 {
+                // Draw horizontal thick lines
+                for extra_thickness in 0..3i32 {
+                    draw_line_segment_mut(
+                        rgba_img,
+                        (
+                            center_x + thickness_offset as f32,
+                            center_y + extra_thickness as f32,
+                        ),
+                        (
+                            end_x + thickness_offset as f32,
+                            end_y + extra_thickness as f32,
+                        ),
+                        box_color,
+                    );
+                }
+                // Draw vertical thick lines
+                for extra_thickness in 0..3i32 {
+                    draw_line_segment_mut(
+                        rgba_img,
+                        (
+                            center_x + extra_thickness as f32,
+                            center_y + thickness_offset as f32,
+                        ),
+                        (
+                            end_x + extra_thickness as f32,
+                            end_y + thickness_offset as f32,
+                        ),
+                        box_color,
+                    );
+                }
+            }
+        }
     }
 }
 

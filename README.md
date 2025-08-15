@@ -14,7 +14,7 @@ This is for the model used by `beaker detect`.
 | **Training code:** RF-DETR | Source and official models released under **Apache 2.0** |  |
 | **Training code:** Ultralytics YOLOv8 | Source and official models released under **GNU AGPL-3.0** | ➜ If you **redistribute or serve** the weights, you must also release the full source & weights **under AGPL-3.0**. |
 
-Some of the YOLO-based ultralytics-derived code is in the `yolo_preprocessing.rs` and `yolo_postprocessing.rs` files; I may delete these and switch to Apache 2.0 later once I'm sure I don't want to use the YOLO-based models.
+Some of the YOLO-based ultralytics-derived code is in the `yolo.rs` file; I may delete it and switch to Apache 2.0 later once I'm sure I don't want to use the YOLO-based models.
 
 ### Summary
 Because the weights were trained on CUB images *and* with AGPL-licensed code, they are provided **solely for non-commercial research/education** under **AGPL-3.0**.

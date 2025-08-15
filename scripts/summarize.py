@@ -18,10 +18,8 @@ cutout_files = {
 
 head_files = {
     "detection_obj.rs",
-    "yolo_preprocessing.rs",
-    "yolo_postprocessing.rs",
-    "rfdetr_preprocessing.rs",
-    "rfdetr_postprocessing.rs",
+    "yolo.rs",
+    "rfdetr.rs",
     "head_detection.rs",
 }
 
