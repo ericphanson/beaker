@@ -19,6 +19,7 @@ pub mod model_processing;
 pub mod onnx_session;
 pub mod output_manager;
 pub mod progress;
+pub mod quality_processing;
 pub mod rfdetr;
 pub mod shared_metadata;
 pub mod stamp_manager;

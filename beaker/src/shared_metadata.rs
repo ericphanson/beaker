@@ -6,6 +6,28 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 use std::time::Instant;
+use toml_edit::{Array, DocumentMut, Item, Value};
+
+/// Put each 20-elem row on a single line; rows separated by newlines.
+fn build_inline_rows(mat: &[[u8; 20]; 20]) -> Value {
+    let mut outer = Array::new();
+    // Optional; TOML allows trailing commas in arrays (v1.0).
+    outer.set_trailing_comma(false);
+    outer.set_trailing("\n"); // newline before closing ]
+
+    for row in mat {
+        let mut inner = Array::new();
+        for &x in row {
+            inner.push(x as i64); // TOML integers are i64
+        }
+        let mut row_val = Value::from(inner);
+        // Start each row on its own line (comma stays after the row).
+        row_val.decor_mut().set_prefix("\n    ");
+        outer.push_formatted(row_val);
+    }
+
+    Value::from(outer)
+}
 
 /// ONNX download cache statistics
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -69,9 +91,14 @@ impl IoTiming {
 /// Centralized list of relevant environment variables for version command and metadata collection
 pub const RELEVANT_ENV_VARS: &[&str] = &[
     "BEAKER_DETECT_MODEL_PATH",
+    "BEAKER_DETECT_MODEL_URL",
+    "BEAKER_DETECT_MODEL_CHECKSUM",
     "BEAKER_CUTOUT_MODEL_PATH",
     "BEAKER_CUTOUT_MODEL_URL",
     "BEAKER_CUTOUT_MODEL_CHECKSUM",
+    "BEAKER_QUALITY_MODEL_PATH",
+    "BEAKER_QUALITY_MODEL_URL",
+    "BEAKER_QUALITY_MODEL_CHECKSUM",
     "BEAKER_NO_COLOR",
     "BEAKER_DEBUG",
     "NO_COLOR",
@@ -85,6 +112,8 @@ pub struct BeakerMetadata {
     pub detect: Option<DetectSections>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cutout: Option<CutoutSections>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality: Option<QualitySections>,
 }
 
 /// All sections for detect command tool
@@ -93,7 +122,6 @@ pub struct DetectSections {
     // Core results (flattened detection results)
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     pub core: Option<toml::Value>,
-
     // Subsections
     #[serde(skip_serializing_if = "Option::is_none")]
     pub config: Option<toml::Value>,
@@ -111,7 +139,6 @@ pub struct CutoutSections {
     // Core results (backwards compatibility - flatten the existing cutout results)
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     pub core: Option<toml::Value>,
-
     // New subsections
     #[serde(skip_serializing_if = "Option::is_none")]
     pub config: Option<toml::Value>,
@@ -123,6 +150,22 @@ pub struct CutoutSections {
     pub input: Option<InputProcessing>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mask: Option<crate::mask_encoding::MaskEntry>,
+}
+
+/// All sections for cutout processing tool
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct QualitySections {
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub core: Option<toml::Value>,
+    // New subsections
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config: Option<toml::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution: Option<ExecutionContext>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system: Option<SystemInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input: Option<InputProcessing>,
 }
 
 /// Execution context for a tool invocation
@@ -206,38 +249,79 @@ pub fn load_or_create_metadata(path: &Path) -> Result<BeakerMetadata> {
     }
 }
 
-/// Save metadata to a file
+/// Save metadata to a file using toml_edit for better formatting control
 pub fn save_metadata(metadata: &BeakerMetadata, path: &Path) -> Result<()> {
     // Create parent directory if it doesn't exist
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
 
-    let toml_content = match toml::to_string_pretty(metadata) {
-        Ok(content) => content,
+    let toml_content = toml::to_string_pretty(metadata)?;
+
+    // Now parse into a document
+    let mut doc = match toml_content.parse::<DocumentMut>() {
+        Ok(document) => document,
         Err(e) => {
-            log::debug!("About to serialize metadata: {metadata:#?}");
-            // Try to serialize each section individually to isolate the problem
-            if let Some(ref detect) = metadata.detect {
-                log::error!("Detect section: {detect:#?}");
-                if let Err(detect_err) = toml::to_string_pretty(detect) {
-                    log::error!("Detect section serialization failed: {detect_err}");
-                }
-            }
-            if let Some(ref cutout) = metadata.cutout {
-                log::error!("Cutout section: {cutout:#?}");
-                if let Err(cutout_err) = toml::to_string_pretty(cutout) {
-                    log::error!("Cutout section serialization failed: {cutout_err}");
-                }
-            }
             return Err(anyhow::anyhow!(
-                "Failed to serialize metadata to TOML: {}. This usually means a field contains a value that cannot be represented in TOML format.",
+                "Failed to parse generated TOML into DocumentMut: {}",
                 e
             ));
         }
     };
 
-    fs::write(path, toml_content)?;
+    // Customize the quality grid formatting if present
+    if let Some(quality_table) = doc.get_mut("quality") {
+        if let Some(quality_table) = quality_table.as_table_mut() {
+            if let Some(local_quality_grid_item) = quality_table.get_mut("local_quality_grid") {
+                // We need to get the actual data from the original metadata to reformat it
+                if let Some(ref quality_sections) = metadata.quality {
+                    if let Some(ref core) = quality_sections.core {
+                        if let Some(grid_value) = core.get("local_quality_grid") {
+                            // Extract the grid data - it should be a 20x20 array of u8 values
+                            if let Some(grid_array) = grid_value.as_array() {
+                                if grid_array.len() == 20 {
+                                    // Convert to our format
+                                    let mut grid: [[u8; 20]; 20] = [[0; 20]; 20];
+                                    let mut valid_grid = true;
+
+                                    for (i, row) in grid_array.iter().enumerate() {
+                                        if let Some(row_array) = row.as_array() {
+                                            if row_array.len() == 20 {
+                                                for (j, val) in row_array.iter().enumerate() {
+                                                    if let Some(num) = val.as_integer() {
+                                                        grid[i][j] = num as u8;
+                                                    } else {
+                                                        valid_grid = false;
+                                                        break;
+                                                    }
+                                                }
+                                            } else {
+                                                valid_grid = false;
+                                                break;
+                                            }
+                                        } else {
+                                            valid_grid = false;
+                                            break;
+                                        }
+                                        if !valid_grid {
+                                            break;
+                                        }
+                                    }
+
+                                    if valid_grid {
+                                        let formatted_value = build_inline_rows(&grid);
+                                        *local_quality_grid_item = Item::Value(formatted_value);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let final_content = doc.to_string();
+    fs::write(path, final_content)?;
     Ok(())
 }
 

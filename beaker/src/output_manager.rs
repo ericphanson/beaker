@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use crate::model_processing::ModelConfig;
 use crate::shared_metadata::{
     get_metadata_path, load_or_create_metadata, save_metadata, CutoutSections, DetectSections,
+    QualitySections,
 };
 
 /// Unified output path management for all models
@@ -202,6 +203,7 @@ impl<'a> OutputManager<'a> {
         &self,
         detect_sections: Option<DetectSections>,
         cutout_sections: Option<CutoutSections>,
+        quality_sections: Option<QualitySections>,
     ) -> Result<()> {
         if self.config.base().skip_metadata {
             return Ok(());
@@ -218,6 +220,10 @@ impl<'a> OutputManager<'a> {
         }
         if let Some(cutout) = cutout_sections {
             metadata.cutout = Some(cutout);
+        }
+
+        if let Some(quality) = quality_sections {
+            metadata.quality = Some(quality);
         }
 
         save_metadata(&metadata, &metadata_path)?;

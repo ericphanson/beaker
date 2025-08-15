@@ -274,6 +274,26 @@ pub struct CutoutCommand {
     pub model_checksum: Option<String>,
 }
 
+/// CLI command for quality assessment processing (only command-specific arguments)
+#[derive(Parser, Debug, Clone)]
+pub struct QualityCommand {
+    /// Path(s) to input images or directories. Supports glob patterns like *.jpg
+    #[arg(value_name = "IMAGES_OR_DIRS", required = true)]
+    pub sources: Vec<String>,
+
+    /// Path to custom quality model file
+    #[arg(long)]
+    pub model_path: Option<String>,
+
+    /// URL to download custom quality model from
+    #[arg(long)]
+    pub model_url: Option<String>,
+
+    /// MD5 checksum for model verification (used with --model-url)
+    #[arg(long)]
+    pub model_checksum: Option<String>,
+}
+
 /// Internal configuration for cutout processing
 ///
 /// **IMPORTANT**: Fields marked with #[stamp] affect byte-level output and are included
@@ -303,6 +323,38 @@ pub struct CutoutConfig {
     pub background_color: Option<[u8; 4]>,
     #[stamp]
     pub save_mask: bool,
+    /// CLI-provided model path override
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[stamp]
+    pub model_path: Option<String>,
+    /// CLI-provided model URL override
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[stamp]
+    pub model_url: Option<String>,
+    /// CLI-provided model checksum override
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[stamp]
+    pub model_checksum: Option<String>,
+    /// Output directory (affects output file paths, extracted from base for stamping)
+    #[serde(skip)]
+    #[stamp]
+    pub output_dir: Option<String>,
+}
+
+/// Internal configuration for quality assessment processing
+///
+/// **IMPORTANT**: Fields marked with #[stamp] affect byte-level output and are included
+/// in stamp hash generation. When adding new fields:
+/// 1. Add #[stamp] if the field affects actual image bytes produced
+/// 2. Update tests in stamp_manager.rs to verify stamp changes
+/// 3. Consider if the field should be included in serialized config
+///
+/// Only include parameters that affect the actual results produced,
+/// not metadata-only or performance-related settings.
+#[derive(Debug, Clone, Serialize, DeriveStamp)]
+pub struct QualityConfig {
+    #[serde(skip)]
+    pub base: BaseModelConfig,
     /// CLI-provided model path override
     #[serde(skip_serializing_if = "Option::is_none")]
     #[stamp]
@@ -386,6 +438,23 @@ impl CutoutConfig {
     }
 }
 
+impl QualityConfig {
+    /// Create configuration from global args and command-specific args
+    pub fn from_args(global: GlobalArgs, cmd: QualityCommand) -> Self {
+        let mut base: BaseModelConfig = global.into();
+        base.sources = cmd.sources; // Add sources from command
+
+        let output_dir = base.output_dir.clone(); // Clone before move
+        Self {
+            base,
+            model_path: cmd.model_path,
+            model_url: cmd.model_url,
+            model_checksum: cmd.model_checksum,
+            output_dir, // Use the cloned value
+        }
+    }
+}
+
 // ModelConfig trait implementations for model_processing integration
 use crate::model_processing::ModelConfig;
 
@@ -406,6 +475,16 @@ impl ModelConfig for CutoutConfig {
 
     fn tool_name(&self) -> &'static str {
         "cutout"
+    }
+}
+
+impl ModelConfig for QualityConfig {
+    fn base(&self) -> &BaseModelConfig {
+        &self.base
+    }
+
+    fn tool_name(&self) -> &'static str {
+        "quality"
     }
 }
 
@@ -543,6 +622,39 @@ mod tests {
         assert_eq!(config.base.output_dir, Some("/tmp".to_string()));
         assert!(config.base.skip_metadata);
         assert!(config.base.strict);
+    }
+
+    #[test]
+    fn test_quality_command_conversion() {
+        let global_args = GlobalArgs {
+            device: "auto".to_string(),
+            output_dir: Some("/quality_output".to_string()),
+            metadata: true,
+            depfile: None,
+            verbosity: Verbosity::new(0, 0), // Default level
+            permissive: false,
+            no_color: false,
+        };
+
+        let quality_cmd = QualityCommand {
+            sources: vec!["test_image.jpg".to_string()],
+            model_path: Some("/custom/model.onnx".to_string()),
+            model_url: None,
+            model_checksum: None,
+        };
+
+        let config = QualityConfig::from_args(global_args, quality_cmd);
+
+        // Test conversion from command to config
+        assert_eq!(config.base.sources, vec!["test_image.jpg"]);
+        assert_eq!(config.base.device, "auto");
+        assert_eq!(config.base.output_dir, Some("/quality_output".to_string()));
+        assert!(!config.base.skip_metadata); // metadata=true -> skip_metadata=false
+        assert!(config.base.strict); // permissive=false -> strict=true
+        assert_eq!(config.model_path, Some("/custom/model.onnx".to_string()));
+        assert_eq!(config.model_url, None);
+        assert_eq!(config.model_checksum, None);
+        assert_eq!(config.output_dir, Some("/quality_output".to_string()));
     }
 
     #[test]

@@ -40,6 +40,7 @@ beaker-stamp = { path = "../beaker-stamp" }
 beaker-stamp-derive = { path = "../beaker-stamp-derive" }
 imageproc = "0.25.0"
 ab_glyph = "0.2.31"
+toml_edit = {version = "0.23.3", features = ["serde"]}
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Add Core ML only where the pre-built binary exists

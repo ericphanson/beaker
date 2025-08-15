@@ -20,16 +20,21 @@ mod model_processing;
 mod onnx_session;
 mod output_manager;
 mod progress;
+mod quality_processing;
 mod rfdetr;
 mod shared_metadata;
 mod stamp_manager;
 mod yolo;
 
 use color_utils::{colors, symbols};
-use config::{CutoutCommand, CutoutConfig, DetectCommand, DetectionConfig, GlobalArgs};
+use config::{
+    CutoutCommand, CutoutConfig, DetectCommand, DetectionConfig, GlobalArgs, QualityCommand,
+    QualityConfig,
+};
 use cutout_processing::{get_default_cutout_model_info, run_cutout_processing};
 use detection::{get_default_detect_model_info, run_detection};
 use progress::global_mp;
+use quality_processing::{get_default_quality_model_info, run_quality_processing};
 use shared_metadata::RELEVANT_ENV_VARS;
 use std::io::Write;
 
@@ -40,6 +45,9 @@ pub enum Commands {
 
     /// Remove backgrounds from images
     Cutout(CutoutCommand),
+
+    /// Assess image quality
+    Quality(QualityCommand),
 
     /// Show version information
     Version,
@@ -227,6 +235,38 @@ fn main() {
                 }
             }
         }
+        Some(Commands::Quality(quality_cmd)) => {
+            // Build outputs list (none for quality assessment)
+            let outputs = Vec::<&str>::new();
+
+            let feature_str = ""; // No special features for quality assessment
+
+            let output_str = if outputs.is_empty() {
+                "".to_string()
+            } else {
+                format!(" | outputs: {}", outputs.join(", "))
+            };
+
+            info!(
+                "{} Quality assessment | device: {}{}{}",
+                symbols::detection_start(), // Using detection symbol as placeholder
+                cli.global.device,
+                feature_str,
+                output_str
+            );
+
+            let internal_config = QualityConfig::from_args(cli.global.clone(), quality_cmd.clone());
+            match run_quality_processing(internal_config) {
+                Ok(_) => {}
+                Err(e) => {
+                    error!(
+                        "{} Quality assessment failed: {e}",
+                        symbols::operation_failed()
+                    );
+                    std::process::exit(1);
+                }
+            }
+        }
         Some(Commands::Version) => {
             // Print version information
             println!("beaker v{}", env!("CARGO_PKG_VERSION"));
@@ -237,6 +277,10 @@ fn main() {
             println!(
                 "Cutout model version: {}",
                 get_default_cutout_model_info().name.trim()
+            );
+            println!(
+                "Quality model version: {}",
+                get_default_quality_model_info().name.trim()
             );
             println!("Repository: {}", env!("CARGO_PKG_REPOSITORY"));
 
