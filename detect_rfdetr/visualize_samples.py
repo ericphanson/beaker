@@ -215,7 +215,7 @@ class ONNXInferenceModel:
         outputs = {
             "pred_boxes": torch.tensor(onnx_outputs[0]),
             "pred_logits": torch.tensor(onnx_outputs[1]),
-            "pred_orients": torch.tensor(onnx_outputs[2]),
+            "pred_orient": torch.tensor(onnx_outputs[2]),
         }
         # Repeated batch-size many times
         target_sizes = torch.tensor(

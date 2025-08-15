@@ -760,7 +760,7 @@ class PostProcess(nn.Module):
         """
         out_logits = outputs["pred_logits"]  # [B, Q, C]
         out_bbox = outputs["pred_boxes"]  # [B, Q, 4] (cx,cy,w,h in [0,1])
-        out_orient = outputs["pred_orients"]  # [B, Q, 2] (cos,sin raw)
+        out_orient = outputs["pred_orient"]  # [B, Q, 2] (cos,sin raw)
 
         assert len(out_logits) == len(target_sizes)
         assert target_sizes.shape[1] == 2
