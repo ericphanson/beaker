@@ -160,7 +160,7 @@ pub struct DetectCommand {
     #[arg(short, long, default_value = "0.5")]
     pub confidence: f32,
 
-    /// IoU threshold for non-maximum suppression (0.0-1.0)
+    /// IoU threshold for non-maximum suppression (0.0-1.0). Only used for YOLO models.
     #[arg(long, default_value = "0.45")]
     pub iou_threshold: f32,
 
