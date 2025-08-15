@@ -193,7 +193,7 @@ pub fn postprocess_output(
             // // Map class index to class name
             let class_name = if _model_size == 384 {
                 // hack: detect the weird model by size
-                log::debug!("Detected model size 384, using weird class mapping");
+                log::debug!("Detected model size 384, using weird class mapping for old model");
                 match class_idx {
                     0 => "background",
                     1 => "bird",

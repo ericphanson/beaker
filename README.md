@@ -79,23 +79,25 @@ yielding the output crop saved as `example_crop_head.jpg`:
 
 Here we describe the model used by `beaker detect`, which has been finetuned to detect bird objects including heads. The model used by `beaker cutout` is `isnet-general-use` and has not been finetuned.
 
-- **Architecture:** RF-DETR Nano, ~27M parameters
+- **Architecture:** RF-DETR Medium, ~33M parameters
 - **Finetuning dataset:** CUB-200-2011 bird parts (head regions only). ~6k train images, ~6k validation images
 - **Classes:** 5 (bird, head, eye, beak, background)
-- **Input size:** 384x384 pixels
-- **Epochs**: 7
+- **Input size:** 576x576 pixels
+- **Epochs**: 6
 
-Here are the validation metrics from the [v0.1](https://github.com/ericphanson/beaker/releases/tag/bird-orientation-detector-v0.1.0) orientation model currently used by `beaker`:
+Here are the validation metrics from the [v1.0](https://github.com/ericphanson/beaker/releases/tag/bird-orientation-detector-v1.0.0) orientation model currently used by `beaker`:
 
 | Class | mAP@50:95 | mAP@50 | Precision | Recall |
 |-------|-----------|--------|-----------|--------|
-| bird  | 0.8907    | 0.9898 | 0.9996    | 0.91   |
-| head  | 0.6548    | 0.9888 | 0.9970    | 0.91   |
-| eye   | 0.4027    | 0.9204 | 0.8900    | 0.91   |
-| beak  | 0.3703    | 0.9157 | 0.8958    | 0.91   |
-| all   | 0.5796    | 0.9537 | 0.9456    | 0.91   |
+| bird  | 0.8912    | 0.9904 | 0.9993    | 0.92   |
+| head  | 0.6878    | 0.9888 | 0.9970    | 0.92   |
+| eye   | 0.4230    | 0.9336 | 0.9281    | 0.92   |
+| beak  | 0.4016    | 0.9239 | 0.9078    | 0.92   |
+| all   | 0.6009    | 0.9592 | 0.9580    | 0.92   |
 
-This model additionally produces an orientation angle which has been trained for the head/bird classes. I don't have a proper metric for it, but the test loss for the orientation at epoch 7 was 0.0109 which corresponds to an average cosine similarity of 0.989.
+This model additionally produces an orientation angle which has been trained for the head/bird classes. I don't have a proper metric for it, but the test loss for the orientation at epoch 6 was 0.00902 which corresponds to an average cosine similarity of 0.991.
+
+Note: these metrics were for the checkpoint _before_ quantizing to int8, which may have degraded performance slightly. The actual model used by default is quantized, making it 30 MB instead of ~120 MB.
 
 ## 4. Development & Training
 

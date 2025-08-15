@@ -23,10 +23,10 @@ static FONT_BYTES: &[u8] = include_bytes!("../fonts/NotoSans-Regular.ttf");
 
 pub fn get_default_detect_model_info() -> ModelInfo {
     ModelInfo {
-        name: "bird-orientation-detector-v0.1.0".to_string(),
-        url: "https://github.com/ericphanson/beaker/releases/download/bird-orientation-detector-v0.1.0/rfdetr-dynamic-int8.onnx".to_string(),
-        md5_checksum: "256548ae718eb5da232f2c9823828447".to_string(),
-        filename: "bird-orientation-detector-v0.1.0.onnx".to_string(),
+        name: "bird-orientation-detector-v1.0.0".to_string(),
+        url: "https://github.com/ericphanson/beaker/releases/download/bird-orientation-detector-v1.0.0/rfdetr-medium-dynamic-int8.onnx".to_string(),
+        md5_checksum: "f1e20fe90da342a7529c89f4d39b7ff9".to_string(),
+        filename: "bird-orientation-detector-v1.0.0.onnx".to_string(),
     }
 }
 
