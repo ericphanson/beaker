@@ -138,6 +138,9 @@ impl ModelProcessor for QualityProcessor {
         // Placeholder preprocessing - replace with actual implementation
         let input_array = preprocess_image_for_quality(&img)?;
 
+        let (blur_weights, _, _, blur_global) =
+            crate::blur_detection::blur_weights_from_nchw(&input_array);
+
         // Prepare input for the model
         let input_name = session.inputs[0].name.clone();
         let output_name = session.outputs[0].name.clone();
@@ -156,7 +159,8 @@ impl ModelProcessor for QualityProcessor {
             .map_err(|e| anyhow::anyhow!("Failed to extract output array: {}", e))?;
 
         // Placeholder postprocessing - replace with actual implementation
-        let (quality_score, local_quality_grid) = postprocess_quality_output(&output_view)?;
+        let (quality_score, local_quality_grid) =
+            postprocess_quality_output(&output_view, &blur_weights, blur_global)?;
 
         let processing_time = start_time.elapsed().as_secs_f64() * 1000.0;
 
@@ -212,6 +216,8 @@ fn preprocess_image_for_quality(img: &image::DynamicImage) -> Result<ndarray::Ar
 /// Placeholder postprocessing function for quality assessment
 fn postprocess_quality_output(
     output: &ndarray::ArrayView<f32, ndarray::Dim<ndarray::IxDynImpl>>,
+    blur_weights: &ndarray::Array2<f32>,
+    blur_global: f32,
 ) -> Result<(f64, [[u8; 20]; 20])> {
     // Placeholder implementation - extract quality score and confidence
     // Assumes output is a single value or pair of values
@@ -225,12 +231,20 @@ fn postprocess_quality_output(
     }
 
     // Placeholder logic - replace with actual model output interpretation
-    let quality_score = output_data[0] as f64;
+    let model_quality_score = output_data[0];
+    let quality_score = model_quality_score * blur_global;
+    debug!("Quality score from model: {model_quality_score}. Blur score: {blur_global}. Overall: {quality_score}");
+
+    // Convert to ndarray
+    let local_grid_400_refs: Vec<f32> = output_data[1..].to_vec();
+    let local_grid_400 = ndarray::Array::from_shape_vec((20, 20), local_grid_400_refs)?;
+
+    let local_grid_400 = &local_grid_400 * blur_weights;
 
     // the next 400 values are a 20x20 grid of local quality scores
     let mut local_quality_grid = [[0u8; 20]; 20];
     if output_data.len() >= 401 {
-        for (i, &value) in output_data[1..401].iter().enumerate() {
+        for (i, &value) in local_grid_400.iter().enumerate() {
             // Values are already between 0 and 100, just round to nearest integer
             let rounded_value = value.round().clamp(0.0, 100.0) as u8;
             local_quality_grid[i / 20][i % 20] = rounded_value;
@@ -239,7 +253,7 @@ fn postprocess_quality_output(
         return Err(anyhow::anyhow!("Insufficient output data for 20x20 grid"));
     }
 
-    Ok((quality_score, local_quality_grid))
+    Ok(((quality_score as f64), local_quality_grid))
 }
 
 #[cfg(test)]

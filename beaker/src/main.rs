@@ -4,6 +4,7 @@ use env_logger::Env;
 use log::{error, info, Level};
 use std::collections::BTreeMap;
 
+mod blur_detection;
 mod cache_common;
 mod color_utils;
 mod config;
