@@ -1,9 +1,13 @@
 use std::path::Path;
 
 use crate::detection_obj::Detection;
+use ab_glyph::{FontRef, PxScale};
 use anyhow::Result;
 use image::{DynamicImage, GenericImageView};
+use imageproc::drawing::{draw_hollow_rect_mut, draw_line_segment_mut, draw_text_mut, text_size};
 use ndarray::Array;
+
+static FONT_BYTES: &[u8] = include_bytes!("../fonts/NotoSans-Regular.ttf");
 
 pub fn nms(detections: Vec<Detection>, iou_threshold: f32) -> Vec<Detection> {
     if detections.is_empty() {
@@ -269,6 +273,12 @@ pub fn save_bounding_box_image(
     // Create a copy of the image for drawing bounding boxes
     let mut output_img = img.clone();
 
+    // Filter detections to only include bird and head classes
+    let filtered_detections: Vec<&Detection> = detections
+        .iter()
+        .filter(|detection| detection.class_name == "bird" || detection.class_name == "head")
+        .collect();
+
     // Determine if we should preserve alpha channel based on output format
     let preserve_alpha = if let Some(ext) = output_path.extension() {
         ext.to_string_lossy().to_lowercase() == "png"
@@ -276,87 +286,16 @@ pub fn save_bounding_box_image(
         false
     };
 
-    // Convert to appropriate format for drawing
+    // Always work in RGBA for drawing (preserves translucent text backgrounds)
+    let mut rgba_img = output_img.to_rgba8();
+    draw_detections(&mut rgba_img, &filtered_detections);
+
+    // Convert back to appropriate format for output
     if preserve_alpha {
-        // For PNG output, work with RGBA to preserve transparency
-        let mut rgba_img = output_img.to_rgba8();
-
-        // Draw bounding boxes on the image
-        for detection in detections {
-            let x1 = detection.x1.max(0.0) as u32;
-            let y1 = detection.y1.max(0.0) as u32;
-            let x2 = detection.x2.min(rgba_img.width() as f32) as u32;
-            let y2 = detection.y2.min(rgba_img.height() as f32) as u32;
-
-            // Draw bounding box - bright green with full opacity
-            let green = image::Rgba([0, 255, 0, 255]);
-
-            // Draw horizontal lines
-            for x in x1..=x2 {
-                if x < rgba_img.width() {
-                    if y1 < rgba_img.height() {
-                        rgba_img.put_pixel(x, y1, green);
-                    }
-                    if y2 < rgba_img.height() {
-                        rgba_img.put_pixel(x, y2, green);
-                    }
-                }
-            }
-
-            // Draw vertical lines
-            for y in y1..=y2 {
-                if y < rgba_img.height() {
-                    if x1 < rgba_img.width() {
-                        rgba_img.put_pixel(x1, y, green);
-                    }
-                    if x2 < rgba_img.width() {
-                        rgba_img.put_pixel(x2, y, green);
-                    }
-                }
-            }
-        }
-
         output_img = DynamicImage::ImageRgba8(rgba_img);
     } else {
-        // For JPEG output, work with RGB
-        let mut rgb_img = output_img.to_rgb8();
-
-        // Draw bounding boxes on the image
-        for detection in detections {
-            let x1 = detection.x1.max(0.0) as u32;
-            let y1 = detection.y1.max(0.0) as u32;
-            let x2 = detection.x2.min(rgb_img.width() as f32) as u32;
-            let y2 = detection.y2.min(rgb_img.height() as f32) as u32;
-
-            // Draw bounding box - bright green
-            let green = image::Rgb([0, 255, 0]);
-
-            // Draw horizontal lines
-            for x in x1..=x2 {
-                if x < rgb_img.width() {
-                    if y1 < rgb_img.height() {
-                        rgb_img.put_pixel(x, y1, green);
-                    }
-                    if y2 < rgb_img.height() {
-                        rgb_img.put_pixel(x, y2, green);
-                    }
-                }
-            }
-
-            // Draw vertical lines
-            for y in y1..=y2 {
-                if y < rgb_img.height() {
-                    if x1 < rgb_img.width() {
-                        rgb_img.put_pixel(x1, y, green);
-                    }
-                    if x2 < rgb_img.width() {
-                        rgb_img.put_pixel(x2, y, green);
-                    }
-                }
-            }
-        }
-
-        output_img = DynamicImage::ImageRgb8(rgb_img);
+        // Convert back to RGB for JPEG output
+        output_img = DynamicImage::ImageRgb8(image::DynamicImage::ImageRgba8(rgba_img).to_rgb8());
     }
 
     // Create output directory if it doesn't exist
@@ -368,4 +307,114 @@ pub fn save_bounding_box_image(
     output_img.save(output_path)?;
 
     Ok(())
+}
+
+/// Unified function to draw detections on an RGBA image
+fn draw_detections(rgba_img: &mut image::RgbaImage, filtered_detections: &[&Detection]) {
+    for detection in filtered_detections {
+        let x1 = detection.x1.max(0.0) as u32;
+        let y1 = detection.y1.max(0.0) as u32;
+        let x2 = detection.x2.min(rgba_img.width() as f32) as u32;
+        let y2 = detection.y2.min(rgba_img.height() as f32) as u32;
+
+        // Choose color based on class_name: bird = forest green, head = blue
+        let box_color = if detection.class_name == "bird" {
+            image::Rgba([34, 139, 34, 255]) // Forest green for bird (nicer than bright green)
+        } else {
+            image::Rgba([0, 100, 255, 255]) // Bright blue for head
+        };
+
+        // Draw thick bounding box using imageproc (3 pixels thick)
+        for thickness_offset in 0..3i32 {
+            let thick_rect = imageproc::rect::Rect::at(
+                (x1 as i32) - thickness_offset,
+                (y1 as i32) - thickness_offset,
+            )
+            .of_size(
+                (x2 - x1) + (thickness_offset * 2) as u32,
+                (y2 - y1) + (thickness_offset * 2) as u32,
+            );
+            draw_hollow_rect_mut(rgba_img, thick_rect, box_color);
+        }
+
+        // Draw confidence text at top-left corner of bounding box
+        let confidence_text = format!("{:.2}", detection.confidence);
+        let text_x = x1 + 2; // Position text 2 pixels from left edge
+        let text_y = y1.saturating_sub(25).max(2); // Position text above box, adjusted for larger text
+
+        let font = FontRef::try_from_slice(FONT_BYTES).expect("Font load failed");
+        let scale = PxScale::from(20.0); // Larger font size
+        let text_color = image::Rgba([255, 255, 255, 255]); // White text
+        let bg_color = image::Rgba([0, 0, 0, 120]); // More transparent black background
+        let (text_width, text_height) = text_size(scale, &font, &confidence_text);
+
+        // Draw background rectangle (adjusted to properly center around text)
+        let y_offset: i32 = 4;
+        let bg_x = text_x;
+        let bg_y = text_y + 2 + (y_offset as u32); // empirical offsets
+        for dx in 0..(text_width + 4) {
+            for dy in 0..(text_height + 4) {
+                let px = bg_x + dx;
+                let py = bg_y + dy;
+                if px < rgba_img.width() && py < rgba_img.height() {
+                    rgba_img.put_pixel(px, py, bg_color);
+                }
+            }
+        }
+        draw_text_mut(
+            rgba_img,
+            text_color,
+            text_x as i32 + 2,
+            text_y as i32 + y_offset,
+            scale,
+            &font,
+            &confidence_text,
+        );
+
+        // Draw angle line if angle is not NaN (make it same thickness as box)
+        if !detection.angle_radians.is_nan() {
+            let center_x = (x1 + x2) as f32 / 2.0;
+            let center_y = (y1 + y2) as f32 / 2.0;
+            let box_width = (x2 - x1) as f32;
+            let box_height = (y2 - y1) as f32;
+            let line_length = box_width.min(box_height) / 2.0; // half the smaller dimension
+
+            let end_x = center_x + line_length * detection.angle_radians.cos();
+            let end_y = center_y + line_length * detection.angle_radians.sin();
+
+            // Draw thick line (3 pixels thick like the box)
+            for thickness_offset in -1..=1i32 {
+                // Draw horizontal thick lines
+                for extra_thickness in 0..3i32 {
+                    draw_line_segment_mut(
+                        rgba_img,
+                        (
+                            center_x + thickness_offset as f32,
+                            center_y + extra_thickness as f32,
+                        ),
+                        (
+                            end_x + thickness_offset as f32,
+                            end_y + extra_thickness as f32,
+                        ),
+                        box_color,
+                    );
+                }
+                // Draw vertical thick lines
+                for extra_thickness in 0..3i32 {
+                    draw_line_segment_mut(
+                        rgba_img,
+                        (
+                            center_x + extra_thickness as f32,
+                            center_y + thickness_offset as f32,
+                        ),
+                        (
+                            end_x + extra_thickness as f32,
+                            end_y + thickness_offset as f32,
+                        ),
+                        box_color,
+                    );
+                }
+            }
+        }
+    }
 }
