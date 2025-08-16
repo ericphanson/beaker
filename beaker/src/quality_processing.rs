@@ -138,8 +138,8 @@ impl ModelProcessor for QualityProcessor {
         // Placeholder preprocessing - replace with actual implementation
         let input_array = preprocess_image_for_quality(&img)?;
 
-        let (blur_weights, _, _, blur_global) =
-            crate::blur_detection::blur_weights_from_nchw(&input_array);
+        let (blur_weights, _, _, _) = crate::blur_detection::blur_weights_from_nchw(&input_array);
+        let blur_global = blur_weights.mean().unwrap();
 
         // Prepare input for the model
         let input_name = session.inputs[0].name.clone();
@@ -233,7 +233,7 @@ fn postprocess_quality_output(
     // Placeholder logic - replace with actual model output interpretation
     let model_quality_score = output_data[0];
     let quality_score = model_quality_score * blur_global;
-    debug!("Quality score from model: {model_quality_score}. Blur score: {blur_global}. Overall: {quality_score}");
+    debug!("Quality score from model: {model_quality_score}. Blur weight: {blur_global} (lower = less blur). Overall: {quality_score}");
 
     // Convert to ndarray
     let local_grid_400_refs: Vec<f32> = output_data[1..].to_vec();
