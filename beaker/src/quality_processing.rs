@@ -127,7 +127,7 @@ impl ModelProcessor for QualityProcessor {
         session: &mut Session,
         image_path: &Path,
         _config: &Self::Config,
-        _output_manager: &crate::output_manager::OutputManager,
+        output_manager: &crate::output_manager::OutputManager,
     ) -> Result<Self::Result> {
         let start_time = Instant::now();
         let mut io_timing = IoTiming::new();
@@ -141,8 +141,13 @@ impl ModelProcessor for QualityProcessor {
         // Placeholder preprocessing - replace with actual implementation
         let input_array = preprocess_image_for_quality(&img)?;
 
+        let input_stem = output_manager.input_stem();
+        let output_dir = output_manager
+            .get_output_dir()?
+            .join(format!("quality_debug_images_{input_stem}"));
+
         let (w20, _, _, global_blur_score) =
-            crate::blur_detection::blur_weights_from_nchw(&input_array);
+            crate::blur_detection::blur_weights_from_nchw(&input_array, Some(output_dir));
         assert_eq!(w20.shape(), [20, 20]);
         let mut local_blur_weights = [[0.0f32; 20]; 20];
         for i in 0..20 {

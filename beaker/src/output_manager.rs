@@ -46,11 +46,26 @@ impl<'a> OutputManager<'a> {
     }
 
     /// Get the input file stem (filename without extension)
-    fn input_stem(&self) -> &str {
+    pub fn input_stem(&self) -> &str {
         self.input_path
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("output")
+    }
+
+    /// Get the output directory, either the configured output_dir or the parent of the input path
+    pub fn get_output_dir(&self) -> Result<PathBuf> {
+        if let Some(output_dir) = &self.config.base().output_dir {
+            let output_dir = Path::new(output_dir);
+            std::fs::create_dir_all(output_dir)?;
+            Ok(output_dir.to_path_buf())
+        } else {
+            Ok(self
+                .input_path
+                .parent()
+                .unwrap_or(Path::new("."))
+                .to_path_buf())
+        }
     }
 
     /// Generate primary output path with suffix (always includes suffix)
@@ -66,16 +81,8 @@ impl<'a> OutputManager<'a> {
         // Always add suffix for consistency
         let output_filename = format!("{input_stem}_{default_suffix}.{extension}");
 
-        let output_path = if let Some(output_dir) = &self.config.base().output_dir {
-            let output_dir = Path::new(output_dir);
-            std::fs::create_dir_all(output_dir)?;
-            output_dir.join(&output_filename)
-        } else {
-            self.input_path
-                .parent()
-                .unwrap_or(Path::new("."))
-                .join(&output_filename)
-        };
+        let output_dir = self.get_output_dir()?;
+        let output_path = output_dir.join(&output_filename);
 
         Ok(output_path)
     }
@@ -109,16 +116,8 @@ impl<'a> OutputManager<'a> {
             format!("{input_stem}_{base_suffix}-{number_format}.{extension}")
         };
 
-        let output_path = if let Some(output_dir) = &self.config.base().output_dir {
-            let output_dir = Path::new(output_dir);
-            std::fs::create_dir_all(output_dir)?;
-            output_dir.join(&output_filename)
-        } else {
-            self.input_path
-                .parent()
-                .unwrap_or(Path::new("."))
-                .join(&output_filename)
-        };
+        let output_dir = self.get_output_dir()?;
+        let output_path = output_dir.join(&output_filename);
 
         Ok(output_path)
     }
@@ -128,16 +127,8 @@ impl<'a> OutputManager<'a> {
         let input_stem = self.input_stem();
         let output_filename = format!("{input_stem}_{suffix}.{extension}");
 
-        let output_path = if let Some(output_dir) = &self.config.base().output_dir {
-            let output_dir = Path::new(output_dir);
-            std::fs::create_dir_all(output_dir)?;
-            output_dir.join(&output_filename)
-        } else {
-            self.input_path
-                .parent()
-                .unwrap_or(Path::new("."))
-                .join(&output_filename)
-        };
+        let output_dir = self.get_output_dir()?;
+        let output_path = output_dir.join(&output_filename);
 
         Ok(output_path)
     }

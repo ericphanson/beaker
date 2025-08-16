@@ -454,7 +454,15 @@ impl ModelProcessor for DetectionProcessor {
                         result.local_blur_weights[y][x]
                     });
 
-                    let orig_img = img.as_rgb8().unwrap();
+                    let orig_img_wrapped = img.as_rgb8();
+                    let orig_img = match orig_img_wrapped {
+                        Some(img) => img,
+                        None => {
+                            let img_rgba = img.as_rgba8().unwrap();
+                            // Convert to RGB instead of RGBA:
+                            &DynamicImage::ImageRgba8(img_rgba.clone()).to_rgb8()
+                        }
+                    };
                     let dq = detection_quality(
                         &q20, &w20, bbox,     // in native image pixels
                         orig_img, // native frame

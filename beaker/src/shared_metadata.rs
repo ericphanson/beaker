@@ -3,9 +3,9 @@ use chrono::{DateTime, Utc};
 use image::DynamicImage;
 use log::warn;
 use serde::{Deserialize, Serialize};
+use std::fs;
 use std::path::Path;
 use std::time::Instant;
-use std::{f64::NAN, fs};
 use toml_edit::{Array, DocumentMut, Item, Value};
 
 /// Create a formatted TOML array with each row on a single line
@@ -49,7 +49,7 @@ fn build_inline_rows_f32(mat: &[[f32; 20]; 20]) -> Value {
         let mut inner = Array::new();
         for &x in row {
             // Round to 3 decimal places and store as f64 (TOML's float type)
-            let rounded = format!("{x:.2}").parse::<f64>().unwrap_or(NAN);
+            let rounded = format!("{x:.2}").parse::<f64>().unwrap_or(f64::NAN);
             inner.push(rounded);
         }
         add_formatted_row(&mut outer, inner);

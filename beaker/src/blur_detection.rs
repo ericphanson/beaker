@@ -39,7 +39,215 @@ pub struct DetectionQuality {
     pub coverage_prior: f32, // 0..1
 }
 
+use image::Rgb;
 /// ------------------------- utils -------------------------
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::time::Instant;
+
+/// ----- tiny utils -----
+fn percentile(mut vals: Vec<f32>, p: f32) -> f32 {
+    vals.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let k = ((vals.len() as f32 - 1.0) * p).round() as usize;
+    vals[k]
+}
+
+/// ----- 224 background from NCHW -----
+pub fn nchw_to_rgb_224(x: &Array4<f32>) -> RgbImage {
+    assert_eq!(x.shape(), &[1, 3, 224, 224], "expected [1,3,224,224]");
+    let r = x.index_axis(Axis(1), 0);
+    let g = x.index_axis(Axis(1), 1);
+    let b = x.index_axis(Axis(1), 2);
+    let mut img = RgbImage::new(224, 224);
+    for i in 0..224 {
+        for j in 0..224 {
+            // assume in [0,1]; clamp just in case
+            let rr = (clampf(r[[0, i, j]], 0.0, 1.0) * 255.0).round() as u8;
+            let gg = (clampf(g[[0, i, j]], 0.0, 1.0) * 255.0).round() as u8;
+            let bb = (clampf(b[[0, i, j]], 0.0, 1.0) * 255.0).round() as u8;
+            img.put_pixel(j as u32, i as u32, Rgb([rr, gg, bb]));
+        }
+    }
+    img
+}
+
+/// ----- simple “Turbo-like” colormap via 5 anchors -----
+fn colormap(val01: f32) -> Rgb<u8> {
+    // blue -> cyan -> yellow -> orange -> red
+    const C: [(f32, [u8; 3]); 5] = [
+        (0.0, [18, 34, 98]),
+        (0.25, [1, 135, 189]),
+        (0.50, [68, 197, 87]),
+        (0.75, [254, 197, 39]),
+        (1.0, [220, 30, 31]),
+    ];
+    let x = val01.clamp(0.0, 1.0);
+    let mut i = 0;
+    while i + 1 < C.len() && x > C[i + 1].0 {
+        i += 1;
+    }
+    let (x0, c0) = C[i];
+    let (x1, c1) = C[i.min(C.len() - 2) + 1];
+    let t = if x1 > x0 { (x - x0) / (x1 - x0) } else { 0.0 };
+    let lerp = |a: u8, b: u8| -> u8 { (a as f32 + t * (b as f32 - a as f32)).round() as u8 };
+    Rgb([lerp(c0[0], c1[0]), lerp(c0[1], c1[1]), lerp(c0[2], c1[2])])
+}
+
+/// ----- 20×20 -> 224×224 bilinear upsample -----
+fn bilinear_sample_20(field: &Array2<f32>, u: f32, v: f32) -> f32 {
+    // u,v in [0,20) across the field
+    let uu = clampf(u, 0.0, 19.999);
+    let vv = clampf(v, 0.0, 19.999);
+    let x0 = uu.floor() as usize;
+    let y0 = vv.floor() as usize;
+    let x1 = (x0 + 1).min(19);
+    let y1 = (y0 + 1).min(19);
+    let dx = uu - x0 as f32;
+    let dy = vv - y0 as f32;
+    let f00 = field[[y0, x0]];
+    let f10 = field[[y0, x1]];
+    let f01 = field[[y1, x0]];
+    let f11 = field[[y1, x1]];
+    let f0 = f00 * (1.0 - dx) + f10 * dx;
+    let f1 = f01 * (1.0 - dx) + f11 * dx;
+    f0 * (1.0 - dy) + f1 * dy
+}
+fn upsample_20_to_224(field: &Array2<f32>) -> Vec<f32> {
+    let mut out = vec![0f32; 224 * 224];
+    for y in 0..224 {
+        for x in 0..224 {
+            let u = (x as f32 / 224.0) * 20.0;
+            let v = (y as f32 / 224.0) * 20.0;
+            out[y * 224 + x] = bilinear_sample_20(field, u, v);
+        }
+    }
+    out
+}
+
+/// ----- normalize a scalar field to [0,1] with robust limits -----
+fn normalize01(field: &Array2<f32>, robust: bool) -> Array2<f32> {
+    let vals: Vec<f32> = field.iter().copied().collect();
+    let (minv, maxv) = if robust {
+        let lo = percentile(vals.clone(), 0.02);
+        let hi = percentile(vals, 0.98);
+        (lo, if hi > lo { hi } else { lo + 1e-6 })
+    } else {
+        let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
+        for &v in field.iter() {
+            lo = lo.min(v);
+            hi = hi.max(v);
+        }
+        (lo, if hi > lo { hi } else { lo + 1e-6 })
+    };
+    field.mapv(|v| ((v - minv) / (maxv - minv)).clamp(0.0, 1.0))
+}
+
+/// ----- render a 20×20 scalar field as a 224×224 heatmap PNG -----
+fn save_heatmap_20(
+    field: &Array2<f32>,
+    out_path: &Path,
+    robust_norm: bool,
+) -> image::ImageResult<()> {
+    let norm = normalize01(field, robust_norm);
+    let up = upsample_20_to_224(&norm);
+    let mut img = RgbImage::new(224, 224);
+    for y in 0..224 {
+        for x in 0..224 {
+            let v = up[y * 224 + x];
+            img.put_pixel(x as u32, y as u32, colormap(v));
+        }
+    }
+    img.save(out_path)
+}
+
+/// ----- overlay a 224×224 heatmap on a 224×224 RGB image -----
+fn overlay_on_rgb(base: &RgbImage, field: &Array2<f32>, alpha: f32, robust_norm: bool) -> RgbImage {
+    let norm = normalize01(field, robust_norm);
+    let up = upsample_20_to_224(&norm);
+    let mut out = base.clone();
+    for y in 0..224 {
+        for x in 0..224 {
+            let v = up[y * 224 + x];
+            let Rgb([r, g, b]) = colormap(v);
+            let Rgb([br, bg, bb]) = *base.get_pixel(x as u32, y as u32);
+            let a = alpha.clamp(0.0, 1.0);
+            let rr = (a * r as f32 + (1.0 - a) * br as f32).round() as u8;
+            let gg = (a * g as f32 + (1.0 - a) * bg as f32).round() as u8;
+            let bb2 = (a * b as f32 + (1.0 - a) * bb as f32).round() as u8;
+            out.put_pixel(x as u32, y as u32, Rgb([rr, gg, bb2]));
+        }
+    }
+    out
+}
+
+/// Public: dump heatmaps & overlays for the maps you have.
+/// - `x224` is the [1,3,224,224] input (for overlay background)
+/// - `t224`/`t112` are Tenengrad mean grids (20×20) at 224 and 112
+/// - `p224`/`p112`/`pfused` are probability maps (20×20, 0..1)
+/// - `w20` is the 20×20 weight map (0..1)
+pub struct DebugMaps<'a> {
+    pub x224: &'a Array4<f32>,
+    pub t224: &'a Array2<f32>,
+    pub t112: Option<&'a Array2<f32>>,
+    pub p224: &'a Array2<f32>,
+    pub p112: Option<&'a Array2<f32>>,
+    pub pfused: &'a Array2<f32>,
+    pub w20: &'a Array2<f32>,
+}
+pub fn dump_debug_heatmaps(out_dir: &Path, dbg: DebugMaps) -> image::ImageResult<()> {
+    fs::create_dir_all(out_dir).ok();
+
+    // Log stats
+    stats("t224", dbg.t224);
+    if let Some(t112) = dbg.t112 {
+        stats("t112", t112);
+    }
+    stats("p224", dbg.p224);
+    if let Some(p112) = dbg.p112 {
+        stats("p112", p112);
+    }
+    stats("pfused", dbg.pfused);
+    stats("weights", dbg.w20);
+
+    // Save pure heatmaps (PNG)
+    save_heatmap_20(
+        dbg.t224,
+        &out_dir.join("t224_heat.png"),
+        /*robust=*/ true,
+    )?;
+    if let Some(t112) = dbg.t112 {
+        save_heatmap_20(t112, &out_dir.join("t112_heat.png"), true)?;
+    }
+    save_heatmap_20(
+        dbg.p224,
+        &out_dir.join("p224_heat.png"),
+        /*robust=*/ false,
+    )?;
+    if let Some(p112) = dbg.p112 {
+        save_heatmap_20(p112, &out_dir.join("p112_heat.png"), false)?;
+    }
+    save_heatmap_20(dbg.pfused, &out_dir.join("pfused_heat.png"), false)?;
+    save_heatmap_20(dbg.w20, &out_dir.join("weights_heat.png"), false)?;
+
+    // Overlays
+    let base = nchw_to_rgb_224(dbg.x224);
+    overlay_on_rgb(&base, dbg.p224, 0.0, false).save(out_dir.join("image.png"))?;
+
+    overlay_on_rgb(&base, dbg.p224, 0.55, false).save(out_dir.join("overlay_p224.png"))?;
+    if let Some(p112) = dbg.p112 {
+        overlay_on_rgb(&base, p112, 0.55, false).save(out_dir.join("overlay_p112.png"))?;
+    }
+    overlay_on_rgb(&base, dbg.pfused, 0.55, false).save(out_dir.join("overlay_pfused.png"))?;
+    overlay_on_rgb(&base, dbg.w20, 0.55, false).save(out_dir.join("overlay_weights.png"))?;
+
+    if let Some(t112) = dbg.t112 {
+        overlay_on_rgb(&base, t112, 0.55, false).save(out_dir.join("overlay_t112.png"))?;
+    }
+
+    overlay_on_rgb(&base, dbg.t224, 0.55, false).save(out_dir.join("overlay_t224.png"))?;
+
+    Ok(())
+}
 
 fn clampf(x: f32, lo: f32, hi: f32) -> f32 {
     x.max(lo).min(hi)
@@ -170,7 +378,10 @@ fn tenengrad_mean_grid_20(gray: &GrayF32) -> Array2<f32> {
 // ---------------- multi-scale blur weights (224 + 112, fused) ----------------
 
 /// Returns: (weights_20x20, fused_blur_prob_20x20, t224_20x20, blur_global)
-pub fn blur_weights_from_nchw(x: &Array4<f32>) -> (Array2<f32>, Array2<f32>, Array2<f32>, f32) {
+pub fn blur_weights_from_nchw(
+    x: &Array4<f32>,
+    out_dir: Option<PathBuf>,
+) -> (Array2<f32>, Array2<f32>, Array2<f32>, f32) {
     // 224 path
     let gray224 = nchw_to_gray_224(x);
     let t224 = tenengrad_mean_grid_20(&gray224);
@@ -240,6 +451,26 @@ pub fn blur_weights_from_nchw(x: &Array4<f32>) -> (Array2<f32>, Array2<f32>, Arr
             let val = 1.0 - ALPHA * p[[i, j]];
             w[[i, j]] = val.max(MIN_WEIGHT).min(1.0);
         }
+    }
+
+    if let Some(out) = out_dir {
+        // We will log how long it takes to dump debug heatmaps
+        let start = Instant::now();
+        dump_debug_heatmaps(
+            &out,
+            DebugMaps {
+                x224: x,
+                t224: &t224,
+                t112: Some(&t112),
+                p224: &p224,
+                p112: Some(&p112),
+                pfused: &p,
+                w20: &w,
+            },
+        )
+        .unwrap();
+        let duration = start.elapsed();
+        log::debug!("Finished dumping debug heatmaps in {duration:?}");
     }
 
     let blur_global = p.sum() / 400.0;
