@@ -3,30 +3,127 @@ use chrono::{DateTime, Utc};
 use image::DynamicImage;
 use log::warn;
 use serde::{Deserialize, Serialize};
-use std::fs;
 use std::path::Path;
 use std::time::Instant;
+use std::{f64::NAN, fs};
 use toml_edit::{Array, DocumentMut, Item, Value};
 
-/// Put each 20-elem row on a single line; rows separated by newlines.
-fn build_inline_rows(mat: &[[u8; 20]; 20]) -> Value {
+/// Create a formatted TOML array with each row on a single line
+fn create_formatted_array() -> Array {
     let mut outer = Array::new();
     // Optional; TOML allows trailing commas in arrays (v1.0).
     outer.set_trailing_comma(false);
     outer.set_trailing("\n"); // newline before closing ]
+    outer
+}
+
+/// Add a row to the formatted array with proper indentation
+fn add_formatted_row(outer: &mut Array, inner: Array) {
+    let mut row_val = Value::from(inner);
+    // Start each row on its own line (comma stays after the row).
+    row_val.decor_mut().set_prefix("\n    ");
+    outer.push_formatted(row_val);
+}
+
+/// Put each 20-elem row on a single line; rows separated by newlines.
+fn build_inline_rows_u8(mat: &[[u8; 20]; 20]) -> Value {
+    let mut outer = create_formatted_array();
 
     for row in mat {
         let mut inner = Array::new();
         for &x in row {
             inner.push(x as i64); // TOML integers are i64
         }
-        let mut row_val = Value::from(inner);
-        // Start each row on its own line (comma stays after the row).
-        row_val.decor_mut().set_prefix("\n    ");
-        outer.push_formatted(row_val);
+        add_formatted_row(&mut outer, inner);
     }
 
     Value::from(outer)
+}
+
+/// Put each 20-elem row on a single line; rows separated by newlines.
+/// Rounds f32 values to 3 decimal places.
+fn build_inline_rows_f32(mat: &[[f32; 20]; 20]) -> Value {
+    let mut outer = create_formatted_array();
+
+    for row in mat {
+        let mut inner = Array::new();
+        for &x in row {
+            // Round to 3 decimal places and store as f64 (TOML's float type)
+            let rounded = format!("{x:.2}").parse::<f64>().unwrap_or(NAN);
+            inner.push(rounded);
+        }
+        add_formatted_row(&mut outer, inner);
+    }
+
+    Value::from(outer)
+}
+
+/// Extract a 20x20 u8 array from TOML value
+fn extract_u8_grid(grid_value: &toml::Value) -> Option<[[u8; 20]; 20]> {
+    if let Some(grid_array) = grid_value.as_array() {
+        if grid_array.len() == 20 {
+            let mut grid: [[u8; 20]; 20] = [[0; 20]; 20];
+
+            for (i, row) in grid_array.iter().enumerate() {
+                if let Some(row_array) = row.as_array() {
+                    if row_array.len() == 20 {
+                        for (j, val) in row_array.iter().enumerate() {
+                            if let Some(num) = val.as_integer() {
+                                grid[i][j] = num as u8;
+                            } else {
+                                return None;
+                            }
+                        }
+                    } else {
+                        return None;
+                    }
+                } else {
+                    return None;
+                }
+            }
+
+            Some(grid)
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
+/// Extract a 20x20 f32 array from TOML value
+fn extract_f32_grid(grid_value: &toml::Value) -> Option<[[f32; 20]; 20]> {
+    if let Some(grid_array) = grid_value.as_array() {
+        if grid_array.len() == 20 {
+            let mut grid: [[f32; 20]; 20] = [[0.0; 20]; 20];
+
+            for (i, row) in grid_array.iter().enumerate() {
+                if let Some(row_array) = row.as_array() {
+                    if row_array.len() == 20 {
+                        for (j, val) in row_array.iter().enumerate() {
+                            if let Some(num) = val.as_float() {
+                                grid[i][j] = num as f32;
+                            } else if let Some(num) = val.as_integer() {
+                                grid[i][j] = num as f32;
+                            } else {
+                                return None;
+                            }
+                        }
+                    } else {
+                        return None;
+                    }
+                } else {
+                    return None;
+                }
+            }
+
+            Some(grid)
+        } else {
+            None
+        }
+    } else {
+        None
+    }
 }
 
 /// ONNX download cache statistics
@@ -272,47 +369,28 @@ pub fn save_metadata(metadata: &BeakerMetadata, path: &Path) -> Result<()> {
     // Customize the quality grid formatting if present
     if let Some(quality_table) = doc.get_mut("quality") {
         if let Some(quality_table) = quality_table.as_table_mut() {
+            // Format local_paq2piq_grid (u8 values)
             if let Some(local_quality_grid_item) = quality_table.get_mut("local_paq2piq_grid") {
-                // We need to get the actual data from the original metadata to reformat it
                 if let Some(ref quality_sections) = metadata.quality {
                     if let Some(ref core) = quality_sections.core {
                         if let Some(grid_value) = core.get("local_paq2piq_grid") {
-                            // Extract the grid data - it should be a 20x20 array of u8 values
-                            if let Some(grid_array) = grid_value.as_array() {
-                                if grid_array.len() == 20 {
-                                    // Convert to our format
-                                    let mut grid: [[u8; 20]; 20] = [[0; 20]; 20];
-                                    let mut valid_grid = true;
+                            if let Some(grid) = extract_u8_grid(grid_value) {
+                                let formatted_value = build_inline_rows_u8(&grid);
+                                *local_quality_grid_item = Item::Value(formatted_value);
+                            }
+                        }
+                    }
+                }
+            }
 
-                                    for (i, row) in grid_array.iter().enumerate() {
-                                        if let Some(row_array) = row.as_array() {
-                                            if row_array.len() == 20 {
-                                                for (j, val) in row_array.iter().enumerate() {
-                                                    if let Some(num) = val.as_integer() {
-                                                        grid[i][j] = num as u8;
-                                                    } else {
-                                                        valid_grid = false;
-                                                        break;
-                                                    }
-                                                }
-                                            } else {
-                                                valid_grid = false;
-                                                break;
-                                            }
-                                        } else {
-                                            valid_grid = false;
-                                            break;
-                                        }
-                                        if !valid_grid {
-                                            break;
-                                        }
-                                    }
-
-                                    if valid_grid {
-                                        let formatted_value = build_inline_rows(&grid);
-                                        *local_quality_grid_item = Item::Value(formatted_value);
-                                    }
-                                }
+            // Format local_blur_weights (f32 values)
+            if let Some(local_blur_weights_item) = quality_table.get_mut("local_blur_weights") {
+                if let Some(ref quality_sections) = metadata.quality {
+                    if let Some(ref core) = quality_sections.core {
+                        if let Some(weights_value) = core.get("local_blur_weights") {
+                            if let Some(weights) = extract_f32_grid(weights_value) {
+                                let formatted_value = build_inline_rows_f32(&weights);
+                                *local_blur_weights_item = Item::Value(formatted_value);
                             }
                         }
                     }
