@@ -53,7 +53,7 @@ pub struct QualityResult {
     pub model_version: String,
     #[serde(skip_serializing)]
     pub processing_time_ms: f64,
-    pub overall_quality_score: f32,
+    pub global_quality_score: f32,
     pub global_paq2piq_score: f32,
     pub global_blur_score: f32,
     pub local_paq2piq_grid: [[u8; 20]; 20], // Fixed-size 20x20 grid of integers 0-100
@@ -179,7 +179,7 @@ impl ModelProcessor for QualityProcessor {
             .try_extract_array::<f32>()
             .map_err(|e| anyhow::anyhow!("Failed to extract output array: {}", e))?;
 
-        let (overall_quality_score, global_paq2piq_score, local_paq2piq_grid) =
+        let (global_quality_score, global_paq2piq_score, local_paq2piq_grid) =
             postprocess_quality_output(&output_view, global_blur_score)?;
 
         let processing_time = start_time.elapsed().as_secs_f64() * 1000.0;
@@ -194,7 +194,7 @@ impl ModelProcessor for QualityProcessor {
         let quality_result = QualityResult {
             model_version: get_default_quality_model_info().name,
             processing_time_ms: processing_time,
-            overall_quality_score,
+            global_quality_score,
             global_paq2piq_score,
             global_blur_score,
             local_paq2piq_grid,
@@ -255,11 +255,11 @@ fn postprocess_quality_output(
 
     // Placeholder logic - replace with actual model output interpretation
     let global_paq2piq_score = output_data[0];
-    let overall_quality_score = crate::blur_detection::image_overall_from_paq_and_blur(
+    let global_quality_score = crate::blur_detection::image_overall_from_paq_and_blur(
         global_paq2piq_score,
         global_blur_score,
     );
-    debug!("Quality score from model: {global_paq2piq_score}. Blur score: {global_blur_score} (higher = more blur). Overall: {overall_quality_score}");
+    debug!("Quality score from model: {global_paq2piq_score}. Blur score: {global_blur_score} (higher = more blur). Overall: {global_quality_score}");
 
     // the next 400 values are a 20x20 grid of local quality scores
     let mut local_paq2piq_grid = [[0u8; 20]; 20];
@@ -274,7 +274,7 @@ fn postprocess_quality_output(
     }
 
     Ok((
-        overall_quality_score,
+        global_quality_score,
         global_paq2piq_score,
         local_paq2piq_grid,
     ))

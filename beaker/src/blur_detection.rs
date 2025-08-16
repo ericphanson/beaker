@@ -51,29 +51,44 @@ pub struct BBoxF {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct DetectionQuality {
-    /// final per-detection quality (same scale as PaQ map, e.g., 0..100)
-    pub quality: f32,
+    /// Final per-detection score (same scale as the PaQ map, e.g., 0..100).
+    pub quality_overall: f32,
 
-    /// triage decision: "surely_good" | "surely_bad" | "unknown"
-    pub triage: String,
+    /// Triage result for this detection: "surely_good" | "surely_bad" | "unknown".
+    pub triage_decision: String,
 
-    /// components for debugging / thresholding
-    pub q_roi_mean: f32, // mean PaQ map inside bbox (ROI-pooled)
-    pub w_roi_mean: f32,     // mean blur weight inside bbox (ROI-pooled)
-    pub p_roi_mean: f32,     // mean fused blur probability inside bbox (ROI-pooled)
-    pub detail_prob: f32,    // native-resolution detail gate (0..1)
-    pub size_prior: f32,     // 0..1
-    pub coverage_prior: f32, // 0..1
+    // -------- interpretable components --------
+    /// Mean of the model's 20×20 quality map inside the bbox (ROI-pooled).
+    pub roi_quality_mean: f32,
 
-    /// extra interpretable features for rules/models later
-    pub cells_covered: f32, // effective cells covered on 224 grid (before normalization)
+    /// Mean fused blur probability (0..1) inside the bbox (ROI-pooled).
+    pub roi_blur_probability_mean: f32,
 
-    /// core-vs-ring sharpness check (native resolution)
-    pub core_ring_ratio: f32, // T_core / T_ring
-    pub t_core: f32, // Tenengrad mean in core
-    pub t_ring: f32, // Tenengrad mean in ring
+    /// Mean blur weight (W = 1 - α·P) inside the bbox (ROI-pooled).
+    pub roi_blur_weight_mean: f32,
+
+    /// Native-resolution detail probability (0..1) computed on the un-resized crop.
+    pub roi_detail_probability: f32,
+
+    /// Size prior factor (0..1), based on min(bbox side)/S_REF.
+    pub size_prior_factor: f32,
+
+    /// Grid-coverage prior factor (0..1), based on covered 224-grid cells.
+    pub grid_coverage_prior: f32,
+
+    /// Effective count of 224-grid cells covered by the bbox (before normalization).
+    pub grid_cells_covered: f32,
+
+    // -------- subject vs background sharpness (native-res) --------
+    /// Core-vs-ring sharpness ratio: Tenengrad(core) / Tenengrad(ring).
+    pub core_ring_sharpness_ratio: f32,
+
+    /// Tenengrad mean in the core (inner 60% of the bbox).
+    pub tenengrad_core_mean: f32,
+
+    /// Tenengrad mean in the ring (bbox minus core).
+    pub tenengrad_ring_mean: f32,
 }
-
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -745,20 +760,19 @@ pub fn detection_quality(
 
     // Triage decision
     let triage = triage_decision(quality, detail, p_roi, cov_cells, size_prior, r_core_ring);
-
     DetectionQuality {
-        quality,
-        triage,
-        q_roi_mean: q_roi,
-        w_roi_mean: w_roi,
-        p_roi_mean: p_roi,
-        detail_prob: detail,
-        size_prior,
-        coverage_prior,
-        cells_covered: cov_cells,
-        core_ring_ratio: r_core_ring,
-        t_core,
-        t_ring,
+        quality_overall: quality,
+        triage_decision: triage,
+        roi_quality_mean: q_roi,
+        roi_blur_weight_mean: w_roi,
+        roi_blur_probability_mean: p_roi,
+        roi_detail_probability: detail,
+        size_prior_factor: size_prior,
+        grid_coverage_prior: coverage_prior,
+        grid_cells_covered: cov_cells,
+        core_ring_sharpness_ratio: r_core_ring,
+        tenengrad_core_mean: t_core,
+        tenengrad_ring_mean: t_ring,
     }
 }
 
