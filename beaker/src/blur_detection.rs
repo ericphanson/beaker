@@ -5,15 +5,20 @@ use serde::Serialize;
 
 /// ------------------------- tunables -------------------------
 const ALPHA: f32 = 0.7; // downweight strength for blur (W = 1 - ALPHA * P)
-const K_SIGMOID: f32 = 6.0; // sigmoid slope used in blur prob mapping
 const MIN_WEIGHT: f32 = 0.2; // floor on per-cell weights
-const TAU_TEN_224: f32 = 0.02; // Tenengrad threshold for 224x224 [0,1] inputs
+const TAU_TEN_224: f32 = 0.02; // threshold for 224x224 in [0,1]
 const S_REF: f32 = 96.0; // size prior (min bbox side in native px to be "fully reliable")
 const COV_REF: f32 = 4.0; // coverage prior baseline (~cells) → 2x2 cells
 const ROI_SAMPLES: usize = 8; // bilinear samples per axis inside bbox for ROI pooling
 const GAUSS_SIGMA_NATIVE: f32 = 1.0; // denoise native crop before Tenengrad/detail
-
+const BETA: f32 = 1.2; // 1.1–1.6 typical; larger => harsher blur probability
+const EPS_T: f32 = 1e-12; // safety epsilon for divisions
+                          // optional: ensure we never return an exact 0 probability (avoids W==1.0)
+const P_FLOOR: f32 = 0.0; // try 0.01..0.02 if you want a tiny universal penalty
 /// ------------------------- basic types -------------------------
+
+type GrayF32 = ImageBuffer<Luma<f32>, Vec<f32>>;
+
 #[derive(Copy, Clone, Debug)]
 pub struct BBoxF {
     pub x0: f32,
@@ -60,35 +65,89 @@ pub fn nchw_to_gray_224(x: &Array4<f32>) -> ImageBuffer<Luma<f32>, Vec<f32>> {
     ImageBuffer::<Luma<f32>, _>::from_raw(w, h, buf).expect("bad buffer")
 }
 
-/// Compute 20×20 blur weights from 224×224 grayscale (via Tenengrad + absolute threshold).
-/// Returns: weights (20×20), blur_prob (20×20), tenengrad_mean (20×20), blur_global (0..1)
-pub fn blur_weights_from_nchw(x: &Array4<f32>) -> (Array2<f32>, Array2<f32>, Array2<f32>, f32) {
-    let gray = nchw_to_gray_224(x);
+/// Exact 2× antialiased downsample (2×2 average). 224×224 -> 112×112.
+fn downsample_2x_gray_f32(src: &GrayF32) -> GrayF32 {
+    let (w, h) = (src.width() as usize, src.height() as usize);
+    assert_eq!((w, h), (224, 224));
+    let (nw, nh) = (112u32, 112u32);
+    let s = src.as_raw();
+    let mut out = Vec::<f32>::with_capacity((nw * nh) as usize);
+    for y in (0..h).step_by(2) {
+        let y1 = (y + 1).min(h - 1);
+        for x in (0..w).step_by(2) {
+            let x1 = (x + 1).min(w - 1);
+            let i00 = y * w + x;
+            let i01 = y * w + x1;
+            let i10 = y1 * w + x;
+            let i11 = y1 * w + x1;
+            out.push(0.25 * (s[i00] + s[i01] + s[i10] + s[i11]));
+        }
+    }
+    ImageBuffer::<Luma<f32>, _>::from_raw(nw, nh, out).unwrap()
+}
 
-    // Sobel kernels
+fn msanity(p224: &ndarray::Array2<f32>, p112: &ndarray::Array2<f32>) {
+    use ndarray::Zip;
+    let mut l1 = 0f32;
+    let mut linf = 0f32;
+    let mut gt = 0usize;
+    Zip::from(p224).and(p112).for_each(|a, b| {
+        let d = (a - b).abs();
+        l1 += d;
+        if d > linf {
+            linf = d;
+        }
+        if b > a {
+            gt += 1;
+        }
+    });
+    log::debug!("||p112 - p224||_1 = {l1:.6e}, L_inf = {linf:.6e}, count(p112>p224) = {gt}");
+}
+
+fn stats(name: &str, a: &ndarray::Array2<f32>) -> (f32, f32, f32, f32) {
+    // (min, max, mean, median)
+    let mut v: Vec<f32> = a.iter().copied().collect();
+    v.sort_by(|x, y| x.partial_cmp(y).unwrap());
+    let n = v.len();
+    let min = v[0];
+    let max = v[n - 1];
+    let mean = v.iter().sum::<f32>() / n as f32;
+    let med = v[n / 2];
+    log::debug!("{name}: min={min:.6e} max={max:.6e} mean={mean:.6e} med={med:.6e}");
+    (min, max, mean, med)
+}
+
+/// Tenengrad (mean of G^2) aggregated to a 20×20 grid for any WxH (224 or 112).
+fn tenengrad_mean_grid_20(gray: &GrayF32) -> Array2<f32> {
     const K_SOBEL_X: [f32; 9] = [-1.0, 0.0, 1.0, -2.0, 0.0, 2.0, -1.0, 0.0, 1.0];
     const K_SOBEL_Y: [f32; 9] = [-1.0, -2.0, -1.0, 0.0, 0.0, 0.0, 1.0, 2.0, 1.0];
 
-    let gx: Vec<f32> = filter3x3(&gray, &K_SOBEL_X).into_raw();
-    let gy: Vec<f32> = filter3x3(&gray, &K_SOBEL_Y).into_raw();
+    let (w, h) = (gray.width() as usize, gray.height() as usize);
+    assert!(
+        (w == 224 && h == 224) || (w == 112 && h == 112),
+        "expected 224 or 112"
+    );
+
+    let gx: Vec<f32> = filter3x3(gray, &K_SOBEL_X).into_raw();
+    let gy: Vec<f32> = filter3x3(gray, &K_SOBEL_Y).into_raw();
 
     // G^2 per pixel
-    let mut g2 = vec![0f32; 224 * 224];
+    let mut g2 = vec![0f32; w * h];
     for i in 0..g2.len() {
         g2[i] = gx[i] * gx[i] + gy[i] * gy[i];
     }
 
-    // 224 partitioned into 20x20 cells
+    // tile boundaries
     let mut rb = [0usize; 21];
     let mut cb = [0usize; 21];
     for i in 0..=20 {
-        rb[i] = (i * 224) / 20;
-        cb[i] = (i * 224) / 20;
+        rb[i] = (i * h) / 20;
+        cb[i] = (i * w) / 20;
     }
-    rb[20] = 224;
-    cb[20] = 224;
+    rb[20] = h;
+    cb[20] = w;
 
-    // per-tile Tenengrad mean
+    // per-tile mean
     let mut t = Array2::<f32>::zeros((20, 20));
     for i in 0..20 {
         for j in 0..20 {
@@ -96,7 +155,7 @@ pub fn blur_weights_from_nchw(x: &Array4<f32>) -> (Array2<f32>, Array2<f32>, Arr
             let (c0, c1) = (cb[j], cb[j + 1].max(cb[j] + 1));
             let mut sum = 0f32;
             for r in r0..r1 {
-                let base = r * 224;
+                let base = r * w;
                 for c in c0..c1 {
                     sum += g2[base + c];
                 }
@@ -105,27 +164,86 @@ pub fn blur_weights_from_nchw(x: &Array4<f32>) -> (Array2<f32>, Array2<f32>, Arr
             t[[i, j]] = sum / (cnt as f32);
         }
     }
+    t
+}
 
-    // absolute mapping: lower Tenengrad => higher blur probability
-    let tau = TAU_TEN_224;
-    let mut p = Array2::<f32>::zeros((20, 20));
-    for i in 0..20 {
-        for j in 0..20 {
-            let z = (tau - t[[i, j]]) / tau; // >0 => blurrier
-            p[[i, j]] = sigmoid(K_SIGMOID * z);
-        }
+// ---------------- multi-scale blur weights (224 + 112, fused) ----------------
+
+/// Returns: (weights_20x20, fused_blur_prob_20x20, t224_20x20, blur_global)
+pub fn blur_weights_from_nchw(x: &Array4<f32>) -> (Array2<f32>, Array2<f32>, Array2<f32>, f32) {
+    // 224 path
+    let gray224 = nchw_to_gray_224(x);
+    let t224 = tenengrad_mean_grid_20(&gray224);
+
+    let p224 = t224.mapv(|t| {
+        let tau = TAU_TEN_224.max(EPS_T);
+        let p = (tau / (t + tau)).powf(BETA);
+        (p + P_FLOOR).min(1.0)
+    });
+
+    // 112 path (2× downsample with antialias), tau scales ~ /4
+    let gray112 = downsample_2x_gray_f32(&gray224);
+    let t112 = tenengrad_mean_grid_20(&gray112);
+
+    // Compute medians (robust to outliers)
+    let mut v224: Vec<f32> = t224.iter().copied().collect();
+    let mut v112: Vec<f32> = t112.iter().copied().collect();
+    v224.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    v112.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let med224 = v224[v224.len() / 2].max(1e-12);
+    let med112 = v112[v112.len() / 2];
+
+    // Ratio of scales on THIS image
+    let r = if med224 > 0.0 {
+        (med112 / med224).clamp(0.05, 0.80)
+    } else {
+        0.25
+    };
+
+    // Bias so 112 is a bit stricter than naive scaling
+    const BIAS112: f32 = 1.25; // try 1.2–1.4
+    let tau112 = TAU_TEN_224 * r * BIAS112;
+
+    let p112 = t112.mapv(|t| {
+        let tau = tau112.max(EPS_T);
+        let p = (tau / (t + tau)).powf(BETA);
+        (p + P_FLOOR).min(1.0)
+    });
+
+    if log::log_enabled!(log::Level::Debug) {
+        let _ = stats("p224", &p224);
+        let _ = stats("p112", &p112);
+        msanity(&p224, &p112);
     }
 
-    // weights: W = 1 - ALPHA * P (clamped)
+    // Fuse probabilities (take the worse = more blur)
+    let mut p = Array2::<f32>::zeros((20, 20));
+    ndarray::Zip::from(&mut p)
+        .and(&p224)
+        .and(&p112)
+        .for_each(|p_elem, &a, &b| {
+            *p_elem = 1.0 - (1.0 - a) * (1.0 - b);
+        });
+
+    let mean = |a: &Array2<f32>| a.sum() / (a.len() as f32);
+    log::debug!(
+        "mean p224={:.4}, mean p112={:.4}, mean pfused={:.4}",
+        mean(&p224),
+        mean(&p112),
+        mean(&p)
+    );
+
+    // Weights from fused blur prob
     let mut w = Array2::<f32>::zeros((20, 20));
     for i in 0..20 {
         for j in 0..20 {
-            w[[i, j]] = clampf(1.0 - ALPHA * p[[i, j]], MIN_WEIGHT, 1.0);
+            let val = 1.0 - ALPHA * p[[i, j]];
+            w[[i, j]] = val.max(MIN_WEIGHT).min(1.0);
         }
     }
 
     let blur_global = p.sum() / 400.0;
-    (w, p, t, blur_global)
+    (w, p, t224, blur_global)
 }
 
 /// Bilinear sample of a 20x20 field at (u,v) in "cell" coordinates, where 0..20 maps across the image.
