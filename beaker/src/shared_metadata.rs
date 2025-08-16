@@ -256,7 +256,7 @@ pub fn save_metadata(metadata: &BeakerMetadata, path: &Path) -> Result<()> {
         fs::create_dir_all(parent)?;
     }
 
-    let toml_content = toml::to_string_pretty(metadata)?;
+    let toml_content = toml_edit::ser::to_string_pretty(metadata)?;
 
     // Now parse into a document
     let mut doc = match toml_content.parse::<DocumentMut>() {
@@ -272,11 +272,11 @@ pub fn save_metadata(metadata: &BeakerMetadata, path: &Path) -> Result<()> {
     // Customize the quality grid formatting if present
     if let Some(quality_table) = doc.get_mut("quality") {
         if let Some(quality_table) = quality_table.as_table_mut() {
-            if let Some(local_quality_grid_item) = quality_table.get_mut("local_quality_grid") {
+            if let Some(local_quality_grid_item) = quality_table.get_mut("local_paq2piq_grid") {
                 // We need to get the actual data from the original metadata to reformat it
                 if let Some(ref quality_sections) = metadata.quality {
                     if let Some(ref core) = quality_sections.core {
-                        if let Some(grid_value) = core.get("local_quality_grid") {
+                        if let Some(grid_value) = core.get("local_paq2piq_grid") {
                             // Extract the grid data - it should be a 20x20 array of u8 values
                             if let Some(grid_array) = grid_value.as_array() {
                                 if grid_array.len() == 20 {

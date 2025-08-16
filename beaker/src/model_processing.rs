@@ -5,6 +5,7 @@
 //! different model types.
 
 use crate::progress::{add_progress_bar, remove_progress_bar};
+use crate::quality_processing::QualityResult;
 use anyhow::Result;
 use colored::Colorize;
 use log::warn;
@@ -50,7 +51,7 @@ pub trait ModelResult {
         None
     }
 
-    fn get_local_quality(&self) -> Option<[[u8; 20]; 20]> {
+    fn get_quality_result(&self) -> Option<QualityResult> {
         None
     }
 }
@@ -86,9 +87,9 @@ pub trait ModelProcessor {
 
 pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usize> {
     match run_model_processing_with_quality_outputs::<P>(config) {
-        Ok((successful_count, _local_quality_grids)) => {
+        Ok((successful_count, _quality_results)) => {
             // Process successful results
-            // Do something with _local_quality_grids
+            // Do something with _quality_results
             Ok(successful_count)
         }
         Err(errors) => {
@@ -100,13 +101,13 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
 /// Generic batch processing function that works with any model
 pub fn run_model_processing_with_quality_outputs<P: ModelProcessor>(
     config: P::Config,
-) -> Result<(usize, HashMap<String, [[u8; 20]; 20]>)> {
+) -> Result<(usize, HashMap<String, QualityResult>)> {
     use crate::onnx_session::determine_optimal_device;
     use chrono::Utc;
     use std::time::Instant;
 
     // Hashmap from image path to local quality grid
-    let mut local_quality_grids: HashMap<String, [[u8; 20]; 20]> = HashMap::new();
+    let mut quality_results: HashMap<String, QualityResult> = HashMap::new();
 
     let start_timestamp = Utc::now();
     let total_processing_start = Instant::now();
@@ -122,7 +123,7 @@ pub fn run_model_processing_with_quality_outputs<P: ModelProcessor>(
 
     if image_files.is_empty() {
         log::warn!("No valid images found to process");
-        return Ok((0, local_quality_grids));
+        return Ok((0, quality_results));
     }
 
     if image_files.len() > 1 {
@@ -249,8 +250,8 @@ pub fn run_model_processing_with_quality_outputs<P: ModelProcessor>(
         match P::process_single_image(&mut session, image_path, &config, &output_manager) {
             Ok(result) => {
                 successful_count += 1;
-                if let Some(quality) = result.get_local_quality() {
-                    local_quality_grids.insert(image_path.to_string_lossy().to_string(), quality);
+                if let Some(quality) = result.get_quality_result() {
+                    quality_results.insert(image_path.to_string_lossy().to_string(), quality);
                 };
                 if !config.base().skip_metadata {
                     save_enhanced_metadata_for_file::<P>(
@@ -344,7 +345,7 @@ pub fn run_model_processing_with_quality_outputs<P: ModelProcessor>(
             failed_count
         ));
     }
-    Ok((successful_count, local_quality_grids))
+    Ok((successful_count, quality_results))
 }
 
 /// Save enhanced metadata for a single processed file

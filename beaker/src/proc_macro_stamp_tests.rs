@@ -22,7 +22,7 @@ fn test_detection_config_stamp_generation() {
         model_url: None,
         model_checksum: None,
         output_dir: None,
-        local_quality_grids: None,
+        quality_results: None,
     };
 
     let mut config2 = config1.clone();
@@ -97,7 +97,7 @@ fn test_config_stamp_ignores_base_fields() {
         model_url: None,
         model_checksum: None,
         output_dir: None,
-        local_quality_grids: None,
+        quality_results: None,
     };
 
     let mut config2 = config1.clone();
@@ -129,7 +129,7 @@ fn test_config_stamp_includes_output_dir() {
         model_url: None,
         model_checksum: None,
         output_dir: None,
-        local_quality_grids: None,
+        quality_results: None,
     };
 
     let mut config2 = config1.clone();

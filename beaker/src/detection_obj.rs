@@ -2,6 +2,8 @@
 // (there is probably a better way)
 use serde::Serialize;
 
+use crate::blur_detection::DetectionQuality;
+
 #[derive(Debug, Clone, Serialize)]
 pub struct Detection {
     pub angle_radians: f32,
@@ -13,7 +15,7 @@ pub struct Detection {
     pub class_id: u32,
     pub class_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub quality: Option<f32>,
+    pub quality: Option<DetectionQuality>,
 }
 
 impl Detection {

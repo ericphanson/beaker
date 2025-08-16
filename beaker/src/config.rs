@@ -230,7 +230,7 @@ pub struct DetectionConfig {
     // Stores local quality grid results
     #[serde(skip)]
     #[stamp]
-    pub local_quality_grids: Option<HashMap<String, [[u8; 20]; 20]>>,
+    pub quality_results: Option<HashMap<String, QualityResult>>,
 }
 
 /// CLI command for cutout processing (only command-specific arguments)
@@ -430,7 +430,7 @@ impl DetectionConfig {
             model_url: cmd.model_url,
             model_checksum: cmd.model_checksum,
             output_dir, // Use the cloned value
-            local_quality_grids: None,
+            quality_results: None,
         })
     }
 }
@@ -477,7 +477,7 @@ impl QualityConfig {
 }
 
 // ModelConfig trait implementations for model_processing integration
-use crate::model_processing::ModelConfig;
+use crate::{model_processing::ModelConfig, quality_processing::QualityResult};
 
 impl ModelConfig for DetectionConfig {
     fn base(&self) -> &BaseModelConfig {
@@ -635,7 +635,7 @@ mod tests {
             model_url: None,
             model_checksum: None,
             output_dir: Some("/tmp".to_string()), // Add the stamped output_dir
-            local_quality_grids: None,
+            quality_results: None,
         };
 
         // Test field access through base config

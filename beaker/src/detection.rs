@@ -1,3 +1,4 @@
+use crate::blur_detection::{detection_quality, BBoxF};
 use crate::color_utils::symbols;
 use crate::config::DetectionConfig;
 use crate::detection_obj::Detection;
@@ -107,13 +108,13 @@ pub struct DetectionWithPath {
 pub fn run_detection(config: DetectionConfig) -> Result<usize> {
     log::info!("   Analyzing image quality");
     let quality_config = crate::config::QualityConfig::from_detection_config(&config);
-    let local_quality_grids = crate::model_processing::run_model_processing_with_quality_outputs::<
+    let quality_results = crate::model_processing::run_model_processing_with_quality_outputs::<
         QualityProcessor,
     >(quality_config);
 
-    let config = match local_quality_grids {
-        Ok((_count, grids)) => DetectionConfig {
-            local_quality_grids: Some(grids),
+    let config = match quality_results {
+        Ok((_count, results)) => DetectionConfig {
+            quality_results: Some(results),
             ..config
         },
         Err(_) => config,
@@ -434,44 +435,32 @@ impl ModelProcessor for DetectionProcessor {
         );
 
         // Now we want to populate quality for each detection
-        let detections = if let Some(grids) = &config.local_quality_grids {
-            if let Some(grid) = grids.get(image_path.to_string_lossy().as_ref()) {
-                // Populate quality for detections based on quality grids.
-                // Quality grids are 20x20 grids corresponding to sections of the image
-                // Detections have bounding boxes in pixel units relative to original image size
-                // We need to find the quality cells that overlap with each detection, then find the average quality per detection
-
+        let detections = if let Some(grids) = &config.quality_results {
+            if let Some(result) = grids.get(image_path.to_string_lossy().as_ref()) {
                 let mut detections_with_quality = Vec::new();
+
                 for mut detection in detections {
-                    // Calculate which grid cells this detection overlaps with
-                    let grid_x1 = ((detection.x1 / orig_width as f32) * 20.0).floor() as usize;
-                    let grid_y1 = ((detection.y1 / orig_height as f32) * 20.0).floor() as usize;
-                    let grid_x2 = ((detection.x2 / orig_width as f32) * 20.0).ceil() as usize;
-                    let grid_y2 = ((detection.y2 / orig_height as f32) * 20.0).ceil() as usize;
+                    let bbox = BBoxF {
+                        x0: detection.x1,
+                        y0: detection.y1,
+                        x1: detection.x2,
+                        y1: detection.y2,
+                    };
+                    let q20 = ndarray::Array2::from_shape_fn((20, 20), |(y, x)| {
+                        result.local_paq2piq_grid[y][x] as f32
+                    });
 
-                    // Clamp to grid boundaries
-                    let grid_x1 = grid_x1.min(19);
-                    let grid_y1 = grid_y1.min(19);
-                    let grid_x2 = grid_x2.min(20);
-                    let grid_y2 = grid_y2.min(20);
+                    let w20 = ndarray::Array2::from_shape_fn((20, 20), |(y, x)| {
+                        result.local_blur_weights[y][x]
+                    });
 
-                    // Calculate average quality across overlapping cells
-                    let mut quality_sum = 0u32;
-                    let mut cell_count = 0u32;
-
-                    for y in grid_y1..grid_y2 {
-                        for x in grid_x1..grid_x2 {
-                            quality_sum += grid[y][x] as u32;
-                            cell_count += 1;
-                        }
-                    }
-
-                    if cell_count > 0 {
-                        detection.quality = Some(quality_sum as f32 / cell_count as f32);
-                    } else {
-                        detection.quality = None;
-                    }
-
+                    let orig_img = img.as_rgb8().unwrap();
+                    let dq = detection_quality(
+                        &q20, &w20, bbox,     // in native image pixels
+                        orig_img, // native frame
+                    );
+                    debug!("Detection quality: {dq:?}");
+                    detection.quality = Some(dq);
                     detections_with_quality.push(detection);
                 }
                 detections_with_quality

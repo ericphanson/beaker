@@ -277,7 +277,7 @@ mod tests {
             model_url: None,
             model_checksum: None,
             output_dir, // Add the stamped output_dir field
-            local_quality_grids: None,
+            quality_results: None,
         }
     }
 

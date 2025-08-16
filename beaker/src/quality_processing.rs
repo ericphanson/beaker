@@ -48,13 +48,16 @@ impl ModelAccess for QualityAccess {
 }
 
 /// Core results for quality assessment metadata
-#[derive(Serialize)]
+#[derive(Serialize, Clone, Debug)]
 pub struct QualityResult {
     pub model_version: String,
     #[serde(skip_serializing)]
     pub processing_time_ms: f64,
-    pub quality_score: f64,
-    pub local_quality_grid: [[u8; 20]; 20], // Fixed-size 20x20 grid of integers 0-100
+    pub overall_quality_score: f32,
+    pub global_paq2piq_score: f32,
+    pub global_blur_score: f32,
+    pub local_paq2piq_grid: [[u8; 20]; 20], // Fixed-size 20x20 grid of integers 0-100
+    pub local_blur_weights: [[f32; 20]; 20], // Fixed-size 20x20 grid of floats 0.0-1.0
     #[serde(skip_serializing)]
     pub io_timing: IoTiming,
     pub input_img_width: u32,  // Original input image width
@@ -84,15 +87,15 @@ impl ModelResult for QualityResult {
     }
 
     fn output_summary(&self) -> String {
-        format!("quality: {:.3}", self.quality_score)
+        format!("quality: {:.3}", self.global_paq2piq_score)
     }
 
     fn get_io_timing(&self) -> crate::shared_metadata::IoTiming {
         self.io_timing.clone()
     }
 
-    fn get_local_quality(&self) -> Option<[[u8; 20]; 20]> {
-        Some(self.local_quality_grid)
+    fn get_quality_result(&self) -> Option<QualityResult> {
+        Some(self.clone())
     }
 }
 
@@ -138,8 +141,15 @@ impl ModelProcessor for QualityProcessor {
         // Placeholder preprocessing - replace with actual implementation
         let input_array = preprocess_image_for_quality(&img)?;
 
-        let (blur_weights, _, _, _) = crate::blur_detection::blur_weights_from_nchw(&input_array);
-        let blur_global = blur_weights.mean().unwrap();
+        let (w20, _, _, global_blur_score) =
+            crate::blur_detection::blur_weights_from_nchw(&input_array);
+        assert_eq!(w20.shape(), [20, 20]);
+        let mut local_blur_weights = [[0.0f32; 20]; 20];
+        for i in 0..20 {
+            for j in 0..20 {
+                local_blur_weights[i][j] = w20[[i, j]];
+            }
+        }
 
         // Prepare input for the model
         let input_name = session.inputs[0].name.clone();
@@ -158,24 +168,26 @@ impl ModelProcessor for QualityProcessor {
             .try_extract_array::<f32>()
             .map_err(|e| anyhow::anyhow!("Failed to extract output array: {}", e))?;
 
-        // Placeholder postprocessing - replace with actual implementation
-        let (quality_score, local_quality_grid) =
-            postprocess_quality_output(&output_view, &blur_weights, blur_global)?;
+        let (overall_quality_score, global_paq2piq_score, local_paq2piq_grid) =
+            postprocess_quality_output(&output_view, global_blur_score)?;
 
         let processing_time = start_time.elapsed().as_secs_f64() * 1000.0;
 
         debug!(
             "{} Quality assessment completed: score={:.3}",
             symbols::completed_successfully(),
-            quality_score
+            global_paq2piq_score
         );
 
         // Create result with timing information
         let quality_result = QualityResult {
             model_version: get_default_quality_model_info().name,
             processing_time_ms: processing_time,
-            quality_score,
-            local_quality_grid,
+            overall_quality_score,
+            global_paq2piq_score,
+            global_blur_score,
+            local_paq2piq_grid,
+            local_blur_weights,
             io_timing,
             input_img_width: original_size.0,
             input_img_height: original_size.1,
@@ -216,9 +228,8 @@ fn preprocess_image_for_quality(img: &image::DynamicImage) -> Result<ndarray::Ar
 /// Placeholder postprocessing function for quality assessment
 fn postprocess_quality_output(
     output: &ndarray::ArrayView<f32, ndarray::Dim<ndarray::IxDynImpl>>,
-    blur_weights: &ndarray::Array2<f32>,
-    blur_global: f32,
-) -> Result<(f64, [[u8; 20]; 20])> {
+    global_blur_score: f32,
+) -> Result<(f32, f32, [[u8; 20]; 20])> {
     // Placeholder implementation - extract quality score and confidence
     // Assumes output is a single value or pair of values
     log::debug!("Quality model output: {:?}", output.shape());
@@ -231,29 +242,30 @@ fn postprocess_quality_output(
     }
 
     // Placeholder logic - replace with actual model output interpretation
-    let model_quality_score = output_data[0];
-    let quality_score = model_quality_score * blur_global;
-    debug!("Quality score from model: {model_quality_score}. Blur weight: {blur_global} (lower = less blur). Overall: {quality_score}");
-
-    // Convert to ndarray
-    let local_grid_400_refs: Vec<f32> = output_data[1..].to_vec();
-    let local_grid_400 = ndarray::Array::from_shape_vec((20, 20), local_grid_400_refs)?;
-
-    let local_grid_400 = &local_grid_400 * blur_weights;
+    let global_paq2piq_score = output_data[0];
+    let overall_quality_score = crate::blur_detection::image_overall_from_paq_and_blur(
+        global_paq2piq_score,
+        global_blur_score,
+    );
+    debug!("Quality score from model: {global_paq2piq_score}. Blur score: {global_blur_score} (higher = more blur). Overall: {overall_quality_score}");
 
     // the next 400 values are a 20x20 grid of local quality scores
-    let mut local_quality_grid = [[0u8; 20]; 20];
+    let mut local_paq2piq_grid = [[0u8; 20]; 20];
     if output_data.len() >= 401 {
-        for (i, &value) in local_grid_400.iter().enumerate() {
+        for (i, &value) in output_data[1..].iter().enumerate() {
             // Values are already between 0 and 100, just round to nearest integer
             let rounded_value = value.round().clamp(0.0, 100.0) as u8;
-            local_quality_grid[i / 20][i % 20] = rounded_value;
+            local_paq2piq_grid[i / 20][i % 20] = rounded_value;
         }
     } else {
         return Err(anyhow::anyhow!("Insufficient output data for 20x20 grid"));
     }
 
-    Ok(((quality_score as f64), local_quality_grid))
+    Ok((
+        overall_quality_score,
+        global_paq2piq_score,
+        local_paq2piq_grid,
+    ))
 }
 
 #[cfg(test)]
