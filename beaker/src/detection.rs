@@ -454,6 +454,10 @@ impl ModelProcessor for DetectionProcessor {
                         result.local_blur_weights[y][x]
                     });
 
+                    let p20 = ndarray::Array2::from_shape_fn((20, 20), |(y, x)| {
+                        result.local_fused_probability[y][x]
+                    });
+
                     let orig_img_wrapped = img.as_rgb8();
                     let orig_img = match orig_img_wrapped {
                         Some(img) => img,
@@ -464,7 +468,7 @@ impl ModelProcessor for DetectionProcessor {
                         }
                     };
                     let dq = detection_quality(
-                        &q20, &w20, bbox,     // in native image pixels
+                        &q20, &w20, &p20, bbox,     // in native image pixels
                         orig_img, // native frame
                     );
                     debug!("Detection quality: {dq:?}");

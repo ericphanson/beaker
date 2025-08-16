@@ -396,6 +396,21 @@ pub fn save_metadata(metadata: &BeakerMetadata, path: &Path) -> Result<()> {
                     }
                 }
             }
+
+            if let Some(local_fused_probability_item) =
+                quality_table.get_mut("local_fused_probability")
+            {
+                if let Some(ref quality_sections) = metadata.quality {
+                    if let Some(ref core) = quality_sections.core {
+                        if let Some(weights_value) = core.get("local_fused_probability") {
+                            if let Some(weights) = extract_f32_grid(weights_value) {
+                                let formatted_value = build_inline_rows_f32(&weights);
+                                *local_fused_probability_item = Item::Value(formatted_value);
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
     let final_content = doc.to_string();

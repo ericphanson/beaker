@@ -58,6 +58,7 @@ pub struct QualityResult {
     pub global_blur_score: f32,
     pub local_paq2piq_grid: [[u8; 20]; 20], // Fixed-size 20x20 grid of integers 0-100
     pub local_blur_weights: [[f32; 20]; 20], // Fixed-size 20x20 grid of floats 0.0-1.0
+    pub local_fused_probability: [[f32; 20]; 20], // Fixed-size 20x20 grid of floats 0.0-1.0
     #[serde(skip_serializing)]
     pub io_timing: IoTiming,
     pub input_img_width: u32,  // Original input image width
@@ -146,7 +147,7 @@ impl ModelProcessor for QualityProcessor {
             .get_output_dir()?
             .join(format!("quality_debug_images_{input_stem}"));
 
-        let (w20, _, _, global_blur_score) =
+        let (w20, p20, _, global_blur_score) =
             crate::blur_detection::blur_weights_from_nchw(&input_array, Some(output_dir));
         assert_eq!(w20.shape(), [20, 20]);
         let mut local_blur_weights = [[0.0f32; 20]; 20];
@@ -155,7 +156,12 @@ impl ModelProcessor for QualityProcessor {
                 local_blur_weights[i][j] = w20[[i, j]];
             }
         }
-
+        let mut local_fused_probability = [[0.0f32; 20]; 20];
+        for i in 0..20 {
+            for j in 0..20 {
+                local_fused_probability[i][j] = p20[[i, j]];
+            }
+        }
         // Prepare input for the model
         let input_name = session.inputs[0].name.clone();
         let output_name = session.outputs[0].name.clone();
@@ -193,6 +199,7 @@ impl ModelProcessor for QualityProcessor {
             global_blur_score,
             local_paq2piq_grid,
             local_blur_weights,
+            local_fused_probability,
             io_timing,
             input_img_width: original_size.0,
             input_img_height: original_size.1,

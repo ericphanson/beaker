@@ -1,22 +1,44 @@
-use image::{ImageBuffer, Luma, RgbImage};
+use image::{ImageBuffer, Luma, Rgb, RgbImage};
 use imageproc::filter::{filter3x3, gaussian_blur_f32};
 use ndarray::{Array2, Array4, Axis};
 use serde::Serialize;
 
 /// ------------------------- tunables -------------------------
-const ALPHA: f32 = 0.7; // downweight strength for blur (W = 1 - ALPHA * P)
-const MIN_WEIGHT: f32 = 0.2; // floor on per-cell weights
+/// Blur weighting (from fused blur probability P via W = 1 - ALPHA*P)
+const ALPHA: f32 = 0.7;
+const MIN_WEIGHT: f32 = 0.2;
+
+/// Tenengrad mapping + multi-scale
 const TAU_TEN_224: f32 = 0.02; // threshold for 224x224 in [0,1]
-const S_REF: f32 = 96.0; // size prior (min bbox side in native px to be "fully reliable")
-const COV_REF: f32 = 4.0; // coverage prior baseline (~cells) → 2x2 cells
+const BETA: f32 = 1.2; // P = (tau / (T + tau))^BETA
+const EPS_T: f32 = 1e-12; // safety epsilon for divisions
+const P_FLOOR: f32 = 0.0; // set to 0.01..0.02 to avoid W==1.0 saturation
+
+/// ROI / priors
+const S_REF: f32 = 96.0; // min bbox side (px) for "fully reliable"
+const COV_REF: f32 = 4.0; // ~cells, 2x2 on the 224 grid
 const ROI_SAMPLES: usize = 8; // bilinear samples per axis inside bbox for ROI pooling
 const GAUSS_SIGMA_NATIVE: f32 = 1.0; // denoise native crop before Tenengrad/detail
-const BETA: f32 = 1.2; // 1.1–1.6 typical; larger => harsher blur probability
-const EPS_T: f32 = 1e-12; // safety epsilon for divisions
-                          // optional: ensure we never return an exact 0 probability (avoids W==1.0)
-const P_FLOOR: f32 = 0.0; // try 0.01..0.02 if you want a tiny universal penalty
-/// ------------------------- basic types -------------------------
 
+/// Core-vs-ring (subject-vs-background) sharpness check
+const CORE_RATIO: f32 = 0.60; // inner 60% treated as "core"
+
+/// Triage thresholds (conservative defaults)
+const TR_GOOD_DQ: f32 = 55.0;
+const TR_GOOD_D: f32 = 0.75;
+const TR_GOOD_P: f32 = 0.25;
+const TR_GOOD_R: f32 = 1.00;
+const TR_GOOD_CELLS: f32 = 9.0;
+const TR_GOOD_S: f32 = 0.70;
+
+const TR_BAD_DQ: f32 = 28.0;
+const TR_BAD_P: f32 = 0.60;
+const TR_BAD_D: f32 = 0.65;
+const TR_BAD_CELLS: f32 = 3.0;
+const TR_BAD_S: f32 = 0.50;
+const TR_BAD_R: f32 = 0.85;
+
+/// ------------------------- basic types -------------------------
 type GrayF32 = ImageBuffer<Luma<f32>, Vec<f32>>;
 
 #[derive(Copy, Clone, Debug)]
@@ -31,21 +53,36 @@ pub struct BBoxF {
 pub struct DetectionQuality {
     /// final per-detection quality (same scale as PaQ map, e.g., 0..100)
     pub quality: f32,
+
+    /// triage decision: "surely_good" | "surely_bad" | "unknown"
+    pub triage: String,
+
     /// components for debugging / thresholding
     pub q_roi_mean: f32, // mean PaQ map inside bbox (ROI-pooled)
     pub w_roi_mean: f32,     // mean blur weight inside bbox (ROI-pooled)
+    pub p_roi_mean: f32,     // mean fused blur probability inside bbox (ROI-pooled)
     pub detail_prob: f32,    // native-resolution detail gate (0..1)
     pub size_prior: f32,     // 0..1
     pub coverage_prior: f32, // 0..1
+
+    /// extra interpretable features for rules/models later
+    pub cells_covered: f32, // effective cells covered on 224 grid (before normalization)
+
+    /// core-vs-ring sharpness check (native resolution)
+    pub core_ring_ratio: f32, // T_core / T_ring
+    pub t_core: f32, // Tenengrad mean in core
+    pub t_ring: f32, // Tenengrad mean in ring
 }
 
-use image::Rgb;
-/// ------------------------- utils -------------------------
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 /// ----- tiny utils -----
+fn clampf(x: f32, lo: f32, hi: f32) -> f32 {
+    x.max(lo).min(hi)
+}
+
 fn percentile(mut vals: Vec<f32>, p: f32) -> f32 {
     vals.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let k = ((vals.len() as f32 - 1.0) * p).round() as usize;
@@ -181,10 +218,6 @@ fn overlay_on_rgb(base: &RgbImage, field: &Array2<f32>, alpha: f32, robust_norm:
 }
 
 /// Public: dump heatmaps & overlays for the maps you have.
-/// - `x224` is the [1,3,224,224] input (for overlay background)
-/// - `t224`/`t112` are Tenengrad mean grids (20×20) at 224 and 112
-/// - `p224`/`p112`/`pfused` are probability maps (20×20, 0..1)
-/// - `w20` is the 20×20 weight map (0..1)
 pub struct DebugMaps<'a> {
     pub x224: &'a Array4<f32>,
     pub t224: &'a Array2<f32>,
@@ -210,19 +243,11 @@ pub fn dump_debug_heatmaps(out_dir: &Path, dbg: DebugMaps) -> image::ImageResult
     stats("weights", dbg.w20);
 
     // Save pure heatmaps (PNG)
-    save_heatmap_20(
-        dbg.t224,
-        &out_dir.join("t224_heat.png"),
-        /*robust=*/ true,
-    )?;
+    save_heatmap_20(dbg.t224, &out_dir.join("t224_heat.png"), true)?;
     if let Some(t112) = dbg.t112 {
         save_heatmap_20(t112, &out_dir.join("t112_heat.png"), true)?;
     }
-    save_heatmap_20(
-        dbg.p224,
-        &out_dir.join("p224_heat.png"),
-        /*robust=*/ false,
-    )?;
+    save_heatmap_20(dbg.p224, &out_dir.join("p224_heat.png"), false)?;
     if let Some(p112) = dbg.p112 {
         save_heatmap_20(p112, &out_dir.join("p112_heat.png"), false)?;
     }
@@ -232,38 +257,30 @@ pub fn dump_debug_heatmaps(out_dir: &Path, dbg: DebugMaps) -> image::ImageResult
     // Overlays
     let base = nchw_to_rgb_224(dbg.x224);
     overlay_on_rgb(&base, dbg.p224, 0.0, false).save(out_dir.join("image.png"))?;
-
     overlay_on_rgb(&base, dbg.p224, 0.55, false).save(out_dir.join("overlay_p224.png"))?;
     if let Some(p112) = dbg.p112 {
         overlay_on_rgb(&base, p112, 0.55, false).save(out_dir.join("overlay_p112.png"))?;
     }
     overlay_on_rgb(&base, dbg.pfused, 0.55, false).save(out_dir.join("overlay_pfused.png"))?;
     overlay_on_rgb(&base, dbg.w20, 0.55, false).save(out_dir.join("overlay_weights.png"))?;
-
     if let Some(t112) = dbg.t112 {
         overlay_on_rgb(&base, t112, 0.55, false).save(out_dir.join("overlay_t112.png"))?;
     }
-
     overlay_on_rgb(&base, dbg.t224, 0.55, false).save(out_dir.join("overlay_t224.png"))?;
-
     Ok(())
 }
 
-fn clampf(x: f32, lo: f32, hi: f32) -> f32 {
-    x.max(lo).min(hi)
-}
 fn sigmoid(z: f32) -> f32 {
     1.0 / (1.0 + (-z).exp())
 }
 
 /// NCHW [1,3,224,224] -> grayscale image (Luma<f32>) in [0,1]
-pub fn nchw_to_gray_224(x: &Array4<f32>) -> ImageBuffer<Luma<f32>, Vec<f32>> {
+pub fn nchw_to_gray_224(x: &Array4<f32>) -> GrayF32 {
     assert_eq!(x.shape(), &[1, 3, 224, 224], "expected [1,3,224,224]");
     let (h, w) = (224u32, 224u32);
     let r = x.index_axis(Axis(1), 0);
     let g = x.index_axis(Axis(1), 1);
     let b = x.index_axis(Axis(1), 2);
-
     let mut buf = Vec::<f32>::with_capacity((h * w) as usize);
     for i in 0..h as usize {
         for j in 0..w as usize {
@@ -294,7 +311,7 @@ fn downsample_2x_gray_f32(src: &GrayF32) -> GrayF32 {
     ImageBuffer::<Luma<f32>, _>::from_raw(nw, nh, out).unwrap()
 }
 
-fn msanity(p224: &ndarray::Array2<f32>, p112: &ndarray::Array2<f32>) {
+fn msanity(p224: &Array2<f32>, p112: &Array2<f32>) {
     use ndarray::Zip;
     let mut l1 = 0f32;
     let mut linf = 0f32;
@@ -312,7 +329,7 @@ fn msanity(p224: &ndarray::Array2<f32>, p112: &ndarray::Array2<f32>) {
     log::debug!("||p112 - p224||_1 = {l1:.6e}, L_inf = {linf:.6e}, count(p112>p224) = {gt}");
 }
 
-fn stats(name: &str, a: &ndarray::Array2<f32>) -> (f32, f32, f32, f32) {
+fn stats(name: &str, a: &Array2<f32>) -> (f32, f32, f32, f32) {
     // (min, max, mean, median)
     let mut v: Vec<f32> = a.iter().copied().collect();
     v.sort_by(|x, y| x.partial_cmp(y).unwrap());
@@ -392,11 +409,11 @@ pub fn blur_weights_from_nchw(
         (p + P_FLOOR).min(1.0)
     });
 
-    // 112 path (2× downsample with antialias), tau scales ~ /4
+    // 112 path (2× downsample with antialias), calibrated tau per image
     let gray112 = downsample_2x_gray_f32(&gray224);
     let t112 = tenengrad_mean_grid_20(&gray112);
 
-    // Compute medians (robust to outliers)
+    // medians (robust)
     let mut v224: Vec<f32> = t224.iter().copied().collect();
     let mut v112: Vec<f32> = t112.iter().copied().collect();
     v224.sort_by(|a, b| a.partial_cmp(b).unwrap());
@@ -404,14 +421,12 @@ pub fn blur_weights_from_nchw(
     let med224 = v224[v224.len() / 2].max(1e-12);
     let med112 = v112[v112.len() / 2];
 
-    // Ratio of scales on THIS image
+    // per-image scale ratio
     let r = if med224 > 0.0 {
         (med112 / med224).clamp(0.05, 0.80)
     } else {
         0.25
     };
-
-    // Bias so 112 is a bit stricter than naive scaling
     const BIAS112: f32 = 1.25; // try 1.2–1.4
     let tau112 = TAU_TEN_224 * r * BIAS112;
 
@@ -427,7 +442,7 @@ pub fn blur_weights_from_nchw(
         msanity(&p224, &p112);
     }
 
-    // Fuse probabilities (take the worse = more blur)
+    // Fuse probabilities (probabilistic OR)
     let mut p = Array2::<f32>::zeros((20, 20));
     ndarray::Zip::from(&mut p)
         .and(&p224)
@@ -454,7 +469,6 @@ pub fn blur_weights_from_nchw(
     }
 
     if let Some(out) = out_dir {
-        // We will log how long it takes to dump debug heatmaps
         let start = Instant::now();
         dump_debug_heatmaps(
             &out,
@@ -469,8 +483,7 @@ pub fn blur_weights_from_nchw(
             },
         )
         .unwrap();
-        let duration = start.elapsed();
-        log::debug!("Finished dumping debug heatmaps in {duration:?}");
+        log::debug!("Finished dumping debug heatmaps in {:?}", start.elapsed());
     }
 
     let blur_global = p.sum() / 400.0;
@@ -478,7 +491,6 @@ pub fn blur_weights_from_nchw(
 }
 
 /// Bilinear sample of a 20x20 field at (u,v) in "cell" coordinates, where 0..20 maps across the image.
-/// We clamp to [0, 19.999] to avoid going past the last cell.
 fn bilinear_20(field: &Array2<f32>, u: f32, v: f32) -> f32 {
     assert_eq!(field.shape(), &[20, 20]);
     let uu = clampf(u, 0.0, 19.999);
@@ -499,8 +511,7 @@ fn bilinear_20(field: &Array2<f32>, u: f32, v: f32) -> f32 {
     f0 * (1.0 - dy) + f1 * dy
 }
 
-/// ROI-aware mean of a 20x20 field over a bbox in original coords, using bilinear sampling.
-/// We uniformly sample ROI_SAMPLES x ROI_SAMPLES points inside the bbox, map to 20x20 coords, and average.
+/// ROI-aware mean of a 20x20 field over a bbox in original coords (bilinear sampling).
 fn roi_align_mean_20(field: &Array2<f32>, bbox: BBoxF, img_w: u32, img_h: u32) -> f32 {
     let (w, h) = (img_w as f32, img_h as f32);
     let (x0, y0, x1, y1) = (
@@ -518,7 +529,6 @@ fn roi_align_mean_20(field: &Array2<f32>, bbox: BBoxF, img_w: u32, img_h: u32) -
         for sx in 0..ROI_SAMPLES {
             let fx = x0 + (sx as f32 + 0.5) / (ROI_SAMPLES as f32) * bw;
             let fy = y0 + (sy as f32 + 0.5) / (ROI_SAMPLES as f32) * bh;
-            // map to 20x20 coordinates via 224 alignment (PaQ input size)
             let u = (fx / w) * 20.0;
             let v = (fy / h) * 20.0;
             acc += bilinear_20(field, u, v);
@@ -538,13 +548,7 @@ fn approx_cell_coverage_224(bbox: BBoxF, img_w: u32, img_h: u32) -> f32 {
 }
 
 /// Convert RgbImage crop -> grayscale Luma<f32> in [0,1]
-fn rgb_crop_to_gray_f32(
-    img: &RgbImage,
-    x0: u32,
-    y0: u32,
-    x1: u32,
-    y1: u32,
-) -> ImageBuffer<Luma<f32>, Vec<f32>> {
+fn rgb_crop_to_gray_f32(img: &RgbImage, x0: u32, y0: u32, x1: u32, y1: u32) -> GrayF32 {
     let (x0, y0, x1, y1) = (
         x0.min(x1),
         y0.min(y1),
@@ -566,7 +570,7 @@ fn rgb_crop_to_gray_f32(
     ImageBuffer::<Luma<f32>, _>::from_raw(w, h, buf).unwrap()
 }
 
-/// Native-resolution detail gate (0..1) from Tenengrad + edge density on the **un-resized** crop.
+/// Native-resolution detail probability (0..1) from Tenengrad + edge density on the un-resized crop.
 fn native_detail_probability(img: &RgbImage, bbox: BBoxF) -> (f32, u32, u32, u32, u32) {
     let (w, h) = (img.width(), img.height());
     let x0 = clampf(bbox.x0, 0.0, w as f32) as u32;
@@ -611,47 +615,150 @@ fn native_detail_probability(img: &RgbImage, bbox: BBoxF) -> (f32, u32, u32, u32
 
     // Map to probabilities (logistics)
     let s = (x1 - x0).min(y1 - y0) as f32;
-    let tau_t = TAU_TEN_224 * (S_REF / s.max(1.0)).powi(2); // smaller crops need less absolute energy
+    // Only relax the Tenengrad threshold for *small* boxes
+    let scale = (S_REF / s.max(1.0)).max(1.0);
+    let tau_t = TAU_TEN_224 * scale * scale;
     let d_t = sigmoid(8.0 * ((ten_mean - tau_t) / tau_t));
     let d_e = sigmoid(8.0 * (edge_density - 0.05));
     (d_t.min(d_e), x0, y0, x1, y1)
 }
 
-/// Compute per-detection quality with ROI-aware pooling + native detail + priors.
+/// Core-vs-ring Tenengrad ratio (native resolution). Returns (ratio, T_core, T_ring).
+fn core_ring_ratio_native(img: &RgbImage, bbox: BBoxF) -> (f32, f32, f32) {
+    let (w, h) = (img.width(), img.height());
+    let x0 = clampf(bbox.x0, 0.0, w as f32) as u32;
+    let y0 = clampf(bbox.y0, 0.0, h as f32) as u32;
+    let x1 = clampf(bbox.x1, 0.0, w as f32) as u32;
+    let y1 = clampf(bbox.y1, 0.0, h as f32) as u32;
+
+    let mut gray = rgb_crop_to_gray_f32(img, x0, y0, x1, y1);
+    if GAUSS_SIGMA_NATIVE > 0.0 {
+        gray = gaussian_blur_f32(&gray, GAUSS_SIGMA_NATIVE);
+    }
+
+    const KX: [f32; 9] = [-1., 0., 1., -2., 0., 2., -1., 0., 1.];
+    const KY: [f32; 9] = [-1., -2., -1., 0., 0., 0., 1., 2., 1.];
+    let gx: Vec<f32> = filter3x3(&gray, &KX).into_raw();
+    let gy: Vec<f32> = filter3x3(&gray, &KY).into_raw();
+
+    let bw = (x1 - x0).max(1);
+    let bh = (y1 - y0).max(1);
+    let cx0 = (bw as f32 * (1.0 - CORE_RATIO) * 0.5).round() as u32;
+    let cy0 = (bh as f32 * (1.0 - CORE_RATIO) * 0.5).round() as u32;
+    let cx1 = bw - cx0;
+    let cy1 = bh - cy0;
+
+    let mut sum_core = 0.0;
+    let mut cnt_core = 0usize;
+    let mut sum_ring = 0.0;
+    let mut cnt_ring = 0usize;
+
+    for yy in 0..bh {
+        for xx in 0..bw {
+            let idx = (yy * bw + xx) as usize;
+            let m2 = gx[idx] * gx[idx] + gy[idx] * gy[idx];
+            let in_core = xx >= cx0 && xx < cx1 && yy >= cy0 && yy < cy1;
+            if in_core {
+                sum_core += m2;
+                cnt_core += 1;
+            } else {
+                sum_ring += m2;
+                cnt_ring += 1;
+            }
+        }
+    }
+    let t_core = if cnt_core > 0 {
+        sum_core / cnt_core as f32
+    } else {
+        0.0
+    };
+    let t_ring = if cnt_ring > 0 {
+        sum_ring / cnt_ring as f32
+    } else {
+        1e-6
+    };
+    let ratio = t_core / (t_ring + 1e-6);
+    (ratio, t_core, t_ring)
+}
+
+/// Triage rule: returns "surely_good" | "surely_bad" | "unknown"
+fn triage_decision(dq: f32, d: f32, p: f32, cells: f32, s_prior: f32, r_core_ring: f32) -> String {
+    // surely-good (precision-first)
+    if dq >= TR_GOOD_DQ
+        && d >= TR_GOOD_D
+        && p <= TR_GOOD_P
+        && r_core_ring >= TR_GOOD_R
+        && cells >= TR_GOOD_CELLS
+        && s_prior >= TR_GOOD_S
+    {
+        return "surely_good".to_string();
+    }
+
+    // surely-bad (recall-first)
+    if dq <= TR_BAD_DQ
+        || (p >= TR_BAD_P && d <= TR_BAD_D)
+        || cells <= TR_BAD_CELLS
+        || s_prior <= TR_BAD_S
+        || r_core_ring <= TR_BAD_R
+    {
+        return "surely_bad".to_string();
+    }
+
+    "unknown".to_string()
+}
+
+/// Compute per-detection quality with ROI-aware pooling + native detail + priors + triage.
+/// Now requires both the blur weights `w20` and the fused blur probability map `p20`.
 pub fn detection_quality(
     q20: &Array2<f32>,   // PaQ 20x20 local map (e.g., 0..100)
-    w20: &Array2<f32>,   // blur weights 20x20 (1-ALPHA*P)
+    w20: &Array2<f32>,   // blur weights 20x20 (1 - ALPHA * P)
+    p20: &Array2<f32>,   // fused blur probability 20x20 (0..1)
     bbox: BBoxF,         // in native image pixels
     orig_img: &RgbImage, // native frame
 ) -> DetectionQuality {
     assert_eq!(q20.shape(), &[20, 20]);
     assert_eq!(w20.shape(), &[20, 20]);
+    assert_eq!(p20.shape(), &[20, 20]);
 
     let (img_w, img_h) = (orig_img.width(), orig_img.height());
 
+    // ROI pooled means from the 20x20 maps
     let q_roi = roi_align_mean_20(q20, bbox, img_w, img_h);
     let w_roi = roi_align_mean_20(w20, bbox, img_w, img_h);
+    let p_roi = roi_align_mean_20(p20, bbox, img_w, img_h);
 
+    // Native-resolution detail
     let (detail, x0, y0, x1, y1) = native_detail_probability(orig_img, bbox);
 
-    // size prior
+    // Core-vs-ring native sharpness ratio
+    let (r_core_ring, t_core, t_ring) = core_ring_ratio_native(orig_img, bbox);
+
+    // Priors
     let s = ((x1 - x0).min(y1 - y0)) as f32;
     let size_prior = clampf(s / S_REF, 0.0, 1.0);
 
-    // coverage prior (on 224 grid)
-    let cov_cells = approx_cell_coverage_224(bbox, img_w, img_h);
+    let cov_cells = approx_cell_coverage_224(bbox, img_w, img_h); // raw cells
     let coverage_prior = clampf(cov_cells / COV_REF, 0.0, 1.0);
 
-    // final quality in the same scale as q20
+    // Final per-detection quality (same scale as q20)
     let quality = q_roi * w_roi * detail * size_prior * coverage_prior;
+
+    // Triage decision
+    let triage = triage_decision(quality, detail, p_roi, cov_cells, size_prior, r_core_ring);
 
     DetectionQuality {
         quality,
+        triage,
         q_roi_mean: q_roi,
         w_roi_mean: w_roi,
+        p_roi_mean: p_roi,
         detail_prob: detail,
         size_prior,
         coverage_prior,
+        cells_covered: cov_cells,
+        core_ring_ratio: r_core_ring,
+        t_core,
+        t_ring,
     }
 }
 
