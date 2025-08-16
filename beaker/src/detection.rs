@@ -253,7 +253,7 @@ fn handle_image_outputs_with_timing(
 
             // Time the crop creation and save
             io_timing
-                .time_save_operation(|| create_square_crop(img, detection, &crop_filename, 0.0))?;
+                .time_save_operation(|| create_square_crop(img, detection, &crop_filename, 0.1))?;
 
             debug!(
                 "{} Crop saved to: {}",
