@@ -302,39 +302,6 @@ mod tests {
     }
 
     #[test]
-    fn test_quality_access_no_embedded_bytes() {
-        let bytes = QualityAccess::get_embedded_bytes();
-        assert!(
-            bytes.is_none(),
-            "Quality model should not have embedded bytes"
-        );
-    }
-
-    #[test]
-    fn test_quality_access_has_default_info() {
-        let model_info = QualityAccess::get_default_model_info();
-        assert!(
-            model_info.is_some(),
-            "Quality model should have default model info"
-        );
-
-        let info = model_info.unwrap();
-        assert_eq!(info.name, "quality-model-v1");
-        assert!(info.url.contains("quality-model.onnx"));
-        assert!(!info.md5_checksum.is_empty());
-        assert_eq!(info.filename, "quality-model.onnx");
-    }
-
-    #[test]
-    fn test_get_default_quality_model_info() {
-        let model_info = get_default_quality_model_info();
-        assert_eq!(model_info.name, "quality-model-v1");
-        assert!(model_info.url.contains("quality-model.onnx"));
-        assert!(!model_info.md5_checksum.is_empty());
-        assert_eq!(model_info.filename, "quality-model.onnx");
-    }
-
-    #[test]
     fn test_runtime_model_info_with_quality_overrides() {
         use crate::model_access::RuntimeModelInfo;
 

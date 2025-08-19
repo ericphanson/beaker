@@ -2,13 +2,9 @@
 resolver = "2"
 members = [
     "beaker",
-    "beaker-stamp",
-    "beaker-stamp-derive"
 ]
 
 [workspace.dependencies]
-beaker-stamp = { path = "beaker-stamp" }
-beaker-stamp-derive = { path = "beaker-stamp-derive" }
 
 # ───────────────────────────────────────────────────────────────
 # Profiles (moved from beaker/Cargo.toml for workspace compatibility)

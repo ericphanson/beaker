@@ -40,11 +40,6 @@ impl<'a> OutputManager<'a> {
         self.produced_outputs.borrow_mut().push(path);
     }
 
-    /// Get all outputs that have been tracked as produced
-    pub fn get_produced_outputs(&self) -> Vec<PathBuf> {
-        self.produced_outputs.borrow().clone()
-    }
-
     /// Get the input file stem (filename without extension)
     pub fn input_stem(&self) -> &str {
         self.input_path
@@ -256,7 +251,6 @@ mod tests {
                 sources: vec!["test.jpg".to_string()],
                 device: "cpu".to_string(),
                 output_dir: output_dir.clone(),
-                depfile: None,
                 skip_metadata: false,
                 strict: true,
             },
@@ -267,7 +261,6 @@ mod tests {
             model_path: None,
             model_url: None,
             model_checksum: None,
-            output_dir, // Add the stamped output_dir field
             quality_results: None,
         }
     }

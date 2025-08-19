@@ -10,7 +10,6 @@ pub mod config;
 pub mod cutout_postprocessing;
 pub mod cutout_preprocessing;
 pub mod cutout_processing;
-pub mod depfile_generator;
 pub mod detection;
 pub mod detection_obj;
 pub mod image_input;
@@ -23,8 +22,4 @@ pub mod progress;
 pub mod quality_processing;
 pub mod rfdetr;
 pub mod shared_metadata;
-pub mod stamp_manager;
 pub mod yolo;
-
-#[cfg(test)]
-mod proc_macro_stamp_tests;

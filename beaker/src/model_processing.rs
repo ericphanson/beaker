@@ -22,7 +22,7 @@ use crate::color_utils::maybe_dim_stderr;
 use crate::shared_metadata::{InputProcessing, SystemInfo};
 
 /// Configuration trait for models that can be processed generically
-pub trait ModelConfig: std::any::Any + beaker_stamp::Stamp {
+pub trait ModelConfig: std::any::Any {
     fn base(&self) -> &BaseModelConfig;
 
     /// Get the tool name for this config (e.g., "detect", "cutout")
@@ -193,14 +193,6 @@ pub fn run_model_processing_with_quality_outputs<P: ModelProcessor>(
         coreml_cache: coreml_cache_stats,
     };
 
-    // Generate stamps for Make-compatible incremental builds if depfile is requested
-    let stamp_info = if config.base().depfile.is_some() {
-        let model_path = model_info.model_path.as_ref().map(Path::new);
-        Some(generate_stamps_for_tool::<P>(&config, model_path)?)
-    } else {
-        None
-    };
-
     // Process each image and collect results
     let mut successful_count = 0;
     let mut failed_count = 0;
@@ -257,12 +249,10 @@ pub fn run_model_processing_with_quality_outputs<P: ModelProcessor>(
                     save_enhanced_metadata_for_file::<P>(
                         &result,
                         &config,
-                        image_path,
                         &command_line,
                         system.clone(),
                         input.clone(),
                         start_timestamp,
-                        stamp_info.as_ref(),
                         &output_manager,
                     )?;
                 }
@@ -353,12 +343,10 @@ pub fn run_model_processing_with_quality_outputs<P: ModelProcessor>(
 fn save_enhanced_metadata_for_file<P: ModelProcessor>(
     result: &P::Result,
     config: &P::Config,
-    image_path: &std::path::Path,
     command_line: &[String],
     system: SystemInfo,
     input: InputProcessing,
     start_timestamp: chrono::DateTime<chrono::Utc>,
-    stamp_info: Option<&crate::stamp_manager::StampInfo>,
     output_manager: &crate::output_manager::OutputManager,
 ) -> Result<()> {
     use crate::shared_metadata::{
@@ -417,50 +405,6 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
             return Err(anyhow::anyhow!("Unknown tool name: {}", result.tool_name()));
         }
     }
-
-    // Generate depfile if requested and stamps are available
-    if let (Some(depfile_path), Some(stamp_info)) = (&config.base().depfile, stamp_info) {
-        generate_depfile_for_image::<P>(
-            result,
-            config,
-            image_path,
-            depfile_path,
-            stamp_info,
-            output_manager,
-        )?;
-    }
-
-    Ok(())
-}
-
-/// Generate stamps for the appropriate tool type
-fn generate_stamps_for_tool<P: ModelProcessor>(
-    config: &P::Config,
-    model_path: Option<&Path>,
-) -> Result<crate::stamp_manager::StampInfo> {
-    let tool_name = config.tool_name();
-    crate::stamp_manager::generate_stamps_for_model(tool_name, config, model_path)
-}
-
-/// Generate a depfile for a single processed image
-fn generate_depfile_for_image<P: ModelProcessor>(
-    _result: &P::Result,
-    _config: &P::Config,
-    image_path: &Path,
-    depfile_path: &str,
-    stamp_info: &crate::stamp_manager::StampInfo,
-    output_manager: &crate::output_manager::OutputManager,
-) -> Result<()> {
-    use crate::depfile_generator::generate_depfile;
-
-    // Input files are just the source image
-    let inputs = vec![image_path.to_path_buf()];
-
-    // Use OutputManager as single source of truth for all outputs
-    let outputs = output_manager.get_produced_outputs();
-
-    // Generate the depfile
-    generate_depfile(Path::new(depfile_path), &outputs, &inputs, stamp_info)?;
 
     Ok(())
 }

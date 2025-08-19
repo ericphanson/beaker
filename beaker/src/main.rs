@@ -11,7 +11,6 @@ mod config;
 mod cutout_postprocessing;
 mod cutout_preprocessing;
 mod cutout_processing;
-mod depfile_generator;
 mod detection;
 mod detection_obj;
 mod image_input;
@@ -24,7 +23,6 @@ mod progress;
 mod quality_processing;
 mod rfdetr;
 mod shared_metadata;
-mod stamp_manager;
 mod yolo;
 
 use color_utils::{colors, symbols};

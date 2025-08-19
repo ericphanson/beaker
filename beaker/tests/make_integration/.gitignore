@@ -1,8 +1,0 @@
-# Test artifacts that should not be committed
-*.jpg
-*.png
-*.d
-*.beaker.toml
-*.beaker.json
-test_stamps/
-stamps/
