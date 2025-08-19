@@ -16,7 +16,7 @@ pub fn get_default_quality_model_info() -> ModelInfo {
     ModelInfo {
         name: "quality-model-v1".to_string(),
         url: "https://github.com/ericphanson/beaker/releases/download/quality-model-v1/quality-dynamic-int8.onnx".to_string(),
-        md5_checksum: "8691fda05ee55c8552c412e5e62551cb".to_string(),
+        md5_checksum: Some("8691fda05ee55c8552c412e5e62551cb".to_string()),
         filename: "quality-model-v1.onnx".to_string(),
     }
 }

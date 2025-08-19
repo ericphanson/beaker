@@ -187,7 +187,7 @@ fn test_cli_model_url_without_checksum() {
     } else {
         // If it succeeds, we should see the warning about checksum verification
         assert!(
-            stderr.contains("checksum") && stderr.contains("skipped"),
+            stderr.contains("checksum"),
             "Should show checksum verification warning. Got: {stderr}"
         );
     }

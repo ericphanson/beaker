@@ -20,7 +20,7 @@ use std::time::Duration;
 pub struct ModelInfo {
     pub name: String,
     pub url: String,
-    pub md5_checksum: String,
+    pub md5_checksum: Option<String>,
     pub filename: String,
 }
 
@@ -277,7 +277,7 @@ fn download_with_concurrency_protection(
 
     let start_time = std::time::Instant::now();
     let mut wait_duration = INITIAL_WAIT;
-    let skip_verification = model_info.md5_checksum == "skip_verification";
+    let skip_verification = model_info.md5_checksum.is_none();
 
     loop {
         // Try to create lock file atomically
@@ -351,7 +351,10 @@ fn download_with_concurrency_protection(
                         let _ = fs::remove_file(model_path);
                     } else {
                         // For normal downloads, verify checksum
-                        match cache_common::verify_checksum(model_path, &model_info.md5_checksum) {
+                        match cache_common::verify_checksum(
+                            model_path,
+                            model_info.md5_checksum.as_ref().unwrap(),
+                        ) {
                             Ok(true) => {
                                 log::debug!(
                                     "{} Model downloaded by another process, using cached version",
@@ -435,61 +438,30 @@ fn download_with_concurrency_protection(
     }
 }
 
-/// Download model without checksum verification (for CLI URLs without checksums)
-pub fn download_model_without_verification(
-    model_info: &ModelInfo,
-) -> Result<(PathBuf, Option<crate::shared_metadata::OnnxCacheStats>)> {
-    use std::time::Instant;
-
-    let cache_dir = get_cache_dir()?;
-    let model_path = cache_dir.join(&model_info.filename);
-    let lock_path = cache_dir.join(format!("{}.lock", model_info.filename));
-
-    log::debug!("🗂️  Cache directory: {}", cache_dir.display());
-    log::debug!("📄 Model path: {}", model_path.display());
-    log::warn!(
-        "{}Downloading model without checksum verification. This is less secure. Use --model-checksum <CHECKSUM> to verify the downloaded model.",
-        symbols::warning()
-    );
-
-    // Collect general ONNX cache info (single traversal) - we're using download cache here
-    let mut onnx_cache_stats = crate::shared_metadata::OnnxCacheStats::default();
-    if let Ok((count, size_mb)) = crate::shared_metadata::get_cache_info(&cache_dir) {
-        onnx_cache_stats.cached_models_count = Some(count);
-        onnx_cache_stats.cached_models_size_mb = Some(size_mb);
-    }
-
-    let download_start_time = Instant::now();
-
-    // Handle concurrent downloads with lock file
-    download_with_concurrency_protection(&model_path, &lock_path, model_info)?;
-
-    // Record download timing and cache miss
-    let download_time_ms = download_start_time.elapsed().as_secs_f64() * 1000.0;
-    onnx_cache_stats.model_cache_hit = Some(false);
-    onnx_cache_stats.download_time_ms = Some(download_time_ms);
-
-    // Validate model file size (but skip checksum verification)
-    validate_model_file_size(&model_path)?;
-
-    let file_info = get_file_info(&model_path)?;
-    log::debug!("   File info: {file_info}");
-
-    log::info!(
-        "{} Model downloaded successfully (checksum verification skipped)",
-        crate::color_utils::symbols::completed_successfully()
-    );
-
-    Ok((model_path, Some(onnx_cache_stats)))
-}
 pub fn get_or_download_model(
     model_info: &ModelInfo,
 ) -> Result<(PathBuf, Option<crate::shared_metadata::OnnxCacheStats>)> {
+    log::debug!(
+        "{} Getting or downloading model: {:?}",
+        crate::color_utils::symbols::checking(),
+        model_info
+    );
     use std::time::Instant;
 
-    let cache_dir = get_cache_dir()?;
-    let model_path = cache_dir.join(&model_info.filename);
-    let lock_path = cache_dir.join(format!("{}.lock", model_info.filename));
+    let cache_dir: PathBuf = get_cache_dir()?;
+    let name_for_cache = match model_info.md5_checksum.clone() {
+        Some(checksum) => {
+            let (name, ext) = match model_info.filename.rsplit_once('.') {
+                Some((n, e)) => (n, e), // e has no leading '.'
+                None => (model_info.filename.as_str(), ""),
+            };
+            format!("{name}-{checksum}.{ext}")
+        }
+        None => model_info.filename.clone(),
+    };
+    // let name_for_cache = model_info.filename.clone();
+    let model_path = cache_dir.join(&name_for_cache);
+    let lock_path = cache_dir.join(format!("{name_for_cache}.lock"));
 
     log::debug!("🗂️  Cache directory: {}", cache_dir.display());
     log::debug!("📄 Model path: {}", model_path.display());
@@ -520,9 +492,9 @@ pub fn get_or_download_model(
                     symbols::warning()
                 );
                 fs::remove_file(&model_path)?;
-            } else {
+            } else if let Some(checksum) = &model_info.md5_checksum {
                 // File exists and has content, now verify checksum
-                match cache_common::verify_checksum(&model_path, &model_info.md5_checksum) {
+                match cache_common::verify_checksum(&model_path, checksum) {
                     Ok(true) => {
                         // Fast path: model is cached and valid
                         log::info!(
@@ -540,9 +512,9 @@ pub fn get_or_download_model(
                         let actual_checksum = cache_common::calculate_md5(&model_path)
                             .unwrap_or_else(|e| format!("Error calculating checksum: {e}"));
 
-                        log::warn!("{}Cached model has invalid checksum, re-downloading\n   Expected: {}\n   Actual:   {}\n   File info: {}",
+                        log::warn!("{}Cached model has invalid checksum, re-downloading\n   Expected: {}\n   Actual:   {}\n   File info: {}\n   Cache directory: {}",
                         symbols::warning(),
-                        model_info.md5_checksum, actual_checksum, file_info);
+                        checksum, actual_checksum, file_info, cache_dir.display());
 
                         fs::remove_file(&model_path)?;
                     }
@@ -561,6 +533,13 @@ pub fn get_or_download_model(
                         fs::remove_file(&model_path)?;
                     }
                 }
+            } else {
+                // File exists but checksum is not set
+                log::warn!(
+                    "{}No checksum provided; model path exists but cannot be verified, re-downloading",
+                    symbols::warning()
+                );
+                fs::remove_file(&model_path)?;
             }
         } else {
             log::debug!(
@@ -578,24 +557,25 @@ pub fn get_or_download_model(
     onnx_cache_stats.model_cache_hit = Some(false);
     onnx_cache_stats.download_time_ms = Some(download_time_ms);
 
-    // Verify the downloaded model
-    log::debug!(
-        "{} Verifying downloaded model checksum...",
-        symbols::checking()
-    );
-    let actual_checksum = cache_common::calculate_md5(&model_path)?;
-    let file_info = get_file_info(&model_path)?;
+    // Verify the downloaded model if we have a checksum
+    if let Some(checksum) = model_info.md5_checksum.clone() {
+        log::debug!(
+            "{} Verifying downloaded model checksum...",
+            symbols::checking()
+        );
+        let actual_checksum = cache_common::calculate_md5(&model_path)?;
+        let file_info = get_file_info(&model_path)?;
 
-    log::debug!("   Expected checksum: {}", model_info.md5_checksum);
-    log::debug!("   Actual checksum:   {actual_checksum}");
-    log::debug!("   File info: {file_info}");
+        log::debug!("   Expected checksum: {checksum}");
+        log::debug!("   Actual checksum:   {actual_checksum}");
+        log::debug!("   File info: {file_info}");
 
-    if actual_checksum != model_info.md5_checksum {
-        fs::remove_file(&model_path)?;
+        if actual_checksum != checksum {
+            fs::remove_file(&model_path)?;
 
-        // Provide comprehensive error information for debugging
-        return Err(anyhow!(
-            "Downloaded model failed checksum verification.\n\
+            // Provide comprehensive error information for debugging
+            return Err(anyhow!(
+                "Downloaded model failed checksum verification.\n\
              Expected checksum: {}\n\
              Actual checksum:   {}\n\
              File details: {}\n\
@@ -609,21 +589,27 @@ pub fn get_or_download_model(
              - Model file was updated but checksum wasn't\n\
              \n\
              Try clearing the cache or setting FORCE_DOWNLOAD=1",
-            model_info.md5_checksum,
-            actual_checksum,
-            file_info,
-            model_info.url,
-            model_path
-                .parent()
-                .unwrap_or_else(|| Path::new("unknown"))
-                .display()
-        ));
-    }
+                checksum,
+                actual_checksum,
+                file_info,
+                model_info.url,
+                model_path
+                    .parent()
+                    .unwrap_or_else(|| Path::new("unknown"))
+                    .display()
+            ));
+        }
 
-    log::info!(
-        "{} Model downloaded and verified successfully",
-        crate::color_utils::symbols::completed_successfully()
-    );
+        log::info!(
+            "{} Model downloaded and verified successfully",
+            crate::color_utils::symbols::completed_successfully()
+        );
+    } else {
+        log::warn!(
+            "{} Model downloaded but no checksum provided to verify download",
+            crate::color_utils::symbols::warning()
+        );
+    }
 
     Ok((model_path, Some(onnx_cache_stats)))
 }
@@ -661,7 +647,7 @@ impl CliModelInfo {
 pub struct RuntimeModelInfo {
     pub name: String,
     pub url: String,
-    pub md5_checksum: String,
+    pub md5_checksum: Option<String>,
     pub filename: String,
 }
 
@@ -672,23 +658,51 @@ impl RuntimeModelInfo {
         url_env_var: Option<&str>,
         checksum_env_var: Option<&str>,
     ) -> Self {
+        let mut uses_override = false;
         let url = if let Some(env_var) = url_env_var {
+            uses_override |= std::env::var(env_var).is_ok();
             std::env::var(env_var).unwrap_or_else(|_| base_info.url.clone())
         } else {
             base_info.url.clone()
         };
 
-        let checksum = if let Some(env_var) = checksum_env_var {
-            std::env::var(env_var).unwrap_or_else(|_| base_info.md5_checksum.clone())
+        let checksum: Option<String> = if uses_override {
+            if let Some(env_var) = checksum_env_var {
+                match std::env::var(env_var) {
+                    Ok(value) => {
+                        uses_override |= true;
+                        Some(value)
+                    }
+                    Err(_) => base_info.md5_checksum.clone(),
+                }
+            } else {
+                base_info.md5_checksum.clone()
+            }
         } else {
             base_info.md5_checksum.clone()
         };
 
+        let mut name = base_info.name.clone();
+        let mut filename = base_info.filename.clone();
+
+        if uses_override {
+            // Base name without v1 or similar
+            name = base_info
+                .name
+                .split_once("-v")
+                .map_or(base_info.name.clone(), |(n, _)| n.to_string());
+
+            // Base filename without v1 or similar
+            filename = base_info
+                .filename
+                .split_once("-v")
+                .map_or(base_info.filename.clone(), |(n, _)| n.to_string());
+        }
         RuntimeModelInfo {
-            name: base_info.name.clone(),
+            name,
             url,
             md5_checksum: checksum,
-            filename: base_info.filename.clone(),
+            filename,
         }
     }
 
@@ -785,11 +799,21 @@ pub fn get_model_source_with_env_override<T: ModelAccess>() -> Result<(
 
     // Check if we should download from a remote source
     if let Some(default_model_info) = T::get_default_model_info() {
+        log::debug!(
+            "🔄 Using default model info for {}: {:?}",
+            T::get_env_var_name(),
+            default_model_info
+        );
         // Create RuntimeModelInfo with potential URL/checksum overrides
         let runtime_model_info = RuntimeModelInfo::from_model_info_with_overrides(
             &default_model_info,
             T::get_url_env_var_name(),
             T::get_checksum_env_var_name(),
+        );
+        log::debug!(
+            "🔄 Got runtime model info {}: {:?}",
+            T::get_env_var_name(),
+            runtime_model_info
         );
 
         // Log if any overrides are being used
@@ -807,7 +831,7 @@ pub fn get_model_source_with_env_override<T: ModelAccess>() -> Result<(
                 log::debug!(
                     "🔄 Using custom checksum from {}: {}",
                     checksum_env,
-                    runtime_model_info.md5_checksum
+                    runtime_model_info.md5_checksum.clone().unwrap()
                 );
             }
         }
@@ -819,7 +843,6 @@ pub fn get_model_source_with_env_override<T: ModelAccess>() -> Result<(
                 .to_str()
                 .ok_or_else(|| anyhow::anyhow!("Downloaded model path is not valid UTF-8"))?;
 
-            log::debug!("📥 Using downloaded model: {path_str}");
             return Ok((
                 ModelSource::FilePath(path_str.to_string()),
                 download_cache_stats,
@@ -849,6 +872,12 @@ pub fn get_model_source_with_cli_and_env_override<T: ModelAccess>(
     ModelSource<'static>,
     Option<crate::shared_metadata::OnnxCacheStats>,
 )> {
+    log::debug!(
+        "{} [get_model_source_with_cli_and_env_override] {:?}",
+        crate::color_utils::symbols::checking(),
+        cli_model_info
+    );
+
     // First, validate CLI arguments
     cli_model_info.validate()?;
 
@@ -879,30 +908,14 @@ pub fn get_model_source_with_cli_and_env_override<T: ModelAccess>(
     if let Some(model_url) = &cli_model_info.model_url {
         log::info!("🔧 Using CLI-provided model URL: {model_url}");
 
-        // Create a temporary model info for downloading
-        let default_model_info = T::get_default_model_info();
-        let filename = if let Some(ref info) = default_model_info {
-            // Use default filename if available
-            info.filename.clone()
-        } else {
-            // Extract filename from URL or use a generic name
-            model_url
-                .split('/')
-                .next_back()
-                .unwrap_or("custom_model.onnx")
-                .to_string()
-        };
+        let filename = model_url
+            .split('/')
+            .next_back()
+            .unwrap_or("custom_model.onnx")
+            .to_string();
 
         // Check if checksum was provided
-        let checksum = if let Some(ref checksum) = cli_model_info.model_checksum {
-            checksum.clone()
-        } else {
-            log::warn!(
-                "{}No checksum provided for CLI model URL. Download will proceed but verification will be skipped. Use --model-checksum <CHECKSUM> for secure verification.",
-                symbols::warning()
-            );
-            "skip_verification".to_string() // Special marker to skip verification
-        };
+        let checksum = cli_model_info.model_checksum.clone();
 
         let cli_model_info_for_download = ModelInfo {
             name: "CLI-provided".to_string(),
@@ -913,13 +926,7 @@ pub fn get_model_source_with_cli_and_env_override<T: ModelAccess>(
 
         // Handle download with or without checksum verification
         let (download_path, download_cache_stats) =
-            if cli_model_info_for_download.md5_checksum == "skip_verification" {
-                // Download without checksum verification
-                download_model_without_verification(&cli_model_info_for_download)?
-            } else {
-                // Download with checksum verification
-                get_or_download_model(&cli_model_info_for_download)?
-            };
+            get_or_download_model(&cli_model_info_for_download)?;
 
         // Test model functionality for newly downloaded models
         test_model_basic_functionality(&download_path)?;
@@ -962,7 +969,7 @@ mod tests {
         let base_info = ModelInfo {
             name: "test-model".to_string(),
             url: "https://example.com/model.onnx".to_string(),
-            md5_checksum: "abcd1234".to_string(),
+            md5_checksum: Some("abcd1234".to_string()),
             filename: "model.onnx".to_string(),
         };
 
@@ -984,7 +991,7 @@ mod tests {
         let runtime_info = RuntimeModelInfo {
             name: "test-model".to_string(),
             url: "https://example.com/model.onnx".to_string(),
-            md5_checksum: "abcd1234".to_string(),
+            md5_checksum: Some("abcd1234".to_string()),
             filename: "model.onnx".to_string(),
         };
 
@@ -992,7 +999,7 @@ mod tests {
 
         assert_eq!(model_info.name, "test-model");
         assert_eq!(model_info.url, "https://example.com/model.onnx");
-        assert_eq!(model_info.md5_checksum, "abcd1234");
+        assert_eq!(model_info.md5_checksum, Some("abcd1234".to_string()));
         assert_eq!(model_info.filename, "model.onnx");
     }
 }

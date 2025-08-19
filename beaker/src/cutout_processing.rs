@@ -21,7 +21,7 @@ pub fn get_default_cutout_model_info() -> ModelInfo {
     ModelInfo {
         name: "isnet-general-use-v1".to_string(),
         url: "https://github.com/ericphanson/beaker/releases/download/beaker-cutout-model-v1/isnet-general-use.onnx".to_string(),
-        md5_checksum: "fc16ebd8b0c10d971d3513d564d01e29".to_string(),
+        md5_checksum: Some("fc16ebd8b0c10d971d3513d564d01e29".to_string()),
         filename: "isnet-general-use.onnx".to_string(),
     }
 }
@@ -312,7 +312,7 @@ mod tests {
         let info = model_info.unwrap();
         assert_eq!(info.name, "isnet-general-use-v1");
         assert!(info.url.contains("isnet-general-use.onnx"));
-        assert!(!info.md5_checksum.is_empty());
+        assert!(info.md5_checksum.as_ref().is_some_and(|s| !s.is_empty()));
         assert_eq!(info.filename, "isnet-general-use.onnx");
     }
 
@@ -323,7 +323,10 @@ mod tests {
         let model_info = get_default_cutout_model_info();
         assert_eq!(model_info.name, "isnet-general-use-v1");
         assert!(model_info.url.contains("isnet-general-use.onnx"));
-        assert!(!model_info.md5_checksum.is_empty());
+        assert!(model_info
+            .md5_checksum
+            .as_ref()
+            .is_some_and(|s| !s.is_empty()));
         assert_eq!(model_info.filename, "isnet-general-use.onnx");
     }
 

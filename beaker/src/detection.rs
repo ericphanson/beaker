@@ -27,7 +27,7 @@ pub fn get_default_detect_model_info() -> ModelInfo {
     ModelInfo {
         name: "bird-orientation-detector-v1.0.0".to_string(),
         url: "https://github.com/ericphanson/beaker/releases/download/bird-orientation-detector-v1.0.0/rfdetr-medium-dynamic-int8.onnx".to_string(),
-        md5_checksum: "f1e20fe90da342a7529c89f4d39b7ff9".to_string(),
+        md5_checksum: Some("f1e20fe90da342a7529c89f4d39b7ff9".to_string()),
         filename: "bird-orientation-detector-v1.0.0.onnx".to_string(),
     }
 }
@@ -72,12 +72,15 @@ impl ModelAccess for HeadAccess {
         "BEAKER_DETECT_MODEL_PATH"
     }
 
-    // Head models support remote download for CLI --model-url usage
-    // but prefer embedded bytes by default
+    fn get_url_env_var_name() -> Option<&'static str> {
+        Some("BEAKER_DETECT_MODEL_URL")
+    }
+
+    fn get_checksum_env_var_name() -> Option<&'static str> {
+        Some("BEAKER_DETECT_MODEL_CHECKSUM")
+    }
+
     fn get_default_model_info() -> Option<ModelInfo> {
-        // Only provide this for CLI usage when --model-url is specified
-        // The get_model_source_with_cli_and_env_override will use embedded bytes
-        // unless CLI args or env vars override it
         Some(get_default_detect_model_info())
     }
 }
