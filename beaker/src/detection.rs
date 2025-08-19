@@ -471,7 +471,12 @@ impl ModelProcessor for DetectionProcessor {
                         }
                     };
                     let dq = detection_quality(
-                        &q20, &w20, &p20, bbox,     // in native image pixels
+                        &q20,
+                        &w20,
+                        &p20,
+                        result.global_blur_score,
+                        result.global_paq2piq_score,
+                        bbox,     // in native image pixels
                         orig_img, // native frame
                     );
                     debug!("Detection quality: {dq:?}");

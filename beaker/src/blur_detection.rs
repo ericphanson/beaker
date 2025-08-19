@@ -23,21 +23,6 @@ const GAUSS_SIGMA_NATIVE: f32 = 1.0; // denoise native crop before Tenengrad/det
 /// Core-vs-ring (subject-vs-background) sharpness check
 const CORE_RATIO: f32 = 0.60; // inner 60% treated as "core"
 
-/// Triage thresholds (conservative defaults)
-const TR_GOOD_DQ: f32 = 55.0;
-const TR_GOOD_D: f32 = 0.75;
-const TR_GOOD_P: f32 = 0.25;
-const TR_GOOD_R: f32 = 1.00;
-const TR_GOOD_CELLS: f32 = 9.0;
-const TR_GOOD_S: f32 = 0.70;
-
-const TR_BAD_DQ: f32 = 28.0;
-const TR_BAD_P: f32 = 0.60;
-const TR_BAD_D: f32 = 0.65;
-const TR_BAD_CELLS: f32 = 3.0;
-const TR_BAD_S: f32 = 0.50;
-const TR_BAD_R: f32 = 0.85;
-
 /// ------------------------- basic types -------------------------
 type GrayF32 = ImageBuffer<Luma<f32>, Vec<f32>>;
 
@@ -51,11 +36,11 @@ pub struct BBoxF {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct DetectionQuality {
-    /// Final per-detection score (same scale as the PaQ map, e.g., 0..100).
-    pub quality_overall: f32,
-
     /// Triage result for this detection: "surely_good" | "surely_bad" | "unknown".
     pub triage_decision: String,
+
+    /// Triage rationale explaining the decision
+    pub triage_rationale: String,
 
     // -------- interpretable components --------
     /// Mean of the model's 20×20 quality map inside the bbox (ROI-pooled).
@@ -696,38 +681,71 @@ fn core_ring_ratio_native(img: &RgbImage, bbox: BBoxF) -> (f32, f32, f32) {
     (ratio, t_core, t_ring)
 }
 
-/// Triage rule: returns "surely_good" | "surely_bad" | "unknown"
-fn triage_decision(dq: f32, d: f32, p: f32, cells: f32, s_prior: f32, r_core_ring: f32) -> String {
-    // surely-good (precision-first)
-    if dq >= TR_GOOD_DQ
-        && d >= TR_GOOD_D
-        && p <= TR_GOOD_P
-        && r_core_ring >= TR_GOOD_R
-        && cells >= TR_GOOD_CELLS
-        && s_prior >= TR_GOOD_S
-    {
-        return "surely_good".to_string();
+pub fn triage_decision(
+    tenengrad_ring_mean: f32,  // T
+    global_blur_score: f32,    // B
+    global_paq2piq_score: f32, // P
+) -> (String, String) {
+    let bad_t = tenengrad_ring_mean <= 0.01;
+    let bad_b = global_blur_score <= 0.17;
+
+    // BAD if extreme defocus/blur
+    if bad_t || bad_b {
+        let mut why = Vec::new();
+        if bad_t {
+            why.push(format!(
+                "tenengrad_ring_mean={tenengrad_ring_mean:.4} ≤ 0.01"
+            ));
+        }
+        if bad_b {
+            why.push(format!("global_blur_score={global_blur_score:.2} ≤ 0.17"));
+        }
+        let rationale = format!("bad: {} (obvious blur/defocus).", why.join(" OR "));
+        return ("bad".to_string(), rationale);
     }
 
-    // surely-bad (recall-first)
-    if dq <= TR_BAD_DQ
-        || (p >= TR_BAD_P && d <= TR_BAD_D)
-        || cells <= TR_BAD_CELLS
-        || s_prior <= TR_BAD_S
-        || r_core_ring <= TR_BAD_R
-    {
-        return "surely_bad".to_string();
+    // GOOD if sharp, un-blurry, and perceptually high quality
+    let good_t = tenengrad_ring_mean > 0.01;
+    let good_b = global_blur_score > 0.30;
+    let good_p = global_paq2piq_score > 75.66;
+
+    if good_t && good_b && good_p {
+        let rationale = format!(
+            "good: tenengrad_ring_mean={tenengrad_ring_mean:.4} > 0.01 AND global_blur_score={global_blur_score:.2} > 0.30 AND global_paq2piq_score={global_paq2piq_score:.2} > 75.66."
+        );
+        return ("good".to_string(), rationale);
     }
 
-    "unknown".to_string()
+    // UNKNOWN (conflict) regions
+    if global_blur_score > 0.17 && global_blur_score <= 0.30 {
+        let rationale = format!(
+            "unknown: borderline blur (0.17 < global_blur_score={global_blur_score:.2} ≤ 0.30) with tenengrad_ring_mean={tenengrad_ring_mean:.4} > 0.01."
+        );
+        return ("unknown".to_string(), rationale);
+    }
+
+    if global_paq2piq_score <= 75.66 && tenengrad_ring_mean > 0.01 && global_blur_score > 0.30 {
+        let rationale = format!(
+            "unknown: sharp but low perceptual quality (global_paq2piq_score={global_paq2piq_score:.2} ≤ 75.66) despite tenengrad_ring_mean={tenengrad_ring_mean:.4} > 0.01 and global_blur_score={global_blur_score:.2} > 0.30."
+        );
+        return ("unknown".to_string(), rationale);
+    }
+
+    // Should be unreachable given the partitions above, but kept for safety.
+    let rationale = format!(
+        "unknown: fell outside explicit accept/reject regions (tenengrad_ring_mean={tenengrad_ring_mean:.4}, global_blur_score={global_blur_score:.2}, global_paq2piq_score={global_paq2piq_score:.2})."
+    );
+    ("unknown".to_string(), rationale)
 }
 
 /// Compute per-detection quality with ROI-aware pooling + native detail + priors + triage.
 /// Now requires both the blur weights `w20` and the fused blur probability map `p20`.
 pub fn detection_quality(
-    q20: &Array2<f32>,   // PaQ 20x20 local map (e.g., 0..100)
-    w20: &Array2<f32>,   // blur weights 20x20 (1 - ALPHA * P)
-    p20: &Array2<f32>,   // fused blur probability 20x20 (0..1)
+    q20: &Array2<f32>, // PaQ 20x20 local map (e.g., 0..100)
+    w20: &Array2<f32>, // blur weights 20x20 (1 - ALPHA * P)
+    p20: &Array2<f32>, // fused blur probability 20x20 (0..1)
+    global_blur_score: f32,
+    global_paq2piq_score: f32,
     bbox: BBoxF,         // in native image pixels
     orig_img: &RgbImage, // native frame
 ) -> DetectionQuality {
@@ -755,14 +773,13 @@ pub fn detection_quality(
     let cov_cells = approx_cell_coverage_224(bbox, img_w, img_h); // raw cells
     let coverage_prior = clampf(cov_cells / COV_REF, 0.0, 1.0);
 
-    // Final per-detection quality (same scale as q20)
-    let quality = q_roi * w_roi * detail * size_prior * coverage_prior;
-
     // Triage decision
-    let triage = triage_decision(quality, detail, p_roi, cov_cells, size_prior, r_core_ring);
+    let (triage, rationale) = triage_decision(t_ring, global_blur_score, global_paq2piq_score);
+
+    // let triage = triage_decision(quality, detail, p_roi, cov_cells, size_prior, r_core_ring);
     DetectionQuality {
-        quality_overall: quality,
         triage_decision: triage,
+        triage_rationale: rationale,
         roi_quality_mean: q_roi,
         roi_blur_weight_mean: w_roi,
         roi_blur_probability_mean: p_roi,
