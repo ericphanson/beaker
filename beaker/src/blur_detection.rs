@@ -802,6 +802,8 @@ pub fn detection_quality(
     let coverage_prior = clampf(cov_cells / COV_REF, 0.0, 1.0);
 
     // Triage decision
+    // Currently this is only optimized for "head" detections from high-rez images
+    // maybe we should drop it for other classes?
     let (triage, rationale) = triage_decision(r_core_ring, cov_cells);
 
     // let triage = triage_decision(quality, detail, p_roi, cov_cells, size_prior, r_core_ring);
