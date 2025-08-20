@@ -342,7 +342,7 @@ fn stats(name: &str, a: &Array2<f32>) -> (f32, f32, f32, f32) {
     (min, max, mean, med)
 }
 
-/// Tenengrad (mean of G^2) aggregated to a 20×20 grid for any WxH (224 or 112).
+/// Tenengrad (mean of grid_cells_covered^2) aggregated to a 20×20 grid for any WxH (224 or 112).
 fn tenengrad_mean_grid_20(gray: &GrayF32) -> Array2<f32> {
     const K_SOBEL_X: [f32; 9] = [-1.0, 0.0, 1.0, -2.0, 0.0, 2.0, -1.0, 0.0, 1.0];
     const K_SOBEL_Y: [f32; 9] = [-1.0, -2.0, -1.0, 0.0, 0.0, 0.0, 1.0, 2.0, 1.0];
@@ -356,7 +356,7 @@ fn tenengrad_mean_grid_20(gray: &GrayF32) -> Array2<f32> {
     let gx: Vec<f32> = filter3x3(gray, &K_SOBEL_X).into_raw();
     let gy: Vec<f32> = filter3x3(gray, &K_SOBEL_Y).into_raw();
 
-    // G^2 per pixel
+    // grid_cells_covered^2 per pixel
     let mut g2 = vec![0f32; w * h];
     for i in 0..g2.len() {
         g2[i] = gx[i] * gx[i] + gy[i] * gy[i];
@@ -469,21 +469,24 @@ pub fn blur_weights_from_nchw(
     }
 
     if let Some(out) = out_dir {
-        let start = Instant::now();
-        dump_debug_heatmaps(
-            &out,
-            DebugMaps {
-                x224: x,
-                t224: &t224,
-                t112: Some(&t112),
-                p224: &p224,
-                p112: Some(&p112),
-                pfused: &p,
-                w20: &w,
-            },
-        )
-        .unwrap();
-        log::debug!("Finished dumping debug heatmaps in {:?}", start.elapsed());
+        // Only emit heatmaps for debugging
+        if log::log_enabled!(log::Level::Debug) {
+            let start = Instant::now();
+            dump_debug_heatmaps(
+                &out,
+                DebugMaps {
+                    x224: x,
+                    t224: &t224,
+                    t112: Some(&t112),
+                    p224: &p224,
+                    p112: Some(&p112),
+                    pfused: &p,
+                    w20: &w,
+                },
+            )
+            .unwrap();
+            log::debug!("Finished dumping debug heatmaps in {:?}", start.elapsed());
+        }
     }
 
     let blur_global = p.sum() / 400.0;
@@ -681,61 +684,50 @@ fn core_ring_ratio_native(img: &RgbImage, bbox: BBoxF) -> (f32, f32, f32) {
     (ratio, t_core, t_ring)
 }
 
+/// 3-valued triage without referencing HP/HR.
 pub fn triage_decision(
-    tenengrad_ring_mean: f32,  // T
-    global_blur_score: f32,    // B
-    global_paq2piq_score: f32, // P
+    core_ring_sharpness_ratio: f32,
+    grid_cells_covered: f32,
+    roi_detail_probability: f32,
 ) -> (String, String) {
-    let bad_t = tenengrad_ring_mean <= 0.01;
-    let bad_b = global_blur_score <= 0.17;
-
-    // BAD if extreme defocus/blur
-    if bad_t || bad_b {
-        let mut why = Vec::new();
-        if bad_t {
-            why.push(format!(
-                "tenengrad_ring_mean={tenengrad_ring_mean:.4} ≤ 0.01"
-            ));
-        }
-        if bad_b {
-            why.push(format!("global_blur_score={global_blur_score:.2} ≤ 0.17"));
-        }
-        let rationale = format!("bad: {} (obvious blur/defocus).", why.join(" OR "));
-        return ("bad".to_string(), rationale);
-    }
-
-    // GOOD if sharp, un-blurry, and perceptually high quality
-    let good_t = tenengrad_ring_mean > 0.01;
-    let good_b = global_blur_score > 0.30;
-    let good_p = global_paq2piq_score > 75.66;
-
-    if good_t && good_b && good_p {
-        let rationale = format!(
-            "good: tenengrad_ring_mean={tenengrad_ring_mean:.4} > 0.01 AND global_blur_score={global_blur_score:.2} > 0.30 AND global_paq2piq_score={global_paq2piq_score:.2} > 75.66."
+    // BAD: very low sharpness AND essentially no ROI detail
+    if core_ring_sharpness_ratio <= 0.77 && roi_detail_probability <= 0.01 {
+        let why = format!(
+            "bad: core_ring_sharpness_ratio={core_ring_sharpness_ratio:.2} ≤ 0.77 (insufficient core vs. ring sharpness; suggests overall softness/defocus) \
+AND roi_detail_probability={roi_detail_probability:.3} ≤ 0.01 (no meaningful ROI detail)"
         );
-        return ("good".to_string(), rationale);
+        return ("bad".to_string(), why);
     }
 
-    // UNKNOWN (conflict) regions
-    if global_blur_score > 0.17 && global_blur_score <= 0.30 {
-        let rationale = format!(
-            "unknown: borderline blur (0.17 < global_blur_score={global_blur_score:.2} ≤ 0.30) with tenengrad_ring_mean={tenengrad_ring_mean:.4} > 0.01."
+    // GOOD: clearly sharp AND well covered
+    if core_ring_sharpness_ratio > 1.19 && grid_cells_covered > 6.15 {
+        let why = format!(
+            "good: core_ring_sharpness_ratio={core_ring_sharpness_ratio:.2} > 1.19 AND grid_cells_covered={grid_cells_covered:.2} > 6.15 \
+(sharp enough and well covered spatially)"
         );
-        return ("unknown".to_string(), rationale);
+        return ("good".to_string(), why);
     }
 
-    if global_paq2piq_score <= 75.66 && tenengrad_ring_mean > 0.01 && global_blur_score > 0.30 {
-        let rationale = format!(
-            "unknown: sharp but low perceptual quality (global_paq2piq_score={global_paq2piq_score:.2} ≤ 75.66) despite tenengrad_ring_mean={tenengrad_ring_mean:.4} > 0.01 and global_blur_score={global_blur_score:.2} > 0.30."
-        );
-        return ("unknown".to_string(), rationale);
-    }
+    // UNKNOWN: everything else; tailor the rationale to the dominant reason
+    let why = if core_ring_sharpness_ratio > 1.19 && grid_cells_covered <= 6.15 {
+        format!(
+            "unknown 1: core_ring_sharpness_ratio={core_ring_sharpness_ratio:.2} > 1.19 BUT grid_cells_covered={grid_cells_covered:.2} ≤ 6.15 \
+(sharpness looks sufficient, BUT coverage is small—detection over a small region of the image)"
+        )
+    } else if core_ring_sharpness_ratio <= 0.77 && roi_detail_probability > 0.01 {
+        format!(
+            "unknown 2: core_ring_sharpness_ratio={core_ring_sharpness_ratio:.2} ≤ 0.77 (soft/defocused) BUT roi_detail_probability={roi_detail_probability:.3} > 0.01 \
+(some ROI detail present despite low sharpness)"
+        )
+    } else {
+        // core_ring_sharpness_ratio in (0.77, 1.19]: intermediate sharpness
+        format!(
+            "unknown 3: core_ring_sharpness_ratio={core_ring_sharpness_ratio:.2} in (0.77, 1.19] (intermediate sharpness) \
+with grid_cells_covered={grid_cells_covered:.2} and roi_detail_probability={roi_detail_probability:.3}"
+        )
+    };
 
-    // Should be unreachable given the partitions above, but kept for safety.
-    let rationale = format!(
-        "unknown: fell outside explicit accept/reject regions (tenengrad_ring_mean={tenengrad_ring_mean:.4}, global_blur_score={global_blur_score:.2}, global_paq2piq_score={global_paq2piq_score:.2})."
-    );
-    ("unknown".to_string(), rationale)
+    ("unknown".to_string(), why)
 }
 
 /// Compute per-detection quality with ROI-aware pooling + native detail + priors + triage.
@@ -744,8 +736,8 @@ pub fn detection_quality(
     q20: &Array2<f32>, // PaQ 20x20 local map (e.g., 0..100)
     w20: &Array2<f32>, // blur weights 20x20 (1 - ALPHA * P)
     p20: &Array2<f32>, // fused blur probability 20x20 (0..1)
-    global_blur_score: f32,
-    global_paq2piq_score: f32,
+    _global_blur_score: f32,
+    _global_paq2piq_score: f32,
     bbox: BBoxF,         // in native image pixels
     orig_img: &RgbImage, // native frame
 ) -> DetectionQuality {
@@ -774,7 +766,7 @@ pub fn detection_quality(
     let coverage_prior = clampf(cov_cells / COV_REF, 0.0, 1.0);
 
     // Triage decision
-    let (triage, rationale) = triage_decision(t_ring, global_blur_score, global_paq2piq_score);
+    let (triage, rationale) = triage_decision(r_core_ring, cov_cells, detail);
 
     // let triage = triage_decision(quality, detail, p_roi, cov_cells, size_prior, r_core_ring);
     DetectionQuality {
