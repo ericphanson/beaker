@@ -684,50 +684,86 @@ fn core_ring_ratio_native(img: &RgbImage, bbox: BBoxF) -> (f32, f32, f32) {
     (ratio, t_core, t_ring)
 }
 
-/// 3-valued triage without referencing HP/HR.
+/// 3-valued triage with tunable "good" margins.
+/// Returns (decision, rationale). Decision ∈ {"bad","good","unknown"}.
+/// 3-valued triage with **bad** and **good** margins to tune coverage.
+/// Returns (decision, rationale). Decision ∈ {"bad","good","unknown"}.
 pub fn triage_decision(
     core_ring_sharpness_ratio: f32,
     grid_cells_covered: f32,
-    roi_detail_probability: f32,
 ) -> (String, String) {
-    // BAD: very low sharpness AND essentially no ROI detail
-    if core_ring_sharpness_ratio <= 0.77 && roi_detail_probability <= 0.01 {
-        let why = format!(
-            "bad: core_ring_sharpness_ratio={core_ring_sharpness_ratio:.2} ≤ 0.77 (insufficient core vs. ring sharpness; suggests overall softness/defocus) \
-AND roi_detail_probability={roi_detail_probability:.3} ≤ 0.01 (no meaningful ROI detail)"
-        );
-        return ("bad".to_string(), why);
-    }
+    // Base HP thresholds (your tree):
+    const CORE_RING_SHARPNESS_RATIO_BAD: f32 = 1.19;
+    const GRID_CELLS_COVERED_BAD: f32 = 6.15;
 
-    // GOOD: clearly sharp AND well covered
-    if core_ring_sharpness_ratio > 1.19 && grid_cells_covered > 6.15 {
-        let why = format!(
-            "good: core_ring_sharpness_ratio={core_ring_sharpness_ratio:.2} > 1.19 AND grid_cells_covered={grid_cells_covered:.2} > 6.15 \
-(sharp enough and well covered spatially)"
-        );
-        return ("good".to_string(), why);
-    }
+    // Tighten BAD (shrinks bad region → fewer false negatives of GT-good):
+    // Only call BAD if clearly below/inside HP-bad.
+    const DELTA_BAD_CORE_RING_SHARPNESS_RATIO: f32 = 0.1; // BAD if core_ring_sharpness_ratio ≤ 1.19 - 0.05 = 1.14
+    const DELTA_BAD_GRID_CELLS_COVERED: f32 = 1.5; // BAD if (core_ring_sharpness_ratio > 1.19) AND grid_cells_covered ≤ 6.15 - 0.75 = 5.40
 
-    // UNKNOWN: everything else; tailor the rationale to the dominant reason
-    let why = if core_ring_sharpness_ratio > 1.19 && grid_cells_covered <= 6.15 {
-        format!(
-            "unknown 1: core_ring_sharpness_ratio={core_ring_sharpness_ratio:.2} > 1.19 BUT grid_cells_covered={grid_cells_covered:.2} ≤ 6.15 \
+    // Loosen GOOD slightly? (admits a few more goods, keep precision reasonable):
+    const DELTA_GOOD_CORE_RING_SHARPNESS_RATIO: f32 = 0.0;
+    const DELTA_GOOD_GRID_CELLS_COVERED: f32 = 0.0;
+
+    // Precompute cutoffs
+    let bad_r_cut = CORE_RING_SHARPNESS_RATIO_BAD - DELTA_BAD_CORE_RING_SHARPNESS_RATIO;
+    let bad_g_cut = GRID_CELLS_COVERED_BAD - DELTA_BAD_GRID_CELLS_COVERED;
+    let good_r_cut = CORE_RING_SHARPNESS_RATIO_BAD + DELTA_GOOD_CORE_RING_SHARPNESS_RATIO;
+    let good_g_cut = GRID_CELLS_COVERED_BAD + DELTA_GOOD_GRID_CELLS_COVERED;
+
+    // ----- BAD: only when comfortably inside HP-bad
+    if core_ring_sharpness_ratio <= bad_r_cut {
+        return (
+            "bad".to_string(),
+            format!(
+                "bad: core_ring_sharpness_ratio={core_ring_sharpness_ratio:.2} ≤ {bad_r_cut:.2} \
+(insufficient core vs. ring sharpness; suggests overall softness/defocus)"
+            ),
+        );
+    }
+    if core_ring_sharpness_ratio > CORE_RING_SHARPNESS_RATIO_BAD && grid_cells_covered <= bad_g_cut
+    {
+        return (
+            "bad".to_string(),
+            format!(
+                "bad: core_ring_sharpness_ratio={core_ring_sharpness_ratio:.2} > {CORE_RING_SHARPNESS_RATIO_BAD:.2} BUT grid_cells_covered={grid_cells_covered:.2} ≤ {bad_g_cut:.2} \
 (sharpness looks sufficient, BUT coverage is small—detection over a small region of the image)"
-        )
-    } else if core_ring_sharpness_ratio <= 0.77 && roi_detail_probability > 0.01 {
+            ),
+        );
+    }
+
+    // ----- GOOD: require being comfortably inside HP-good
+    if core_ring_sharpness_ratio > good_r_cut && grid_cells_covered > good_g_cut {
+        return (
+            "good".to_string(),
+            format!(
+                "good: core_ring_sharpness_ratio={core_ring_sharpness_ratio:.2} > {good_r_cut:.2} AND grid_cells_covered={grid_cells_covered:.2} > {good_g_cut:.2} \
+(sharp enough and well covered with margin)"
+            ),
+        );
+    }
+
+    // ----- UNKNOWN: everything in the buffer zones
+    let rationale = if core_ring_sharpness_ratio <= CORE_RING_SHARPNESS_RATIO_BAD {
+        // near the softness threshold but not clearly bad
         format!(
-            "unknown 2: core_ring_sharpness_ratio={core_ring_sharpness_ratio:.2} ≤ 0.77 (soft/defocused) BUT roi_detail_probability={roi_detail_probability:.3} > 0.01 \
-(some ROI detail present despite low sharpness)"
+            "unknown: core_ring_sharpness_ratio={core_ring_sharpness_ratio:.2} in ({bad_r_cut:.2}, {CORE_RING_SHARPNESS_RATIO_BAD:.2}] \
+(borderline sharpness region held out)"
+        )
+    } else if grid_cells_covered <= GRID_CELLS_COVERED_BAD {
+        // near the small-coverage threshold but not clearly bad
+        format!(
+            "unknown: grid_cells_covered={grid_cells_covered:.2} in ({bad_g_cut:.2}, {GRID_CELLS_COVERED_BAD:.2}] with core_ring_sharpness_ratio={core_ring_sharpness_ratio:.2} > {CORE_RING_SHARPNESS_RATIO_BAD:.2} \
+(borderline small-coverage region held out)"
         )
     } else {
-        // core_ring_sharpness_ratio in (0.77, 1.19]: intermediate sharpness
+        // inside base good but not past good margins
         format!(
-            "unknown 3: core_ring_sharpness_ratio={core_ring_sharpness_ratio:.2} in (0.77, 1.19] (intermediate sharpness) \
-with grid_cells_covered={grid_cells_covered:.2} and roi_detail_probability={roi_detail_probability:.3}"
+            "unknown: inside base good region (core_ring_sharpness_ratio={core_ring_sharpness_ratio:.2} > {CORE_RING_SHARPNESS_RATIO_BAD:.2}, grid_cells_covered={grid_cells_covered:.2} > {GRID_CELLS_COVERED_BAD:.2}) \
+BUT not past safety margins (need core_ring_sharpness_ratio>{good_r_cut:.2}, grid_cells_covered>{good_g_cut:.2})"
         )
     };
-
-    ("unknown".to_string(), why)
+    ("unknown".to_string(), rationale)
 }
 
 /// Compute per-detection quality with ROI-aware pooling + native detail + priors + triage.
@@ -766,7 +802,7 @@ pub fn detection_quality(
     let coverage_prior = clampf(cov_cells / COV_REF, 0.0, 1.0);
 
     // Triage decision
-    let (triage, rationale) = triage_decision(r_core_ring, cov_cells, detail);
+    let (triage, rationale) = triage_decision(r_core_ring, cov_cells);
 
     // let triage = triage_decision(quality, detail, p_roi, cov_cells, size_prior, r_core_ring);
     DetectionQuality {
