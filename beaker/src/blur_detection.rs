@@ -464,7 +464,7 @@ pub fn blur_weights_from_nchw(
     for i in 0..20 {
         for j in 0..20 {
             let val = 1.0 - ALPHA * p[[i, j]];
-            w[[i, j]] = val.max(MIN_WEIGHT).min(1.0);
+            w[[i, j]] = val.clamp(MIN_WEIGHT, 1.0);
         }
     }
 
