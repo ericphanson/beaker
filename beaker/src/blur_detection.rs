@@ -698,7 +698,7 @@ pub fn triage_decision(
 
     // Tighten BAD (shrinks bad region → fewer false negatives of GT-good):
     // Only call BAD if clearly below/inside HP-bad.
-    const DELTA_BAD_CORE_RING_SHARPNESS_RATIO: f32 = 0.1; // BAD if core_ring_sharpness_ratio ≤ 1.19 - 0.05 = 1.14
+    const DELTA_BAD_CORE_RING_SHARPNESS_RATIO: f32 = 0.4; // BAD if core_ring_sharpness_ratio ≤ 1.19 - 0.05 = 1.14
     const DELTA_BAD_GRID_CELLS_COVERED: f32 = 1.5; // BAD if (core_ring_sharpness_ratio > 1.19) AND grid_cells_covered ≤ 6.15 - 0.75 = 5.40
 
     // Loosen GOOD slightly? (admits a few more goods, keep precision reasonable):
