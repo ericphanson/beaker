@@ -684,8 +684,6 @@ fn core_ring_ratio_native(img: &RgbImage, bbox: BBoxF) -> (f32, f32, f32) {
     (ratio, t_core, t_ring)
 }
 
-/// 3-valued triage with tunable "good" margins.
-/// Returns (decision, rationale). Decision ∈ {"bad","good","unknown"}.
 /// 3-valued triage with **bad** and **good** margins to tune coverage.
 /// Returns (decision, rationale). Decision ∈ {"bad","good","unknown"}.
 pub fn triage_decision(
