@@ -114,10 +114,28 @@ jobs:
         if: runner.os != 'Windows'
         run: just build-info ${{ matrix.target }}
 
-      # Basic smoke test - just verify binary runs
+      # Smoke tests - verify binary runs and models work on each platform
       - name: Smoke test - help command
         shell: bash
         run: just test-cli-help ${{ matrix.target }}
+
+      - name: Smoke test - preload models
+        shell: bash
+        run: just preload-models ${{ matrix.target }} "auto"
+
+      - name: Smoke test - detect model
+        shell: bash
+        run: just test-cli-detect ${{ matrix.target }} "auto"
+
+      - name: Smoke test - cutout model
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            ./target/${{ matrix.target }}/release/beaker.exe cutout example.jpg
+          else
+            ./target/${{ matrix.target }}/release/beaker cutout example.jpg
+          fi
+          echo "Cutout smoke test passed"
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
