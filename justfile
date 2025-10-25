@@ -74,8 +74,17 @@ build-info target="":
 # Testing
 # ─────────────────────────────────────────────────────────────
 
-# Run all tests
+# Run all tests with nextest (recommended - ~5x faster via parallelization)
 test target="":
+    #!/usr/bin/env bash
+    if [ -n "{{target}}" ]; then
+        cargo nextest run --release --all --target {{target}}
+    else
+        cargo nextest run --release --all
+    fi
+
+# Run all tests with standard cargo test (legacy - slower but works without nextest)
+test-legacy target="":
     #!/usr/bin/env bash
     if [ -n "{{target}}" ]; then
         cargo test --release --all --target {{target}} --verbose
