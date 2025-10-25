@@ -8,6 +8,16 @@ This document provides development philosophy, planning guidance, and detailed t
 
 **For quick, actionable instructions and validated commands, see [`.github/copilot-instructions.md`](.github/copilot-instructions.md).** This guide focuses on decision-making, standards, and complex problem resolution.
 
+## Prerequisites
+
+**CRITICAL: Install `just` before doing anything else:**
+
+```bash
+cargo install just
+```
+
+All development workflows use `just` commands. Without it installed, you cannot run builds, tests, or CI validation.
+
 ## Focus Areas
 
 - **Rust CLI (`beaker/`)**: Focus on the `beaker/` subdirectory for CLI app changes. Check `beaker-ci.yml` workflow.
@@ -165,6 +175,12 @@ Contact your network administrator to allowlist the required URLs.
 - **Check test images**: Ensure `example.jpg`, `example-2-birds.jpg` are present
 - **Check disk space**: Model caching requires ~100MB
 - **Verify environment**: Check `ONNX_MODEL_CACHE_DIR` if set
+
+**CRITICAL: DO NOT MODIFY TEST TIMING BOUNDS**
+- **NEVER change timing assertion values** in test files
+- Timing bounds are intentionally set and must not be adjusted
+- If tests fail due to timing, investigate the actual performance issue
+- Do not "fix" timing tests by changing the bounds - this masks real problems
 
 ### Pre-commit Issues
 

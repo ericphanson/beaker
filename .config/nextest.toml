@@ -1,0 +1,23 @@
+# Nextest configuration for optimized parallel test execution
+# See https://nexte.st/book/configuration.html for more details
+
+[profile.default]
+# Run tests in parallel across all available CPU cores
+# This provides ~4-5x speedup on 16-core systems compared to sequential execution
+test-threads = "num-cpus"
+
+# Show test output for failed tests
+failure-output = "immediate"
+success-output = "never"
+
+# Show a progress bar during test execution
+status-level = "pass"
+
+# Retry flaky tests once before failing
+retries = 1
+
+[profile.ci]
+# For CI environments, be more strict
+retries = 0
+failure-output = "immediate-final"
+success-output = "never"
