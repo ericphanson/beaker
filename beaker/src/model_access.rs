@@ -1064,7 +1064,7 @@ mod tests {
                                 // Verify checksum
                                 match cache_common::verify_checksum(
                                     &model_path_clone,
-                                    &model_info.md5_checksum.as_ref().unwrap(),
+                                    model_info.md5_checksum.as_ref().unwrap(),
                                 ) {
                                     Ok(true) => {
                                         return Ok(());
@@ -1315,10 +1315,9 @@ mod tests {
                 .unwrap();
 
             lock_file.lock_exclusive().unwrap();
-            let elapsed = start.elapsed();
 
             // Should have waited at least ~200ms
-            elapsed
+            start.elapsed()
         });
 
         handle1.join().unwrap();
