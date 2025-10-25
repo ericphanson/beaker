@@ -85,93 +85,421 @@
 
 **Critical architecture question:** How does GUI get progress updates from beaker lib?
 
-**Current beaker lib architecture:**
-- Processes images sequentially (1 at a time)
-- Quality pass first, then detection pass
-- Logs to stdout/stderr via `log` crate
-- No progress callbacks currently
+---
 
-**GUI needs:**
-1. **Progress reporting**
-   - "Processing image 23/47: bird_042.jpg"
-   - "Quality analysis: 12% complete"
-   - "Detection: 87% complete"
+## Current Beaker Architecture Analysis
 
-2. **Per-image status**
-   - ✓ bird_001.jpg: 2 detections (1 good, 1 unknown)
-   - ✓ bird_002.jpg: 1 detection (1 good)
-   - ⚠ bird_003.jpg: Error - file corrupt
-   - ⏳ bird_004.jpg: Processing...
+**Existing progress infrastructure** (`beaker/src/model_processing.rs:88-375`):
 
-3. **Error handling**
-   - Per-image errors shouldn't crash entire run
-   - Continue processing remaining images
-   - Show errors in UI naturally
+The good news: **Beaker already has most of what we need!**
 
-4. **Cancellation**
-   - User clicks "Cancel" → stop processing gracefully
-   - Save partial results
+1. **Sequential per-image processing** (lines 243-327):
+   ```rust
+   for (index, (image_path, (source_type, source_string))) in image_files.iter().enumerate() {
+       match P::process_single_image(&mut session, image_path, &config, &output_manager) {
+           Ok(result) => {
+               successful_count += 1;
+               // ... save metadata ...
+           }
+           Err(e) => {
+               failed_count += 1;
+               failed_images.push(image_path.to_str().unwrap_or_default().to_string());
+               warn!("Failed to process {}:\n {}", image_path.display(), e);
+               // CONTINUES PROCESSING - doesn't crash!
+           }
+       }
+   }
+   ```
+   **✅ Already has graceful per-image error handling!**
 
-**Implementation options:**
+2. **Existing progress bar support** (`beaker/src/color_utils.rs:273-288`):
+   ```rust
+   pub fn create_batch_progress_bar(total: usize) -> Option<ProgressBar> {
+       if total > 1 && stderr().is_terminal() {
+           let pb = ProgressBar::new(total as u64);
+           add_progress_bar(pb.clone());
+           pb.set_prefix(format!("[{}/{}] Processing {}", index + 1, total, filename));
+           pb.set_message(format!("ETA: {eta:.1}s"));
+           // ...
+       }
+   }
+   ```
+   **✅ Already tracks progress with indicatif!**
 
-**Option 1: Progress callbacks** (cleanest)
+3. **Global multi-progress infrastructure** (`beaker/src/progress.rs:1-32`):
+   ```rust
+   static MULTI: Lazy<Arc<MultiProgress>> = Lazy::new(|| Arc::new(MultiProgress::new()));
+
+   pub fn add_progress_bar(pb: indicatif::ProgressBar) {
+       global_mp().add(pb);
+   }
+   ```
+   **✅ Already has global progress management!**
+
+4. **Two-pass processing** (`beaker/src/detection.rs:95-112`):
+   ```rust
+   pub fn run_detection(config: DetectionConfig) -> Result<usize> {
+       log::info!("   Analyzing image quality");
+       let quality_results = run_model_processing_with_quality_outputs::<QualityProcessor>(quality_config);
+
+       log::info!("   Detecting...");
+       run_model_processing::<DetectionProcessor>(config)
+   }
+   ```
+   **✅ Quality → Detection is explicit!**
+
+5. **Strict vs permissive mode** (`beaker/src/model_processing.rs:368-373`):
+   ```rust
+   // If strict mode is enabled, fail if any images failed
+   if config.base().strict && failed_count > 0 {
+       return Err(anyhow::anyhow!(
+           "{} image(s) failed to process (without `--permissive` flag)", failed_count
+       ));
+   }
+   ```
+   **✅ Already has configurable error handling!**
+
+---
+
+## What Actually Needs to Change
+
+The current architecture uses `indicatif::ProgressBar` for CLI output. For GUI, we need to **extract the progress events** before they go to indicatif.
+
+### Minimal Change Approach: Event Channel
+
+Add a **single optional callback channel** to the existing processing loop. This is <100 LOC change to beaker lib.
+
+**New types** (add to `beaker/src/model_processing.rs`):
+
 ```rust
-// In beaker lib
-pub trait ProgressCallback {
-    fn on_image_start(&mut self, path: &Path, index: usize, total: usize);
-    fn on_image_complete(&mut self, path: &Path, result: Result<DetectionResult>);
-    fn on_quality_progress(&mut self, percent: f32);
+use std::sync::mpsc::Sender;
+
+/// Progress events emitted during processing
+#[derive(Debug, Clone)]
+pub enum ProcessingEvent {
+    /// Processing started for an image
+    ImageStart {
+        path: PathBuf,
+        index: usize,
+        total: usize,
+        stage: ProcessingStage,
+    },
+
+    /// Image processing completed (success or failure)
+    ImageComplete {
+        path: PathBuf,
+        index: usize,
+        result: ProcessingResult,
+    },
+
+    /// Stage transition (quality → detection)
+    StageChange {
+        stage: ProcessingStage,
+        images_total: usize,
+    },
+
+    /// Overall progress update
+    Progress {
+        completed: usize,
+        total: usize,
+        stage: ProcessingStage,
+    },
 }
 
-pub fn run_detection_with_progress<P: ProgressCallback>(
-    config: DetectionConfig,
-    callback: &mut P,
-) -> Result<usize> {
-    // Call callback at each stage
+#[derive(Debug, Clone, Copy)]
+pub enum ProcessingStage {
+    Quality,
+    Detection,
+}
+
+#[derive(Debug, Clone)]
+pub enum ProcessingResult {
+    Success {
+        detections_count: usize,
+        good_count: usize,
+        bad_count: usize,
+        unknown_count: usize,
+        processing_time_ms: f64,
+    },
+    Error {
+        error_message: String,
+    },
 }
 ```
 
-GUI implements callback, updates UI on each call.
+**Modified processing function** (changes to `run_model_processing_with_quality_outputs`):
 
-**Option 2: Channel-based progress** (egui-friendly)
 ```rust
-// GUI creates channel
-let (tx, rx) = std::sync::mpsc::channel();
+pub fn run_model_processing_with_quality_outputs<P: ModelProcessor>(
+    config: P::Config,
+    progress_tx: Option<Sender<ProcessingEvent>>,  // ← NEW PARAMETER
+) -> Result<(usize, HashMap<String, QualityResult>)> {
+    // ... existing setup code ...
 
-// Spawn detection in background thread
-std::thread::spawn(move || {
-    run_detection_with_channel(config, tx);
-});
+    for (index, (image_path, (source_type, source_string))) in image_files.iter().enumerate() {
+        // Emit start event
+        if let Some(ref tx) = progress_tx {
+            let _ = tx.send(ProcessingEvent::ImageStart {
+                path: image_path.clone(),
+                index,
+                total: image_files.len(),
+                stage: /* determine current stage */,
+            });
+        }
 
-// In update() loop, check for messages
-if let Ok(msg) = rx.try_recv() {
-    match msg {
-        ProgressMsg::ImageStart { path, index, total } => { /* update UI */ }
-        ProgressMsg::ImageComplete { path, result } => { /* update UI */ }
+        match P::process_single_image(&mut session, image_path, &config, &output_manager) {
+            Ok(result) => {
+                successful_count += 1;
+
+                // Emit success event
+                if let Some(ref tx) = progress_tx {
+                    let _ = tx.send(ProcessingEvent::ImageComplete {
+                        path: image_path.clone(),
+                        index,
+                        result: ProcessingResult::Success {
+                            // extract from result...
+                        },
+                    });
+                }
+                // ... existing success handling ...
+            }
+            Err(e) => {
+                failed_count += 1;
+
+                // Emit error event
+                if let Some(ref tx) = progress_tx {
+                    let _ = tx.send(ProcessingEvent::ImageComplete {
+                        path: image_path.clone(),
+                        index,
+                        result: ProcessingResult::Error {
+                            error_message: e.to_string(),
+                        },
+                    });
+                }
+                // ... existing error handling ...
+            }
+        }
+
+        // Progress bar updates (existing code unchanged for CLI)
+        if let Some(ref pb) = progress_bar {
+            pb.inc(1);
+        }
+    }
+
+    Ok((successful_count, quality_results))
+}
+```
+
+**Modified detection entry point** (changes to `run_detection`):
+
+```rust
+pub fn run_detection(
+    config: DetectionConfig,
+    progress_tx: Option<Sender<ProcessingEvent>>,  // ← NEW PARAMETER
+) -> Result<usize> {
+    // Quality stage
+    if let Some(ref tx) = progress_tx {
+        let _ = tx.send(ProcessingEvent::StageChange {
+            stage: ProcessingStage::Quality,
+            images_total: /* count from config */,
+        });
+    }
+
+    let quality_config = QualityConfig::from_detection_config(&config);
+    let quality_results = run_model_processing_with_quality_outputs::<QualityProcessor>(
+        quality_config,
+        progress_tx.clone(),  // ← Pass through
+    );
+
+    let config = match quality_results {
+        Ok((_count, results)) => DetectionConfig {
+            quality_results: Some(results),
+            ..config
+        },
+        Err(_) => config,
+    };
+
+    // Detection stage
+    if let Some(ref tx) = progress_tx {
+        let _ = tx.send(ProcessingEvent::StageChange {
+            stage: ProcessingStage::Detection,
+            images_total: /* count from config */,
+        });
+    }
+
+    run_model_processing::<DetectionProcessor>(config, progress_tx)
+}
+```
+
+---
+
+## GUI Implementation
+
+**In beaker-gui** (`beaker-gui/src/processing.rs`):
+
+```rust
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::thread;
+use beaker::{DetectionConfig, ProcessingEvent};
+
+pub struct ProcessingState {
+    pub images: Vec<ImageState>,
+    pub current_stage: ProcessingStage,
+    pub overall_progress: f32,
+}
+
+pub enum ImageState {
+    Waiting,
+    Processing,
+    Success { detections: Vec<Detection> },
+    Error { message: String },
+}
+
+impl ProcessingState {
+    pub fn start_processing(config: DetectionConfig) -> (Self, Receiver<ProcessingEvent>) {
+        let (tx, rx) = channel();
+
+        // Spawn background thread
+        thread::spawn(move || {
+            if let Err(e) = beaker::run_detection(config, Some(tx.clone())) {
+                // Send error event
+                let _ = tx.send(ProcessingEvent::Error { /* ... */ });
+            }
+        });
+
+        let state = ProcessingState {
+            images: vec![],
+            current_stage: ProcessingStage::Quality,
+            overall_progress: 0.0,
+        };
+
+        (state, rx)
+    }
+
+    pub fn update(&mut self, event: ProcessingEvent) {
+        match event {
+            ProcessingEvent::ImageStart { path, index, .. } => {
+                if index < self.images.len() {
+                    self.images[index] = ImageState::Processing;
+                }
+            }
+            ProcessingEvent::ImageComplete { index, result, .. } => {
+                if index < self.images.len() {
+                    self.images[index] = match result {
+                        ProcessingResult::Success { .. } => ImageState::Success { /* ... */ },
+                        ProcessingResult::Error { error_message } => ImageState::Error { message: error_message },
+                    };
+                }
+            }
+            ProcessingEvent::StageChange { stage, .. } => {
+                self.current_stage = stage;
+            }
+            ProcessingEvent::Progress { completed, total, .. } => {
+                self.overall_progress = completed as f32 / total as f32;
+            }
+        }
+    }
+}
+```
+
+**In beaker-gui update loop** (`beaker-gui/src/views/detection.rs`):
+
+```rust
+impl DetectionView {
+    pub fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Check for progress events
+        if let Some(ref rx) = self.progress_receiver {
+            while let Ok(event) = rx.try_recv() {
+                self.processing_state.update(event);
+                ctx.request_repaint(); // Update UI immediately
+            }
+        }
+
+        // Render UI based on processing_state
         // ...
     }
 }
 ```
 
-**Option 3: Async/stream-based** (modern but more complex)
+---
+
+## Cancellation Support
+
+Add cancellation using `Arc<AtomicBool>`:
+
 ```rust
-// Use async streams
-let mut progress_stream = run_detection_async(config);
-while let Some(event) = progress_stream.next().await {
-    // update UI
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
+pub fn run_detection(
+    config: DetectionConfig,
+    progress_tx: Option<Sender<ProcessingEvent>>,
+    cancel_flag: Option<Arc<AtomicBool>>,  // ← NEW
+) -> Result<usize> {
+    // ... processing loop ...
+
+    for (index, image_path) in image_files.iter().enumerate() {
+        // Check for cancellation
+        if let Some(ref flag) = cancel_flag {
+            if flag.load(Ordering::Relaxed) {
+                log::info!("Processing cancelled by user");
+                return Ok(successful_count); // Return partial results
+            }
+        }
+
+        // ... process image ...
+    }
 }
 ```
 
-**Recommendation:** Option 2 (channels) is most egui-compatible and doesn't require lib to be async.
+GUI cancel button:
+```rust
+if ui.button("Cancel").clicked() {
+    self.cancel_flag.store(true, Ordering::Relaxed);
+}
+```
 
-### What needs to be added to beaker lib:
+---
 
-1. **Progress API**: Add callback or channel support to `run_detection()`
-2. **Graceful error handling**: Don't panic on single image failure
-3. **Incremental results**: Return results as they're available (not just at end)
-4. **Cancellation support**: Check for cancel signal between images
+## Migration Timeline
 
-**This is significant lib work** - maybe 1-2 weeks to add proper progress infrastructure.
+### Week 1: Lib changes (80-120 LOC)
+1. Add `ProcessingEvent` enum and related types (30 LOC)
+2. Add optional `Sender<ProcessingEvent>` parameter to:
+   - `run_model_processing_with_quality_outputs` (20 LOC changes)
+   - `run_detection` (10 LOC changes)
+3. Emit events at key points (40 LOC)
+4. Add cancellation support with `Arc<AtomicBool>` (20 LOC)
+5. Update CLI to pass `None` for new parameters (backward compatible!)
+
+### Week 2: GUI integration (200-300 LOC)
+1. Create `ProcessingState` struct (100 LOC)
+2. Spawn background thread with channel (50 LOC)
+3. Update UI on progress events (50 LOC)
+4. Add progress UI components (100 LOC)
+
+---
+
+## Why This Approach Works
+
+1. **Minimal lib changes**: <120 LOC, mostly additive
+2. **Backward compatible**: CLI passes `None`, works unchanged
+3. **Leverages existing infrastructure**: Uses existing error handling, progress tracking
+4. **No async required**: Simple channels + threads (egui-friendly)
+5. **Graceful degradation**: If channel send fails, processing continues
+6. **Already battle-tested**: Error handling, two-pass flow already working
+
+---
+
+## Summary
+
+**The beaker lib is already 80% ready for GUI integration!** We just need to:
+
+✅ **Keep**: Graceful error handling, two-pass processing, strict/permissive modes
+🔧 **Add**: Optional event channel (80 LOC)
+🔧 **Add**: Cancellation flag (20 LOC)
+
+Total lib work: **~100 LOC, <1 week** (not 1-2 weeks as initially estimated!)
 
 ---
 
