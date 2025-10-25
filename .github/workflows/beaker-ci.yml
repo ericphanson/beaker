@@ -166,13 +166,8 @@ jobs:
         with:
           tool: cargo-nextest
 
-      # Build all test binaries first to ensure ONNX Runtime is downloaded
-      - name: Build test binaries
-        run: cargo test --no-run --release --all
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       # Run all tests (unit + integration) with nextest for ~5x speedup
+      # Nextest will handle building test binaries with proper environment
       - name: Run all tests with nextest
         run: cargo nextest run --release --all --no-fail-fast
         env:
