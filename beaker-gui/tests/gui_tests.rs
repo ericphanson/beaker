@@ -1,13 +1,12 @@
+use beaker_gui::{style, DetectionView};
 use egui_kittest::Harness;
-use beaker_gui::{DetectionView, style};
 
 #[test]
 fn test_detection_view_full_lifecycle() {
     // This test exercises the full view lifecycle
     // If runtime asserts pass, all invariants are valid
     let test_image = "tests/fixtures/test_bird.jpg";
-    let mut view = DetectionView::new(test_image)
-        .expect("Failed to create detection view");
+    let mut view = DetectionView::new(test_image).expect("Failed to create detection view");
 
     // Render the view (will trigger all runtime asserts in show_detections_list,
     // show_image_with_bboxes, and render_image_with_bboxes)

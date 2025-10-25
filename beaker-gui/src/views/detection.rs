@@ -1,6 +1,6 @@
+use anyhow::Result;
 use egui::ColorImage;
 use image::DynamicImage;
-use anyhow::Result;
 
 pub struct DetectionView {
     image: Option<DynamicImage>,
@@ -67,7 +67,10 @@ impl DetectionView {
 
     pub fn show(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
         // RUNTIME ASSERT: View must have an image
-        assert!(self.image.is_some(), "DetectionView invariant violated: no image loaded");
+        assert!(
+            self.image.is_some(),
+            "DetectionView invariant violated: no image loaded"
+        );
 
         egui::SidePanel::right("detections_panel")
             .default_width(crate::style::DETECTION_PANEL_WIDTH)
@@ -83,9 +86,12 @@ impl DetectionView {
     fn show_detections_list(&mut self, ui: &mut egui::Ui) {
         // RUNTIME ASSERT: If we have a selected detection, it must be in bounds
         if let Some(selected) = self.selected_detection {
-            assert!(selected < self.detections.len(),
-                    "DetectionView invariant violated: selected_detection {} >= detection count {}",
-                    selected, self.detections.len());
+            assert!(
+                selected < self.detections.len(),
+                "DetectionView invariant violated: selected_detection {} >= detection count {}",
+                selected,
+                self.detections.len()
+            );
         }
 
         ui.heading("Detections");
@@ -97,8 +103,11 @@ impl DetectionView {
             let is_selected = self.selected_detection == Some(idx);
 
             // RUNTIME ASSERT: Confidence must be valid
-            assert!(det.confidence >= 0.0 && det.confidence <= 1.0,
-                    "Detection confidence out of range: {}", det.confidence);
+            assert!(
+                det.confidence >= 0.0 && det.confidence <= 1.0,
+                "Detection confidence out of range: {}",
+                det.confidence
+            );
 
             // Styled card for each detection
             egui::Frame::none()
@@ -127,8 +136,10 @@ impl DetectionView {
     fn show_image_with_bboxes(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         if let Some(img) = &self.image {
             // RUNTIME ASSERT: Image dimensions must be non-zero
-            assert!(img.width() > 0 && img.height() > 0,
-                    "DetectionView invariant violated: image has zero dimensions");
+            assert!(
+                img.width() > 0 && img.height() > 0,
+                "DetectionView invariant violated: image has zero dimensions"
+            );
 
             // Load texture on first render
             if self.texture.is_none() {
@@ -138,11 +149,8 @@ impl DetectionView {
                 assert_eq!(rendered.size[0], img.width() as usize);
                 assert_eq!(rendered.size[1], img.height() as usize);
 
-                self.texture = Some(ctx.load_texture(
-                    "detection_view",
-                    rendered,
-                    Default::default(),
-                ));
+                self.texture =
+                    Some(ctx.load_texture("detection_view", rendered, Default::default()));
             }
 
             if let Some(texture) = &self.texture {
@@ -169,20 +177,38 @@ impl DetectionView {
 
         for (idx, det) in self.detections.iter().enumerate() {
             // RUNTIME ASSERT: Bounding box must be within image bounds
-            assert!(det.x1 >= 0.0 && det.x1 < img.width() as f32,
-                    "Bbox x1={} out of image width={}", det.x1, img.width());
-            assert!(det.y1 >= 0.0 && det.y1 < img.height() as f32,
-                    "Bbox y1={} out of image height={}", det.y1, img.height());
-            assert!(det.x2 > det.x1 && det.x2 <= img.width() as f32,
-                    "Bbox x2={} invalid (x1={}, width={})", det.x2, det.x1, img.width());
-            assert!(det.y2 > det.y1 && det.y2 <= img.height() as f32,
-                    "Bbox y2={} invalid (y1={}, height={})", det.y2, det.y1, img.height());
+            assert!(
+                det.x1 >= 0.0 && det.x1 < img.width() as f32,
+                "Bbox x1={} out of image width={}",
+                det.x1,
+                img.width()
+            );
+            assert!(
+                det.y1 >= 0.0 && det.y1 < img.height() as f32,
+                "Bbox y1={} out of image height={}",
+                det.y1,
+                img.height()
+            );
+            assert!(
+                det.x2 > det.x1 && det.x2 <= img.width() as f32,
+                "Bbox x2={} invalid (x1={}, width={})",
+                det.x2,
+                det.x1,
+                img.width()
+            );
+            assert!(
+                det.y2 > det.y1 && det.y2 <= img.height() as f32,
+                "Bbox y2={} invalid (y1={}, height={})",
+                det.y2,
+                det.y1,
+                img.height()
+            );
 
             // Color based on selection
             let color = if self.selected_detection == Some(idx) {
-                image::Rgba([255u8, 0, 0, 255])  // Red for selected
+                image::Rgba([255u8, 0, 0, 255]) // Red for selected
             } else {
-                image::Rgba([0, 255, 0, 255])    // Green for others
+                image::Rgba([0, 255, 0, 255]) // Green for others
             };
 
             // Draw bounding box (3 pixels thick)
@@ -193,7 +219,10 @@ impl DetectionView {
                 imageproc::drawing::draw_hollow_rect_mut(
                     &mut img_rgba,
                     imageproc::rect::Rect::at(rect.left() - thickness, rect.top() - thickness)
-                        .of_size(rect.width() + 2 * thickness as u32, rect.height() + 2 * thickness as u32),
+                        .of_size(
+                            rect.width() + 2 * thickness as u32,
+                            rect.height() + 2 * thickness as u32,
+                        ),
                     color,
                 );
             }
@@ -214,8 +243,7 @@ impl DetectionView {
 
             // Load font for text rendering
             let font_data = include_bytes!("../../fonts/NotoSans-Regular.ttf");
-            let font = ab_glyph::FontArc::try_from_slice(font_data)
-                .expect("Failed to load font");
+            let font = ab_glyph::FontArc::try_from_slice(font_data).expect("Failed to load font");
 
             imageproc::drawing::draw_text_mut(
                 &mut img_rgba,

@@ -24,7 +24,14 @@ fn create_native_menu() -> (muda::Menu, std::sync::mpsc::Receiver<muda::MenuEven
 
     // File menu
     let file_menu = muda::Submenu::new("File", true);
-    let quit_item = muda::MenuItem::new("Quit", true, Some(muda::Accelerator::new(Some(muda::Modifiers::SUPER), muda::Code::KeyQ)));
+    let quit_item = muda::MenuItem::new(
+        "Quit",
+        true,
+        Some(muda::Accelerator::new(
+            Some(muda::Modifiers::SUPER),
+            muda::Code::KeyQ,
+        )),
+    );
     file_menu.append(&quit_item).unwrap();
     menu.append(&file_menu).unwrap();
 
@@ -54,7 +61,10 @@ fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1200.0, 800.0])
-            .with_min_inner_size([crate::style::MIN_WINDOW_WIDTH, crate::style::MIN_WINDOW_HEIGHT]),
+            .with_min_inner_size([
+                crate::style::MIN_WINDOW_WIDTH,
+                crate::style::MIN_WINDOW_HEIGHT,
+            ]),
         ..Default::default()
     };
 
@@ -64,8 +74,8 @@ fn main() -> eframe::Result {
         Box::new(move |cc| {
             style::setup_custom_style(&cc.egui_ctx);
 
-            let use_native_menu = cfg!(target_os = "macos")
-                && std::env::var("USE_EGUI_MENU").is_err();
+            let use_native_menu =
+                cfg!(target_os = "macos") && std::env::var("USE_EGUI_MENU").is_err();
 
             #[cfg(target_os = "macos")]
             {
