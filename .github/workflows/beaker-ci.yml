@@ -197,9 +197,14 @@ jobs:
         ./target/${{ matrix.target }}/release/beaker.exe cutout example.jpg --device ${{ matrix.device }} || echo "Pre-download may have failed but continuing with tests"
         echo "Model pre-download attempt completed"
 
-    # Run all tests except make_integration since it's slow
-    - name: Run regular integration tests
-      run: cargo test --release --all --target ${{ matrix.target }} --verbose
+    - name: Install cargo-nextest
+      uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-nextest
+
+    # Run all tests with cargo-nextest for ~4-5x speedup via parallelization
+    - name: Run integration tests with nextest
+      run: cargo nextest run --release --all --target ${{ matrix.target }}
 
     - name: Upload binary artifact
       uses: actions/upload-artifact@v4
