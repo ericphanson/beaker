@@ -9,6 +9,7 @@ use crate::color_utils::symbols;
 use crate::onnx_session::ModelSource;
 use crate::progress::{add_progress_bar, remove_progress_bar};
 use anyhow::{anyhow, Result};
+use fs2::FileExt;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::fs;
 use std::io::{Read, Write};
@@ -265,175 +266,166 @@ fn download_model(url: &str, output_path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Download model with concurrency protection using lock files
+/// Download model with concurrency protection using advisory file locks
 fn download_with_concurrency_protection(
     model_path: &Path,
     lock_path: &Path,
     model_info: &ModelInfo,
 ) -> Result<()> {
-    const MAX_WAIT_TIME: Duration = Duration::from_secs(300); // 5 minutes max wait
-    const INITIAL_WAIT: Duration = Duration::from_millis(50);
-    const MAX_WAIT_INTERVAL: Duration = Duration::from_millis(1000);
+    // Create cache directory if it doesn't exist
+    if let Some(parent) = lock_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
 
-    let start_time = std::time::Instant::now();
-    let mut wait_duration = INITIAL_WAIT;
-    let skip_verification = model_info.md5_checksum.is_none();
+    // Create or open the lock file
+    log::debug!(
+        "{} Acquiring download lock for {}",
+        symbols::lock_acquired(),
+        model_info.filename
+    );
 
-    loop {
-        // Try to create lock file atomically
-        // First make sure the directory exists
-        if let Some(parent) = lock_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        match fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(lock_path)
-        {
-            Ok(mut lock_file) => {
-                // We got the lock, proceed with download
-                log::debug!(
-                    "{} Acquired download lock for {}",
-                    symbols::lock_acquired(),
-                    model_info.filename
-                );
+    let lock_file = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(lock_path)?;
 
-                // Write process info to lock file
-                let lock_info = format!(
-                    "locked by process {} at {}",
-                    std::process::id(),
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs()
-                );
-                let _ = write!(lock_file, "{lock_info}");
-                let _ = lock_file.flush();
+    // Try to acquire exclusive lock (blocks until available)
+    // This will wait indefinitely until the lock becomes available
+    log::debug!(
+        "{} Waiting for exclusive lock on {}",
+        symbols::waiting(),
+        lock_path.display()
+    );
 
-                // Download the model
-                let result = download_model(&model_info.url, model_path);
+    lock_file.lock_exclusive().map_err(|e| {
+        anyhow!(
+            "Failed to acquire exclusive lock on {}: {}",
+            lock_path.display(),
+            e
+        )
+    })?;
 
-                // Clean up lock file
-                let _ = fs::remove_file(lock_path);
-                log::debug!(
-                    "{} Released download lock for {}",
-                    symbols::lock_released(),
-                    model_info.filename
-                );
+    log::debug!(
+        "{} Acquired exclusive lock for {}",
+        symbols::lock_acquired(),
+        model_info.filename
+    );
 
-                return result;
-            }
-            Err(file_error) => {
-                log::debug!(
-                    "{} Failed to acquire lock: {}",
-                    symbols::operation_failed(),
-                    file_error
-                );
-                // Lock file exists, check if another process completed the download
-                if model_path.exists() {
+    // Check if model was downloaded while we were waiting for the lock
+    if model_path.exists() {
+        log::debug!(
+            "{} Checking if model was downloaded while waiting for lock...",
+            symbols::checking()
+        );
+
+        let skip_verification = model_info.md5_checksum.is_none();
+
+        if skip_verification {
+            // For no-verification downloads, just check if file exists and has size > 0
+            if let Ok(metadata) = fs::metadata(model_path) {
+                if metadata.len() > 0 {
                     log::debug!(
-                        "{} Checking if concurrent download completed...",
-                        symbols::checking()
+                        "{} Model already exists and is non-empty, using cached version",
+                        symbols::resources_found()
                     );
-
-                    if skip_verification {
-                        // For no-verification downloads, just check if file exists and has size > 0
-                        if let Ok(metadata) = fs::metadata(model_path) {
-                            if metadata.len() > 0 {
-                                log::debug!(
-                                    "{} Model downloaded by another process, using cached version (no verification)",
-                                    symbols::resources_found()
-                                );
-                                return Ok(());
-                            }
-                        }
-                        log::debug!("Concurrent download produced empty file, will retry");
-                        let _ = fs::remove_file(model_path);
-                    } else {
-                        // For normal downloads, verify checksum
-                        match cache_common::verify_checksum(
-                            model_path,
-                            model_info.md5_checksum.as_ref().unwrap(),
-                        ) {
-                            Ok(true) => {
-                                log::debug!(
-                                    "{} Model downloaded by another process, using cached version",
-                                    symbols::resources_found()
-                                );
-                                return Ok(());
-                            }
-                            Ok(false) => {
-                                log::debug!(
-                                    "{}Concurrent download produced invalid checksum, will retry",
-                                    symbols::warning()
-                                );
-                                // Remove invalid file so we can retry
-                                let _ = fs::remove_file(model_path);
-                            }
-                            Err(e) => {
-                                log::debug!(
-                                    "{}Error checking concurrent download: {e}, will retry",
-                                    symbols::warning()
-                                );
-                            }
-                        }
-                    }
+                    // Lock will be automatically released when lock_file is dropped
+                    return Ok(());
                 }
-
-                // Check timeout
-                if start_time.elapsed() > MAX_WAIT_TIME {
-                    // Force download after timeout, remove potentially stale lock
-                    log::warn!(
-                        "{} Download lock timeout ({}s), forcing download (removing stale lock)",
-                        symbols::timeout(),
-                        MAX_WAIT_TIME.as_secs()
-                    );
-
-                    // Try to get info about the lock file
-                    if let Ok(lock_metadata) = fs::metadata(lock_path) {
-                        let lock_age = lock_metadata
-                            .modified()
-                            .ok()
-                            .and_then(|t| t.elapsed().ok())
-                            .map(|d| d.as_secs())
-                            .unwrap_or(0);
-                        log::warn!("   Stale lock file age: {lock_age}s");
-                    }
-
-                    let _ = fs::remove_file(lock_path);
-                    return download_model(&model_info.url, model_path);
-                }
-
-                // Wait with exponential backoff before retry
-                let lock_info = fs::read_to_string(lock_path).ok().and_then(|content| {
-                    // Extract PID from "locked by process {pid} at {timestamp}"
-                    content
-                        .split_whitespace()
-                        .nth(3) // "locked", "by", "process", "{pid}", ...
-                        .and_then(|pid_str| pid_str.parse::<u32>().ok())
-                });
-
-                let lock_msg = if let Some(pid) = lock_info {
-                    format!("(lock held by PID {pid})")
-                } else {
-                    // We couldn't parse/read the lock file, so it is unlikely
-                    // there is a valid process holding it
-                    wait_duration /= 2;
-                    "(lock details unavailable)".to_string()
-                };
-
-                log::debug!(
-                    "{} Waiting for concurrent download to complete... ({}s elapsed, next check in {}ms) {}",
-                    symbols::waiting(),
-                    start_time.elapsed().as_secs(),
-                    wait_duration.as_millis(),
-                    lock_msg
-                );
-                std::thread::sleep(wait_duration);
-
-                // Exponential backoff up to maximum
-                wait_duration = std::cmp::min(wait_duration * 2, MAX_WAIT_INTERVAL);
             }
+            log::debug!("Existing model file is empty, will re-download");
+            let _ = fs::remove_file(model_path);
+        } else {
+            // For normal downloads, verify checksum
+            match cache_common::verify_checksum(
+                model_path,
+                model_info.md5_checksum.as_ref().unwrap(),
+            ) {
+                Ok(true) => {
+                    log::debug!(
+                        "{} Model already exists with valid checksum, using cached version",
+                        symbols::resources_found()
+                    );
+                    // Lock will be automatically released when lock_file is dropped
+                    return Ok(());
+                }
+                Ok(false) => {
+                    log::debug!(
+                        "{}Existing model has invalid checksum, will re-download",
+                        symbols::warning()
+                    );
+                    // Remove invalid file so we can retry
+                    let _ = fs::remove_file(model_path);
+                }
+                Err(e) => {
+                    log::debug!(
+                        "{}Error checking existing model: {e}, will re-download",
+                        symbols::warning()
+                    );
+                    let _ = fs::remove_file(model_path);
+                }
+            }
+        }
+    }
+
+    // Download to temporary file first
+    let tmp_path = model_path.with_extension("tmp");
+
+    // Clean up any stale temp file
+    if tmp_path.exists() {
+        log::debug!(
+            "{}Removing stale temporary file: {}",
+            symbols::warning(),
+            tmp_path.display()
+        );
+        let _ = fs::remove_file(&tmp_path);
+    }
+
+    log::debug!(
+        "{} Downloading model to temporary file: {}",
+        symbols::checking(),
+        tmp_path.display()
+    );
+
+    // Download the model to temp path
+    let download_result = download_model(&model_info.url, &tmp_path);
+
+    match download_result {
+        Ok(()) => {
+            // Download succeeded, atomically rename temp file to final path
+            log::debug!(
+                "{} Download complete, moving to final location",
+                symbols::completed_successfully()
+            );
+
+            fs::rename(&tmp_path, model_path).map_err(|e| {
+                anyhow!(
+                    "Failed to rename temporary file {} to {}: {}",
+                    tmp_path.display(),
+                    model_path.display(),
+                    e
+                )
+            })?;
+
+            log::debug!(
+                "{} Released download lock for {}",
+                symbols::lock_released(),
+                model_info.filename
+            );
+
+            // Lock is automatically released when lock_file is dropped
+            Ok(())
+        }
+        Err(e) => {
+            // Download failed, clean up temp file
+            log::debug!(
+                "{}Download failed, cleaning up temporary file",
+                symbols::operation_failed()
+            );
+            let _ = fs::remove_file(&tmp_path);
+
+            // Lock is automatically released when lock_file is dropped
+            Err(e)
         }
     }
 }
@@ -1001,5 +993,341 @@ mod tests {
         assert_eq!(model_info.url, "https://example.com/model.onnx");
         assert_eq!(model_info.md5_checksum, Some("abcd1234".to_string()));
         assert_eq!(model_info.filename, "model.onnx");
+    }
+
+    // Tests for CRITICAL-01: Model Download Race Condition
+    #[test]
+    fn test_concurrent_downloads_with_file_locks() {
+        use std::sync::{Arc, Barrier};
+        use std::thread;
+        use tempfile::TempDir;
+
+        // Create a temporary directory for the test
+        let temp_dir = TempDir::new().unwrap();
+        let cache_dir = temp_dir.path();
+
+        // Create a small test file to "download"
+        let source_file = cache_dir.join("source_model.onnx");
+        let test_content = b"This is a test model file with some content";
+        fs::write(&source_file, test_content).unwrap();
+
+        // Calculate MD5 checksum of the test content
+        let expected_checksum = format!("{:x}", md5::compute(test_content));
+
+        let model_path = cache_dir.join("concurrent_test_model.onnx");
+        let lock_path = cache_dir.join("concurrent_test_model.onnx.lock");
+
+        // Create a barrier to synchronize thread starts
+        let barrier = Arc::new(Barrier::new(3));
+        let mut handles = vec![];
+
+        // Spawn 3 threads that will all try to "download" simultaneously
+        for i in 0..3 {
+            let barrier_clone = Arc::clone(&barrier);
+            let model_path_clone = model_path.clone();
+            let lock_path_clone = lock_path.clone();
+            let source_file_clone = source_file.clone();
+            let expected_checksum_clone = expected_checksum.clone();
+
+            let handle = thread::spawn(move || {
+                // Wait for all threads to be ready
+                barrier_clone.wait();
+
+                // Simulate download by copying the source file
+                let model_info = ModelInfo {
+                    name: format!("test-model-{i}"),
+                    url: format!("file://{}", source_file_clone.display()),
+                    md5_checksum: Some(expected_checksum_clone),
+                    filename: "concurrent_test_model.onnx".to_string(),
+                };
+
+                // Use a custom download function that simulates the actual download
+                // by copying the source file
+                let result = || -> Result<()> {
+                    // Create cache directory if it doesn't exist
+                    if let Some(parent) = lock_path_clone.parent() {
+                        fs::create_dir_all(parent)?;
+                    }
+
+                    let lock_file = fs::OpenOptions::new()
+                        .write(true)
+                        .create(true)
+                        .truncate(false)
+                        .open(&lock_path_clone)?;
+
+                    lock_file.lock_exclusive()?;
+
+                    // Check if model was downloaded while we were waiting
+                    if model_path_clone.exists() {
+                        if let Ok(metadata) = fs::metadata(&model_path_clone) {
+                            if metadata.len() > 0 {
+                                // Verify checksum
+                                match cache_common::verify_checksum(
+                                    &model_path_clone,
+                                    &model_info.md5_checksum.as_ref().unwrap(),
+                                ) {
+                                    Ok(true) => {
+                                        return Ok(());
+                                    }
+                                    _ => {
+                                        let _ = fs::remove_file(&model_path_clone);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Download to temporary file
+                    let tmp_path = model_path_clone.with_extension("tmp");
+                    if tmp_path.exists() {
+                        let _ = fs::remove_file(&tmp_path);
+                    }
+
+                    // Simulate slow download with sleep
+                    thread::sleep(Duration::from_millis(50));
+
+                    // Copy source file to temp path (simulates download)
+                    fs::copy(&source_file_clone, &tmp_path)?;
+
+                    // Simulate more download time
+                    thread::sleep(Duration::from_millis(50));
+
+                    // Atomic rename
+                    fs::rename(&tmp_path, &model_path_clone)?;
+
+                    Ok(())
+                }();
+
+                (i, result)
+            });
+
+            handles.push(handle);
+        }
+
+        // Wait for all threads to complete
+        let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+
+        // Verify all threads succeeded
+        for (thread_id, result) in &results {
+            assert!(
+                result.is_ok(),
+                "Thread {thread_id} failed: {:?}",
+                result.as_ref().err()
+            );
+        }
+
+        // Verify the final file exists and has correct content
+        assert!(model_path.exists(), "Final model file should exist");
+
+        let final_content = fs::read(&model_path).unwrap();
+        assert_eq!(
+            final_content, test_content,
+            "Final file content should match source"
+        );
+
+        // Verify checksum is correct
+        let final_checksum = format!("{:x}", md5::compute(&final_content));
+        assert_eq!(
+            final_checksum, expected_checksum,
+            "Final file checksum should match expected"
+        );
+    }
+
+    #[test]
+    fn test_lock_prevents_file_corruption() {
+        use std::sync::{Arc, Barrier};
+        use std::thread;
+        use tempfile::TempDir;
+
+        // Create a temporary directory for the test
+        let temp_dir = TempDir::new().unwrap();
+        let cache_dir = temp_dir.path();
+
+        let model_path = cache_dir.join("lock_test_model.onnx");
+        let lock_path = cache_dir.join("lock_test_model.onnx.lock");
+
+        // Create cache directory
+        fs::create_dir_all(cache_dir).unwrap();
+
+        // Create a barrier to synchronize thread starts
+        let barrier = Arc::new(Barrier::new(2));
+        let mut handles = vec![];
+
+        // Different content for each thread to write
+        let content_a = b"AAAAAAAAAA";
+        let content_b = b"BBBBBBBBBB";
+
+        // Spawn 2 threads that will try to write different content
+        for (i, content) in [(0, content_a), (1, content_b)] {
+            let barrier_clone = Arc::clone(&barrier);
+            let model_path_clone = model_path.clone();
+            let lock_path_clone = lock_path.clone();
+            let content = *content;
+
+            let handle = thread::spawn(move || {
+                // Wait for all threads to be ready
+                barrier_clone.wait();
+
+                let result = || -> Result<()> {
+                    let lock_file = fs::OpenOptions::new()
+                        .write(true)
+                        .create(true)
+                        .truncate(false)
+                        .open(&lock_path_clone)?;
+
+                    lock_file.lock_exclusive()?;
+
+                    // Check if file already exists
+                    if model_path_clone.exists() && fs::metadata(&model_path_clone)?.len() > 0 {
+                        return Ok(());
+                    }
+
+                    // Write to temporary file
+                    let tmp_path = model_path_clone.with_extension("tmp");
+
+                    // Simulate slow write
+                    thread::sleep(Duration::from_millis(50));
+                    fs::write(&tmp_path, content)?;
+                    thread::sleep(Duration::from_millis(50));
+
+                    // Atomic rename
+                    fs::rename(&tmp_path, &model_path_clone)?;
+
+                    Ok(())
+                }();
+
+                (i, result)
+            });
+
+            handles.push(handle);
+        }
+
+        // Wait for all threads to complete
+        let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+
+        // Verify all threads succeeded
+        for (thread_id, result) in &results {
+            assert!(
+                result.is_ok(),
+                "Thread {thread_id} failed: {:?}",
+                result.as_ref().err()
+            );
+        }
+
+        // Verify the final file contains only one type of content (not mixed)
+        let final_content = fs::read(&model_path).unwrap();
+        assert!(
+            final_content == content_a || final_content == content_b,
+            "File should contain complete content from one thread, not mixed content"
+        );
+
+        // The key assertion: file should have exactly the right size
+        assert_eq!(
+            final_content.len(),
+            content_a.len(),
+            "File should have correct size, not corrupted"
+        );
+    }
+
+    #[test]
+    fn test_lock_released_on_success() {
+        use fs2::FileExt;
+        use tempfile::TempDir;
+
+        // Create a temporary directory for the test
+        let temp_dir = TempDir::new().unwrap();
+        let cache_dir = temp_dir.path();
+
+        let lock_path = cache_dir.join("release_test.lock");
+        fs::create_dir_all(cache_dir).unwrap();
+
+        // Acquire and release lock
+        {
+            let lock_file = fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(&lock_path)
+                .unwrap();
+
+            lock_file.lock_exclusive().unwrap();
+            // Lock is released when lock_file goes out of scope
+        }
+
+        // Try to acquire lock again - should succeed immediately
+        let lock_file = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&lock_path)
+            .unwrap();
+
+        // This should succeed if the previous lock was released
+        let result = lock_file.try_lock_exclusive();
+        assert!(result.is_ok(), "Lock should be available after release");
+    }
+
+    #[test]
+    fn test_second_thread_waits_for_first() {
+        use std::sync::mpsc;
+        use std::thread;
+        use std::time::Instant;
+        use tempfile::TempDir;
+
+        // Create a temporary directory for the test
+        let temp_dir = TempDir::new().unwrap();
+        let cache_dir = temp_dir.path();
+
+        let lock_path = cache_dir.join("wait_test.lock");
+        fs::create_dir_all(cache_dir).unwrap();
+
+        let (tx, rx) = mpsc::channel();
+
+        // Thread 1: Holds lock for 200ms
+        let lock_path_clone = lock_path.clone();
+        let handle1 = thread::spawn(move || {
+            let lock_file = fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(&lock_path_clone)
+                .unwrap();
+
+            lock_file.lock_exclusive().unwrap();
+            tx.send(()).unwrap(); // Signal that lock is acquired
+
+            // Hold lock for 200ms
+            thread::sleep(Duration::from_millis(200));
+            // Lock released when lock_file is dropped
+        });
+
+        // Wait for thread 1 to acquire lock
+        rx.recv().unwrap();
+
+        // Thread 2: Try to acquire lock, should wait
+        let handle2 = thread::spawn(move || {
+            let start = Instant::now();
+            let lock_file = fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(&lock_path)
+                .unwrap();
+
+            lock_file.lock_exclusive().unwrap();
+            let elapsed = start.elapsed();
+
+            // Should have waited at least ~200ms
+            elapsed
+        });
+
+        handle1.join().unwrap();
+        let elapsed = handle2.join().unwrap();
+
+        assert!(
+            elapsed.as_millis() >= 150,
+            "Second thread should have waited for first thread (waited {}ms)",
+            elapsed.as_millis()
+        );
     }
 }
