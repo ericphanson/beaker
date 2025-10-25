@@ -8,29 +8,36 @@ struct HelloWorldApp {
 
 impl eframe::App for HelloWorldApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Stylish top menu bar
+        // Clean macOS-style menu bar
         egui::TopBottomPanel::top("menu_bar")
             .frame(egui::Frame::none()
                 .fill(egui::Color32::WHITE)
-                .inner_margin(egui::Margin::symmetric(16.0, 8.0)))
+                .inner_margin(egui::Margin::symmetric(12.0, 4.0)))
             .show(ctx, |ui| {
                 egui::menu::bar(ui, |ui| {
-                    ui.menu_button(egui::RichText::new("File").size(16.0), |ui| {
-                        if ui.button("New").clicked() {}
-                        if ui.button("Open...").clicked() {}
+                    ui.menu_button("File", |ui| {
+                        let new_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::N);
+                        if ui.add(egui::Button::new("New").shortcut_text(ctx.format_shortcut(&new_shortcut))).clicked() {}
+
+                        let open_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::O);
+                        if ui.add(egui::Button::new("Open...").shortcut_text(ctx.format_shortcut(&open_shortcut))).clicked() {}
+
                         ui.separator();
-                        if ui.button("Quit").clicked() {
+
+                        let quit_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::Q);
+                        if ui.add(egui::Button::new("Quit").shortcut_text(ctx.format_shortcut(&quit_shortcut))).clicked() {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         }
                     });
 
-                    ui.menu_button(egui::RichText::new("Edit").size(16.0), |ui| {
-                        if ui.button("Clear").clicked() {
+                    ui.menu_button("Edit", |ui| {
+                        let clear_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::K);
+                        if ui.add(egui::Button::new("Clear").shortcut_text(ctx.format_shortcut(&clear_shortcut))).clicked() {
                             self.name.clear();
                         }
                     });
 
-                    ui.menu_button(egui::RichText::new("Help").size(16.0), |ui| {
+                    ui.menu_button("Help", |ui| {
                         ui.label("egui Demo Application");
                         ui.separator();
                         ui.label("Built with egui 0.30");
@@ -126,15 +133,15 @@ fn test_menu_bar() {
     let mut harness = Harness::new_ui(|ui| {
         apply_custom_style(ui.ctx());
 
-        // Just test the menu bar component
+        // Clean macOS-style menu bar
         egui::Frame::none()
             .fill(egui::Color32::WHITE)
-            .inner_margin(egui::Margin::symmetric(16.0, 8.0))
+            .inner_margin(egui::Margin::symmetric(12.0, 4.0))
             .show(ui, |ui| {
                 egui::menu::bar(ui, |ui| {
-                    ui.menu_button(egui::RichText::new("File").size(16.0), |_ui| {});
-                    ui.menu_button(egui::RichText::new("Edit").size(16.0), |_ui| {});
-                    ui.menu_button(egui::RichText::new("Help").size(16.0), |_ui| {});
+                    ui.menu_button("File", |_ui| {});
+                    ui.menu_button("Edit", |_ui| {});
+                    ui.menu_button("Help", |_ui| {});
                 });
             });
     });
