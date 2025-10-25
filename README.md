@@ -2,7 +2,7 @@
 
 [![Beaker CI](https://github.com/ericphanson/beaker/actions/workflows/beaker-ci.yml/badge.svg?branch=main)](https://github.com/ericphanson/beaker/actions/workflows/beaker-ci.yml)
 
-A tool to apply ML models to bird images. `beaker detect` detects and crops bird objects (bird, head, eyes, beak) using a finetuned YOLOv8n model trained on the CUB-200-2011 dataset, and `beaker cutout` performs background removal using an off-the-shelf model.
+A tool to apply ML models to bird images. `beaker detect` detects and crops bird objects (bird, head, eyes, beak) using a finetuned RF-DETR model trained on the CUB-200-2011 dataset, and `beaker cutout` performs background removal using an off-the-shelf model.
 
 ## 1. License & Usage
 
@@ -12,13 +12,10 @@ This is for the model used by `beaker detect`.
 |--------|----------------|-----------------------------------|
 | **Dataset:** Caltech-UCSD Birds-200-2011 | "Images are for **non-commercial research and educational purposes only**." | ➜ **No commercial use** of the weights or any derivative work. |
 | **Training code:** RF-DETR | Source and official models released under **Apache 2.0** |  |
-| **Training code:** Ultralytics YOLOv8 | Source and official models released under **GNU AGPL-3.0** | ➜ If you **redistribute or serve** the weights, you must also release the full source & weights **under AGPL-3.0**. |
-
-Some of the YOLO-based ultralytics-derived code is in the `yolo.rs` file; I may delete it and switch to Apache 2.0 later once I'm sure I don't want to use the YOLO-based models.
 
 ### Summary
-Because the weights were trained on CUB images *and* with AGPL-licensed code, they are provided **solely for non-commercial research/education** under **AGPL-3.0**.
-Commercial use would require **separate rights to the images** *and* a **non-AGPL licence from Ultralytics**.
+The weights are provided **solely for non-commercial research/education** because they were trained on CUB-200-2011 images.
+Commercial use would require **separate rights to the images**.
 
 *No warranty. Provided "as is."*
 
@@ -126,7 +123,6 @@ Create GitHub releases with trained models:
 
 - See [./detect_rfdetr/create_release.sh](./detect_rfdetr/create_release.sh) for uploading RF-DETR models.
 - the `isnet-general-use` model was uploaded using the [`training/upload_cutout.sh`](./training/upload_cutout.sh) which simply copies the ONNX model from [rembg](https://github.com/danielgatis/rembg)
-- older YOLO based models use scripts in [./detect_model](./detect_model/)
 
 ## 5. How to build `beaker` from source
 

@@ -22,4 +22,3 @@ pub mod progress;
 pub mod quality_processing;
 pub mod rfdetr;
 pub mod shared_metadata;
-pub mod yolo;
