@@ -10,7 +10,10 @@ This project uses [cargo-nextest](https://nexte.st/) for parallel test execution
 # Install cargo-nextest (one-time setup)
 cargo install cargo-nextest --locked
 
-# Run all tests in parallel
+# Run all tests in parallel (using justfile - recommended)
+just test
+
+# Or run directly with cargo-nextest
 cargo nextest run --release
 
 # Run specific test suites
@@ -47,10 +50,32 @@ GitHub Actions automatically uses `cargo-nextest` via the `taiki-e/install-actio
 
 ### Legacy Testing
 
-If you need to use standard `cargo test`:
+If you need to use standard `cargo test` (e.g., if nextest is not installed):
 
 ```bash
+# Using justfile
+just test-legacy
+
+# Or directly with cargo
 cargo test --release
 ```
 
 However, this is **not recommended** as it's significantly slower (~5x) than nextest.
+
+### Using Justfile
+
+The project includes a `justfile` with convenient test commands:
+
+```bash
+# Run all tests with nextest (default)
+just test
+
+# Run tests for specific target
+just test x86_64-unknown-linux-gnu
+
+# Run legacy cargo test
+just test-legacy
+
+# Full CI workflow (lint + build + test)
+just ci
+```
