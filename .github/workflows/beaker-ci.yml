@@ -86,8 +86,8 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: "v1"
-          key: ${{ matrix.target }}
+          prefix-key: "v2"
+          shared-key: ${{ matrix.target }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Cache ONNX models
@@ -148,7 +148,7 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: "v1"
+          prefix-key: "v2"
           shared-key: "test"
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -190,7 +190,7 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: "v1"
+          prefix-key: "v2"
           shared-key: "test"
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
