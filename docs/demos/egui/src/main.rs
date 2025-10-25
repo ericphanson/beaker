@@ -3,8 +3,8 @@ use eframe::egui;
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([520.0, 400.0])
-            .with_min_inner_size([400.0, 300.0]),
+            .with_inner_size([600.0, 500.0])
+            .with_min_inner_size([550.0, 450.0]),
         ..Default::default()
     };
 
@@ -69,6 +69,40 @@ struct HelloWorldApp {
 
 impl eframe::App for HelloWorldApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Stylish top menu bar
+        egui::TopBottomPanel::top("menu_bar")
+            .frame(egui::Frame::none()
+                .fill(egui::Color32::WHITE)
+                .inner_margin(egui::Margin::symmetric(16.0, 8.0)))
+            .show(ctx, |ui| {
+                egui::menu::bar(ui, |ui| {
+                    ui.menu_button(egui::RichText::new("File").size(16.0), |ui| {
+                        if ui.button("New").clicked() {
+                            // Action placeholder
+                        }
+                        if ui.button("Open...").clicked() {
+                            // Action placeholder
+                        }
+                        ui.separator();
+                        if ui.button("Quit").clicked() {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                    });
+
+                    ui.menu_button(egui::RichText::new("Edit").size(16.0), |ui| {
+                        if ui.button("Clear").clicked() {
+                            self.name.clear();
+                        }
+                    });
+
+                    ui.menu_button(egui::RichText::new("Help").size(16.0), |ui| {
+                        ui.label("egui Demo Application");
+                        ui.separator();
+                        ui.label("Built with egui 0.30");
+                    });
+                });
+            });
+
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.add_space(32.0);
 
