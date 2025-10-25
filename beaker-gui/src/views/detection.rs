@@ -41,6 +41,12 @@ impl DetectionView {
         })
     }
 
+    /// Get the detections for testing
+    #[allow(dead_code)]
+    pub fn detections(&self) -> &[Detection] {
+        &self.detections
+    }
+
     fn run_detection(image_path: &str) -> Result<(String, Vec<Detection>)> {
         use std::collections::HashSet;
 
