@@ -127,7 +127,7 @@ impl ModelProcessor for QualityProcessor {
     fn process_single_image(
         session: &mut Session,
         image_path: &Path,
-        _config: &Self::Config,
+        config: &Self::Config,
         output_manager: &crate::output_manager::OutputManager,
     ) -> Result<Self::Result> {
         let start_time = Instant::now();
@@ -143,12 +143,19 @@ impl ModelProcessor for QualityProcessor {
         let input_array = preprocess_image_for_quality(&img)?;
 
         let input_stem = output_manager.input_stem();
-        let output_dir = output_manager
-            .get_output_dir()?
-            .join(format!("quality_debug_images_{input_stem}"));
+        // Only create debug directory when --debug-dump-images flag is passed
+        let output_dir = if config.debug_dump_images {
+            Some(
+                output_manager
+                    .get_output_dir()?
+                    .join(format!("quality_debug_images_{input_stem}")),
+            )
+        } else {
+            None
+        };
 
         let (w20, p20, _, global_blur_score) =
-            crate::blur_detection::blur_weights_from_nchw(&input_array, Some(output_dir));
+            crate::blur_detection::blur_weights_from_nchw(&input_array, output_dir);
         assert_eq!(w20.shape(), [20, 20]);
         let mut local_blur_weights = [[0.0f32; 20]; 20];
         for i in 0..20 {
