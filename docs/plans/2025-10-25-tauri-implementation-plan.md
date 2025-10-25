@@ -2008,6 +2008,450 @@ echo "All tests passed! ✅"
 
 ---
 
+### 12.9 Defensive Assertions & CLI View Testing
+
+**Strategy:** Use heavy assertions in GUI code. If it runs without panicking, it's correct.
+
+#### 12.9.1 Assert-Heavy Backend Code
+
+**Pattern:** Validate invariants at runtime in Tauri commands
+
+**File:** `src-tauri/src/commands/detection.rs`
+
+```rust
+#[tauri::command]
+pub async fn detect_objects(
+    request: DetectRequest,
+) -> Result<DetectResponse, String> {
+    // Input validation with assertions
+    assert!(request.confidence >= 0.0 && request.confidence <= 1.0,
+            "Confidence must be in [0.0, 1.0], got {}", request.confidence);
+    assert!(!request.classes.is_empty(),
+            "Must specify at least one class to detect");
+    assert!(std::path::Path::new(&request.image_path).exists(),
+            "Image path does not exist: {}", request.image_path);
+
+    let pipeline = DetectionPipeline::new(config)
+        .map_err(|e| e.to_string())?;
+
+    let result = pipeline.process_image(&request.image_path)
+        .map_err(|e| e.to_string())?;
+
+    // Output validation
+    assert!(!result.detections.is_empty() || request.confidence > 0.9,
+            "Expected at least one detection with confidence {}", request.confidence);
+
+    for detection in &result.detections {
+        assert!(detection.confidence >= request.confidence,
+                "Detection confidence {} below threshold {}",
+                detection.confidence, request.confidence);
+        assert!(detection.bbox.width > 0.0 && detection.bbox.height > 0.0,
+                "Invalid bounding box: {:?}", detection.bbox);
+    }
+
+    let output_paths = save_crops(&result)?;
+
+    // Verify files were actually created
+    for path in &output_paths {
+        assert!(std::path::Path::new(path).exists(),
+                "Failed to create crop file: {}", path);
+    }
+
+    Ok(DetectResponse {
+        detections: /* ... */,
+        output_paths,
+        processing_time_ms: result.processing_time_ms,
+    })
+}
+```
+
+**Benefits:**
+- Catches bugs immediately during development
+- No silent failures
+- Self-documenting (assertions show invariants)
+- Easier debugging (panic shows exact assertion that failed)
+
+**Note:** In release builds, consider using `debug_assert!` for performance-critical paths, but keep validation asserts for user inputs.
+
+---
+
+#### 12.9.2 Assert-Heavy Frontend Code
+
+**Pattern:** Validate store state and API responses
+
+**File:** `src/lib/stores/detection.ts`
+
+```typescript
+import { writable, derived } from 'svelte/store';
+import type { DetectResponse } from '$lib/types/beaker';
+
+export const detectionParams = writable({
+  confidence: 0.5,
+  classes: ['bird', 'head'],
+});
+
+// Subscribe to validate on every update
+detectionParams.subscribe(params => {
+  console.assert(
+    params.confidence >= 0 && params.confidence <= 1,
+    'Confidence must be in [0, 1]',
+    params.confidence
+  );
+  console.assert(
+    params.classes.length > 0,
+    'Must have at least one class selected'
+  );
+});
+
+export const detectionResults = writable<DetectResponse | null>(null);
+
+// Validate results when set
+detectionResults.subscribe(results => {
+  if (!results) return;
+
+  console.assert(
+    results.processingTimeMs > 0,
+    'Processing time must be positive',
+    results.processingTimeMs
+  );
+
+  for (const detection of results.detections) {
+    console.assert(
+      detection.confidence >= 0 && detection.confidence <= 1,
+      'Invalid detection confidence',
+      detection
+    );
+    console.assert(
+      detection.bbox.width > 0 && detection.bbox.height > 0,
+      'Invalid bounding box',
+      detection.bbox
+    );
+  }
+});
+```
+
+**File:** `src/lib/api/detection.ts`
+
+```typescript
+export const detectionApi = {
+  async detect(request: DetectRequest): Promise<DetectResponse> {
+    // Pre-condition assertions
+    console.assert(request.confidence >= 0 && request.confidence <= 1);
+    console.assert(request.classes.length > 0);
+    console.assert(request.imagePath.length > 0);
+
+    const response = await invoke<DetectResponse>('detect_objects', { request });
+
+    // Post-condition assertions
+    console.assert(response.processingTimeMs > 0);
+    console.assert(Array.isArray(response.detections));
+    console.assert(Array.isArray(response.outputPaths));
+
+    return response;
+  },
+};
+```
+
+---
+
+#### 12.9.3 CLI View Launching
+
+**Goal:** Launch app directly to specific views for fast manual testing
+
+**Implementation:** Add CLI argument handling
+
+**File:** `src-tauri/src/main.rs`
+
+```rust
+use tauri::Manager;
+
+#[derive(Debug)]
+struct CliArgs {
+    view: Option<String>,
+}
+
+fn main() {
+    tauri::Builder::default()
+        .setup(|app| {
+            // Parse CLI arguments
+            let args: Vec<String> = std::env::args().collect();
+            let view = args.get(1).cloned();
+
+            // Send initial view to frontend
+            if let Some(view_name) = view {
+                let window = app.get_webview_window("main").unwrap();
+                window.emit("set-initial-view", view_name).unwrap();
+            }
+
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            detection::detect_objects,
+            cutout::remove_background,
+            quality::assess_quality,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}
+```
+
+**File:** `src/App.svelte`
+
+```svelte
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { listen } from '@tauri-apps/api/event';
+  import { Tabs } from '$lib/components/ui/tabs';
+
+  let activeTab = $state('detection');
+
+  // Listen for initial view from CLI
+  onMount(async () => {
+    const unlisten = await listen<string>('set-initial-view', (event) => {
+      const view = event.payload;
+
+      // Validate view name
+      const validViews = ['detection', 'cutout', 'quality', 'batch', 'settings'];
+      console.assert(
+        validViews.includes(view),
+        `Invalid view: ${view}. Must be one of: ${validViews.join(', ')}`
+      );
+
+      if (validViews.includes(view)) {
+        activeTab = view;
+        console.log(`Opened app to ${view} view`);
+      }
+    });
+
+    return unlisten;
+  });
+</script>
+
+<Tabs bind:value={activeTab}>
+  <!-- tabs as before -->
+</Tabs>
+```
+
+---
+
+#### 12.9.4 CLI Testing Workflow
+
+**Test each view quickly from terminal:**
+
+```bash
+# Test detection view
+npm run tauri dev detection
+# Or in production build:
+./target/release/beaker-gui detection
+
+# Test cutout view
+npm run tauri dev cutout
+
+# Test quality view
+npm run tauri dev quality
+
+# Test batch view
+npm run tauri dev batch
+
+# Test settings
+npm run tauri dev settings
+
+# Default (no arg) opens to detection
+npm run tauri dev
+```
+
+**Update package.json:**
+
+```json
+{
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:dev:detection": "tauri dev -- detection",
+    "tauri:dev:cutout": "tauri dev -- cutout",
+    "tauri:dev:quality": "tauri dev -- quality",
+    "tauri:dev:batch": "tauri dev -- batch"
+  }
+}
+```
+
+---
+
+#### 12.9.5 Testing Script with Assertions
+
+**Create:** `scripts/test-views.sh`
+
+```bash
+#!/bin/bash
+set -e
+
+VIEWS=("detection" "cutout" "quality" "batch" "settings")
+TIMEOUT=10  # seconds to keep each view open
+
+echo "Testing all views with assertions..."
+echo "If any view crashes, assertions caught a bug!"
+echo ""
+
+for view in "${VIEWS[@]}"; do
+    echo "Testing $view view..."
+
+    # Launch app to specific view
+    timeout $TIMEOUT npm run tauri dev -- "$view" || {
+        exit_code=$?
+        if [ $exit_code -eq 124 ]; then
+            echo "✅ $view view ran for ${TIMEOUT}s without crashing"
+        else
+            echo "❌ $view view crashed! Check assertions."
+            exit 1
+        fi
+    }
+
+    echo ""
+done
+
+echo "All views tested successfully! ✅"
+```
+
+**Usage:**
+
+```bash
+# Run all view tests
+./scripts/test-views.sh
+
+# Or manually test each view
+npm run tauri:dev:detection
+# Click around, check console for assertion failures
+# Ctrl+C to close
+
+npm run tauri:dev:cutout
+# Test cutout functionality
+# Ctrl+C to close
+
+# etc.
+```
+
+---
+
+#### 12.9.6 Assertion Best Practices
+
+**What to assert:**
+
+✅ **Input validation**
+```rust
+assert!(confidence >= 0.0 && confidence <= 1.0);
+assert!(!classes.is_empty());
+assert!(Path::new(&image_path).exists());
+```
+
+✅ **Invariants**
+```rust
+assert!(bbox.width > 0.0 && bbox.height > 0.0);
+assert!(detection.confidence >= threshold);
+```
+
+✅ **Post-conditions**
+```rust
+assert!(output_path.exists(), "Output file not created");
+assert!(!detections.is_empty() || confidence > 0.9);
+```
+
+✅ **State consistency**
+```typescript
+console.assert(store.isLoading === false || store.results === null);
+console.assert(store.error === null || store.results === null);
+```
+
+**What NOT to assert:**
+
+❌ **Expected failures** (use proper error handling)
+```rust
+// Bad
+assert!(std::fs::read(&path).is_ok());
+
+// Good
+std::fs::read(&path).map_err(|e| format!("Failed to read: {}", e))?;
+```
+
+❌ **User input validation** (return errors instead)
+```rust
+// Bad
+assert!(user_input.len() < 1000);
+
+// Good
+if user_input.len() >= 1000 {
+    return Err("Input too long".to_string());
+}
+```
+
+❌ **Performance constraints** (use benchmarks)
+```rust
+// Bad
+assert!(processing_time_ms < 1000.0);
+
+// Good: just return the time, test separately
+```
+
+---
+
+#### 12.9.7 Testing Workflow Summary
+
+**Development:**
+```bash
+# 1. Write code with heavy assertions
+# 2. Launch specific view
+npm run tauri:dev:detection
+
+# 3. Test functionality
+# - If assertions fail → fix bug immediately (panic shows exact issue)
+# - If no panic → basic correctness validated
+
+# 4. Repeat for other views
+npm run tauri:dev:cutout
+npm run tauri:dev:quality
+```
+
+**CI/CD:**
+```bash
+# 1. Run unit tests (validates functions in isolation)
+cargo test --manifest-path=beaker-gui/src-tauri/Cargo.toml
+npm test
+
+# 2. Build release binary
+npm run tauri build
+
+# 3. Run smoke test script (launches each view)
+./scripts/test-views.sh
+
+# If all pass → assertions validated in real GUI environment
+```
+
+**Manual QA:**
+```bash
+# Quick smoke test: 5 minutes
+./scripts/test-views.sh
+
+# Detailed testing: 15-20 minutes
+# Use checklist from 12.6
+```
+
+---
+
+#### 12.9.8 Benefits of This Approach
+
+✅ **Immediate feedback** - Assertions fail fast during development
+✅ **Self-documenting** - Assertions show invariants and expectations
+✅ **No test duplication** - Same assertions used in dev and tests
+✅ **Fast manual testing** - CLI args jump to specific views
+✅ **CI-friendly** - Can automate view launching with timeouts
+✅ **Comprehensive** - Assertions run on every code path, not just tests
+✅ **Low maintenance** - No separate test UI interactions to maintain
+
+**Philosophy:** If the app runs without panicking, the assertions guarantee correctness of the tested code paths. Combined with unit tests for edge cases, this provides strong confidence without complex E2E automation.
+
+---
+
 ## 13. Appendix: Quick Reference
 
 ### Build Commands
