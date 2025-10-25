@@ -196,7 +196,7 @@ pub fn run_model_processing_with_quality_outputs<P: ModelProcessor>(
     // Pre-check for output path collisions if output_dir is set
     if config.base().output_dir.is_some() && !config.base().force {
         let mut seen_stems = std::collections::HashMap::new();
-        for (image_path, _) in &image_files {
+        for image_path in image_files.keys() {
             let stem = image_path
                 .file_stem()
                 .and_then(|s| s.to_str())
