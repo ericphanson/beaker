@@ -1,0 +1,5 @@
+---
+source: tests/screenshot_test.rs
+expression: "format!(\"PNG size: {} bytes\", png_data.len())"
+---
+PNG size: 3192 bytes

@@ -60,6 +60,15 @@ jobs:
         working-directory: docs/demos/iced
         run: cargo test --verbose
 
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: docs/demos/iced/target/screenshots/*.png
+          retention-days: 7
+          if-no-files-found: ignore
+
       - name: Build release
         working-directory: docs/demos/iced
         run: cargo build --release --verbose
