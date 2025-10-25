@@ -21,6 +21,11 @@ on:
       - '.github/workflows/beaker-ci.yml'
   workflow_dispatch:
 
+# Cancel old runs when new commits are pushed to the same PR/branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: "1"
