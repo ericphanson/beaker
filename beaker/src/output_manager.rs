@@ -253,6 +253,7 @@ mod tests {
                 output_dir: output_dir.clone(),
                 skip_metadata: false,
                 strict: true,
+                force: false,
             },
             confidence: 0.25,
             crop_classes: HashSet::new(), // Empty for this test

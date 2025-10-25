@@ -126,6 +126,10 @@ pub struct GlobalArgs {
     /// Disable colored output (also respects NO_COLOR and BEAKER_NO_COLOR env vars)
     #[arg(long, global = true)]
     pub no_color: bool,
+
+    /// Allow overwriting outputs when basename collisions are detected
+    #[arg(long, global = true)]
+    pub force: bool,
 }
 
 /// Base configuration common to all models
@@ -142,6 +146,8 @@ pub struct BaseModelConfig {
     pub skip_metadata: bool,
     /// Use strict mode (fail if files are not found or are unsupported). Opposite of `--permissive`.
     pub strict: bool,
+    /// Allow overwriting outputs when basename collisions are detected
+    pub force: bool,
 }
 
 /// CLI command for object detection (only command-specific arguments)
@@ -329,6 +335,7 @@ impl From<GlobalArgs> for BaseModelConfig {
             output_dir: global.output_dir,
             skip_metadata: !global.metadata, // Note: CLI uses metadata flag, internal uses skip_metadata
             strict: !global.permissive,      // Note: CLI uses permissive, internal uses strict
+            force: global.force,
         }
     }
 }
@@ -440,6 +447,7 @@ mod tests {
             verbosity: Verbosity::new(2, 0), // -vv level (info level enables verbose)
             permissive: true,
             no_color: false,
+            force: false,
         };
 
         let config: BaseModelConfig = global_args.into();
@@ -450,6 +458,7 @@ mod tests {
         assert!(config.skip_metadata); // metadata=false -> skip_metadata=true
                                        // Note: verbosity is now handled directly by the logging system via env_logger
         assert!(!config.strict); // permissive=true -> strict=false
+        assert!(!config.force);
     }
 
     #[test]
@@ -461,6 +470,7 @@ mod tests {
             verbosity: Verbosity::new(0, 0), // Default level (warnings and errors only)
             permissive: false,
             no_color: false,
+            force: false,
         };
 
         let detect_cmd = DetectCommand {
@@ -499,6 +509,7 @@ mod tests {
             verbosity: Verbosity::new(1, 0), // -v level (info)
             permissive: false,
             no_color: false,
+            force: false,
         };
 
         let cutout_cmd = CutoutCommand {
@@ -537,6 +548,7 @@ mod tests {
                 output_dir: Some("/tmp".to_string()),
                 skip_metadata: true,
                 strict: true,
+                force: false,
             },
             confidence: 0.25,
             crop_classes: HashSet::new(),
@@ -553,6 +565,7 @@ mod tests {
         assert_eq!(config.base.output_dir, Some("/tmp".to_string()));
         assert!(config.base.skip_metadata);
         assert!(config.base.strict);
+        assert!(!config.base.force);
     }
 
     #[test]
@@ -564,6 +577,7 @@ mod tests {
             verbosity: Verbosity::new(0, 0), // Default level
             permissive: false,
             no_color: false,
+            force: false,
         };
 
         let quality_cmd = QualityCommand {

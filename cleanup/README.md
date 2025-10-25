@@ -36,13 +36,6 @@ Each issue follows this structure:
   - **Effort**: 0.5 day
   - **Blocks**: Future resumable downloads enhancement
 
-- **[CRITICAL-03](CRITICAL-03-basename-collision-silent-overwrite.md)**: Multi-File Basename Collision → Silent Data Loss
-  - Processing `dir1/bird.jpg` and `dir2/bird.jpg` → second overwrites first
-  - No warning or error
-  - **Fix**: Detect collisions and error/auto-number/preserve structure
-  - **Effort**: 1 day
-  - **Decision**: Error vs auto-number vs preserve dirs?
-
 #### User Experience
 - **[CRITICAL-04](CRITICAL-04-quality-command-zero-output.md)**: Quality Command Produces Zero Output
   - `beaker quality image.jpg` succeeds but creates no files
@@ -108,12 +101,7 @@ See **[MEDIUM-PRIORITY-ISSUES.md](MEDIUM-PRIORITY-ISSUES.md)** for 10 smaller is
    - **Effort**: 0.5 day
    - **Deliverable**: Safe interrupted downloads
 
-2. **CRITICAL-03** (basename collision)
-   - Add collision detection with clear error messages
-   - **Effort**: 1 day
-   - **Deliverable**: No silent overwrites in batch processing
-
-3. **CRITICAL-04** (quality zero output)
+2. **CRITICAL-04** (quality zero output)
    - Make quality command always save metadata (simplest fix)
    - **Effort**: 0.5 day
    - **Deliverable**: Quality command produces visible results
@@ -168,8 +156,6 @@ Issues requiring maintainer decisions:
 | Issue | Decision | Options | Recommendation |
 |-------|----------|---------|----------------|
 | CRITICAL-02 | Temp file naming? | `.tmp` / `.{pid}.tmp` / `.{timestamp}.tmp` | `.tmp` (simple) |
-| CRITICAL-03 | Collision handling? | Error / Auto-number / Preserve dirs | Error + optional auto-number flag |
-| CRITICAL-03 | Counter format? | `file-2.jpg` / `file_2.jpg` / `file(2).jpg` | `file-2.jpg` (dash) |
 | CRITICAL-04 | Quality output? | Always metadata / Visualization / Require flag | Always metadata (simplest) |
 | CRITICAL-04 | If visualization? | Heatmap / Histogram / Side-by-side / Reuse debug | Reuse debug images |
 | UX-01 | Error type? | `String` / `anyhow::Error` / Custom enum | `String` (consistency) |
@@ -201,9 +187,10 @@ test -f image.beaker.toml || echo "FAIL"
 ## Success Metrics
 
 ### Phase 1 Complete When:
-- [x] Interrupted downloads clean up properly
-- [x] Batch processing never loses files silently
-- [x] Quality command always produces output
+- [x] Zero data corruption reports from concurrent downloads (CRITICAL-01 ✅ FIXED)
+- [x] Interrupted downloads clean up properly (CRITICAL-01 ✅ FIXED)
+- [x] Batch processing never loses files silently (CRITICAL-03 ✅ FIXED)
+- [ ] Quality command always produces output
 
 ### Phase 2 Complete When:
 - [x] All CLI validation is consistent (Result return types)
