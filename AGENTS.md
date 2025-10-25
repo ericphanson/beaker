@@ -14,8 +14,7 @@ This document provides development philosophy, planning guidance, and detailed t
 
 ```bash
 # Fast installation using pre-built binary (~1s vs 60s compilation)
-curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to ~/.local/bin
-export PATH="$HOME/.local/bin:$PATH"
+curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
 ```
 
 All development workflows use `just` commands. Without it installed, you cannot run builds, tests, or CI validation.
@@ -84,8 +83,7 @@ When developing proposals, technical plans, or architectural changes, align with
 
 ```bash
 # Install just (REQUIRED for all development) - Fast pre-built binary method
-curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to ~/.local/bin
-export PATH="$HOME/.local/bin:$PATH"
+curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
 
 # Common development tasks
 just fmt            # Auto-format code
