@@ -23,10 +23,11 @@ pub struct Detection {
 
 impl DetectionView {
     pub fn new(image_path: &str) -> Result<Self> {
-        let image = image::open(image_path)?;
+        // Run detection and get both the bounding box image and detection data
+        let (bbox_image_path, detections) = Self::run_detection(image_path)?;
 
-        // Run detection using beaker lib
-        let detections = Self::run_detection(image_path)?;
+        // Load the bounding box image (already has boxes drawn by beaker lib)
+        let image = image::open(&bbox_image_path)?;
 
         Ok(Self {
             image: Some(image),
@@ -36,33 +37,74 @@ impl DetectionView {
         })
     }
 
-    fn run_detection(_image_path: &str) -> Result<Vec<Detection>> {
-        // TODO: Integrate with beaker detection once API is stabilized
-        // For MVP, return mock data to demonstrate GUI functionality
+    fn run_detection(image_path: &str) -> Result<(String, Vec<Detection>)> {
+        use std::collections::HashSet;
+        use std::path::PathBuf;
 
-        // Mock detections for demonstration
-        let detections = vec![
-            Detection {
-                class_name: "bird".to_string(),
-                confidence: 0.95,
-                x1: 100.0,
-                y1: 100.0,
-                x2: 300.0,
-                y2: 300.0,
-                blur_score: Some(0.15),
-            },
-            Detection {
-                class_name: "bird".to_string(),
-                confidence: 0.87,
-                x1: 400.0,
-                y1: 150.0,
-                x2: 600.0,
-                y2: 350.0,
-                blur_score: Some(0.22),
-            },
-        ];
+        // Create temp directory for output
+        let temp_dir = std::env::temp_dir().join(format!("beaker-gui-{}", std::process::id()));
+        std::fs::create_dir_all(&temp_dir)?;
 
-        Ok(detections)
+        let base_config = beaker::config::BaseModelConfig {
+            sources: vec![image_path.to_string()],
+            device: "auto".to_string(),
+            output_dir: Some(temp_dir.to_str().unwrap().to_string()),
+            skip_metadata: false,
+            strict: true,
+            force: true,
+        };
+
+        let config = beaker::config::DetectionConfig {
+            base: base_config,
+            confidence: 0.5,
+            crop_classes: HashSet::new(),
+            bounding_box: true, // Enable bounding box output
+            model_path: None,
+            model_url: None,
+            model_checksum: None,
+            quality_results: None,
+        };
+
+        // Run detection
+        beaker::detection::run_detection(config)?;
+
+        // Find the bounding box image
+        let image_stem = std::path::Path::new(image_path)
+            .file_stem()
+            .unwrap()
+            .to_str()
+            .unwrap();
+        let bbox_image_path = temp_dir.join(format!("{}_bounding-box.jpg", image_stem));
+
+        // Read the JSON to get detection metadata
+        let json_path = temp_dir.join(format!("{}.beaker.json", image_stem));
+        let json_data = std::fs::read_to_string(&json_path)?;
+
+        // Parse JSON manually to extract detection info
+        let json: serde_json::Value = serde_json::from_str(&json_data)?;
+        let mut detections = Vec::new();
+
+        if let Some(dets) = json["detections"].as_array() {
+            for det_json in dets {
+                if let (Some(class_name), Some(confidence)) =
+                    (det_json["class_name"].as_str(), det_json["confidence"].as_f64())
+                {
+                    let blur_score = det_json["quality"]["blur_score"].as_f64().map(|v| v as f32);
+
+                    detections.push(Detection {
+                        class_name: class_name.to_string(),
+                        confidence: confidence as f32,
+                        x1: det_json["x1"].as_f64().unwrap_or(0.0) as f32,
+                        y1: det_json["y1"].as_f64().unwrap_or(0.0) as f32,
+                        x2: det_json["x2"].as_f64().unwrap_or(0.0) as f32,
+                        y2: det_json["y2"].as_f64().unwrap_or(0.0) as f32,
+                        blur_score,
+                    });
+                }
+            }
+        }
+
+        Ok((bbox_image_path.to_str().unwrap().to_string(), detections))
     }
 
     pub fn show(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
@@ -173,90 +215,9 @@ impl DetectionView {
     }
 
     fn render_image_with_bboxes(&self, img: &DynamicImage) -> ColorImage {
-        let mut img_rgba = img.to_rgba8();
-
-        for (idx, det) in self.detections.iter().enumerate() {
-            // RUNTIME ASSERT: Bounding box must be within image bounds
-            assert!(
-                det.x1 >= 0.0 && det.x1 < img.width() as f32,
-                "Bbox x1={} out of image width={}",
-                det.x1,
-                img.width()
-            );
-            assert!(
-                det.y1 >= 0.0 && det.y1 < img.height() as f32,
-                "Bbox y1={} out of image height={}",
-                det.y1,
-                img.height()
-            );
-            assert!(
-                det.x2 > det.x1 && det.x2 <= img.width() as f32,
-                "Bbox x2={} invalid (x1={}, width={})",
-                det.x2,
-                det.x1,
-                img.width()
-            );
-            assert!(
-                det.y2 > det.y1 && det.y2 <= img.height() as f32,
-                "Bbox y2={} invalid (y1={}, height={})",
-                det.y2,
-                det.y1,
-                img.height()
-            );
-
-            // Color based on selection
-            let color = if self.selected_detection == Some(idx) {
-                image::Rgba([255u8, 0, 0, 255]) // Red for selected
-            } else {
-                image::Rgba([0, 255, 0, 255]) // Green for others
-            };
-
-            // Draw bounding box (3 pixels thick)
-            let rect = imageproc::rect::Rect::at(det.x1 as i32, det.y1 as i32)
-                .of_size((det.x2 - det.x1) as u32, (det.y2 - det.y1) as u32);
-
-            for thickness in 0..3 {
-                imageproc::drawing::draw_hollow_rect_mut(
-                    &mut img_rgba,
-                    imageproc::rect::Rect::at(rect.left() - thickness, rect.top() - thickness)
-                        .of_size(
-                            rect.width() + 2 * thickness as u32,
-                            rect.height() + 2 * thickness as u32,
-                        ),
-                    color,
-                );
-            }
-
-            // Draw label with background
-            let label = format!("{} {:.2}", det.class_name, det.confidence);
-            let label_x = det.x1.max(5.0) as i32;
-            let label_y = (det.y1 - 20.0).max(5.0) as i32;
-
-            // Draw text background
-            let bg_rect = imageproc::rect::Rect::at(label_x - 2, label_y - 2)
-                .of_size((label.len() * 8 + 4) as u32, 18);
-            imageproc::drawing::draw_filled_rect_mut(
-                &mut img_rgba,
-                bg_rect,
-                image::Rgba([0, 0, 0, 200]),
-            );
-
-            // Load font for text rendering
-            let font_data = include_bytes!("../../fonts/NotoSans-Regular.ttf");
-            let font = ab_glyph::FontArc::try_from_slice(font_data).expect("Failed to load font");
-
-            imageproc::drawing::draw_text_mut(
-                &mut img_rgba,
-                image::Rgba([255, 255, 255, 255]),
-                label_x,
-                label_y,
-                14.0,
-                &font,
-                &label,
-            );
-        }
-
-        // Convert to egui ColorImage
+        // Image already has bounding boxes drawn by beaker lib
+        // Just convert to egui ColorImage format
+        let img_rgba = img.to_rgba8();
         let size = [img_rgba.width() as usize, img_rgba.height() as usize];
         let pixels = img_rgba.into_raw();
         ColorImage::from_rgba_unmultiplied(size, &pixels)
