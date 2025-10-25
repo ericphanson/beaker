@@ -91,7 +91,10 @@ impl DetectionView {
 
         // Try to find the actual bounding box file
         let bbox_image_path = temp_dir.join(format!("{}_bounding-box.jpg", image_stem));
-        eprintln!("Looking for bounding box image: {}", bbox_image_path.display());
+        eprintln!(
+            "Looking for bounding box image: {}",
+            bbox_image_path.display()
+        );
 
         if !bbox_image_path.exists() {
             anyhow::bail!(
@@ -110,7 +113,12 @@ impl DetectionView {
         let toml_value: toml::Value = toml::from_str(&toml_data)?;
         let mut detections = Vec::new();
 
-        if let Some(dets) = toml_value.get("detections").and_then(|v| v.as_array()) {
+        // Detections are under [detect] section with core results flattened
+        if let Some(dets) = toml_value
+            .get("detect")
+            .and_then(|v| v.get("detections"))
+            .and_then(|v| v.as_array())
+        {
             for det_toml in dets {
                 if let Some(det_table) = det_toml.as_table() {
                     let class_name = det_table
@@ -278,5 +286,121 @@ impl DetectionView {
         let size = [img_rgba.width() as usize, img_rgba.height() as usize];
         let pixels = img_rgba.into_raw();
         ColorImage::from_rgba_unmultiplied(size, &pixels)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_toml_parsing_detections() {
+        // Test that we correctly parse detections from beaker TOML format
+        // The TOML structure has detections under [detect] section with core results flattened
+        let toml_data = r#"
+[detect]
+model_version = "test-v1.0.0"
+input_img_width = 1024
+input_img_height = 768
+
+[[detect.detections]]
+class_name = "head"
+confidence = 0.95
+x1 = 100.0
+y1 = 150.0
+x2 = 200.0
+y2 = 250.0
+
+[[detect.detections]]
+class_name = "head"
+confidence = 0.87
+x1 = 300.0
+y1 = 350.0
+x2 = 400.0
+y2 = 450.0
+
+[detect.detections.quality]
+blur_score = 0.12
+
+[detect.config]
+confidence = 0.5
+
+[detect.execution]
+timestamp = "2025-10-25T12:00:00Z"
+beaker_version = "0.1.0"
+"#;
+
+        // Parse TOML
+        let toml_value: toml::Value = toml::from_str(toml_data).unwrap();
+        let mut detections = Vec::new();
+
+        // Extract detections using the same logic as run_detection
+        if let Some(dets) = toml_value
+            .get("detect")
+            .and_then(|v| v.get("detections"))
+            .and_then(|v| v.as_array())
+        {
+            for det_toml in dets {
+                if let Some(det_table) = det_toml.as_table() {
+                    let class_name = det_table
+                        .get("class_name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown");
+                    let confidence = det_table
+                        .get("confidence")
+                        .and_then(|v| v.as_float())
+                        .unwrap_or(0.0) as f32;
+
+                    let blur_score = det_table
+                        .get("quality")
+                        .and_then(|q| q.as_table())
+                        .and_then(|q| q.get("blur_score"))
+                        .and_then(|v| v.as_float())
+                        .map(|v| v as f32);
+
+                    let x1 = det_table
+                        .get("x1")
+                        .and_then(|v| v.as_float())
+                        .unwrap_or(0.0) as f32;
+                    let y1 = det_table
+                        .get("y1")
+                        .and_then(|v| v.as_float())
+                        .unwrap_or(0.0) as f32;
+                    let x2 = det_table
+                        .get("x2")
+                        .and_then(|v| v.as_float())
+                        .unwrap_or(0.0) as f32;
+                    let y2 = det_table
+                        .get("y2")
+                        .and_then(|v| v.as_float())
+                        .unwrap_or(0.0) as f32;
+
+                    detections.push(Detection {
+                        class_name: class_name.to_string(),
+                        confidence,
+                        x1,
+                        y1,
+                        x2,
+                        y2,
+                        blur_score,
+                    });
+                }
+            }
+        }
+
+        // Verify we parsed the detections correctly
+        assert_eq!(detections.len(), 2, "Should parse 2 detections");
+        assert_eq!(detections[0].class_name, "head");
+        assert_eq!(detections[0].confidence, 0.95);
+        assert_eq!(detections[0].x1, 100.0);
+        assert_eq!(detections[0].y1, 150.0);
+        assert_eq!(detections[0].x2, 200.0);
+        assert_eq!(detections[0].y2, 250.0);
+        assert!(detections[0].blur_score.is_none());
+
+        assert_eq!(detections[1].class_name, "head");
+        assert_eq!(detections[1].confidence, 0.87);
+        assert_eq!(detections[1].x1, 300.0);
+        assert_eq!(detections[1].y1, 350.0);
     }
 }
