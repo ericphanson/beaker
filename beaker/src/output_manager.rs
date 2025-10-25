@@ -256,7 +256,6 @@ mod tests {
                 force: false,
             },
             confidence: 0.25,
-            iou_threshold: 0.45,
             crop_classes: HashSet::new(), // Empty for this test
             bounding_box: false,
             model_path: None,
