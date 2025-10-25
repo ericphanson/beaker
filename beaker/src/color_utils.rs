@@ -251,15 +251,6 @@ pub mod symbols {
         }
     }
 
-    /// Symbol for timeout operations
-    pub fn timeout() -> &'static str {
-        if colors_enabled() {
-            "⏰"
-        } else {
-            "[TIMEOUT]"
-        }
-    }
-
     /// Symbol for file save operations
     pub fn save_file() -> &'static str {
         if colors_enabled() {

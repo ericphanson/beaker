@@ -29,13 +29,6 @@ Each issue follows this structure:
 ### 🔴 CRITICAL (P0) - Must Fix Immediately
 
 #### Data Integrity
-- **[CRITICAL-01](CRITICAL-01-model-download-race-condition.md)**: Model Download Race Condition → Silent Corruption
-  - Two processes can corrupt same cached model file
-  - Requires manual cache cleanup to fix
-  - **Fix**: Use advisory file locks (fs2 crate)
-  - **Effort**: 1 day
-  - **Decision**: Which locking approach? (fs2 vs PID validation)
-
 - **[CRITICAL-02](CRITICAL-02-partial-download-corruption.md)**: Partial Downloads Leave Corrupt Files
   - Interrupted downloads corrupt cache, must restart from 0%
   - Wastes bandwidth on slow connections
@@ -111,18 +104,16 @@ See **[MEDIUM-PRIORITY-ISSUES.md](MEDIUM-PRIORITY-ISSUES.md)** for 10 smaller is
 - Quality results wrapper
 - File naming repeated suffixes
 - Redundant checksum verification
-- (Lock file orphaning covered by CRITICAL-01)
 
 ## Implementation Roadmap
 
 ### Phase 1: Critical Fixes (Week 1)
 **Goal**: Prevent data loss and corruption
 
-1. **CRITICAL-01** (race condition) + **CRITICAL-02** (partial downloads)
-   - Both involve model download, fix together
-   - Use fs2 crate for file locking + atomic temp file writes
-   - **Effort**: 1.5 days combined
-   - **Deliverable**: Safe concurrent downloads
+1. **CRITICAL-02** (partial downloads)
+   - Use atomic temp file writes
+   - **Effort**: 0.5 day
+   - **Deliverable**: Safe interrupted downloads
 
 2. **CRITICAL-03** (basename collision)
    - Add collision detection with clear error messages
@@ -134,7 +125,7 @@ See **[MEDIUM-PRIORITY-ISSUES.md](MEDIUM-PRIORITY-ISSUES.md)** for 10 smaller is
    - **Effort**: 0.5 day
    - **Deliverable**: Quality command produces visible results
 
-**Total Week 1**: 3 days of implementation
+**Total Week 1**: 2 days of implementation
 
 ### Phase 2: Validation & UX (Week 2)
 **Goal**: Consistent error handling and validation
@@ -188,8 +179,6 @@ Issues requiring maintainer decisions:
 
 | Issue | Decision | Options | Recommendation |
 |-------|----------|---------|----------------|
-| CRITICAL-01 | Locking approach? | fs2 crate / PID validation | fs2 (more robust) |
-| CRITICAL-01 | Lock timeout? | None / 5min / Configurable | None (file locks auto-release) |
 | CRITICAL-02 | Temp file naming? | `.tmp` / `.{pid}.tmp` / `.{timestamp}.tmp` | `.tmp` (simple) |
 | CRITICAL-03 | Collision handling? | Error / Auto-number / Preserve dirs | Error + optional auto-number flag |
 | CRITICAL-03 | Counter format? | `file-2.jpg` / `file_2.jpg` / `file(2).jpg` | `file-2.jpg` (dash) |
@@ -210,9 +199,6 @@ Each issue includes specific test requirements in its file.
 ### Integration Tests
 After Phase 1 (critical fixes):
 ```bash
-# Test concurrent downloads
-./test_concurrent_downloads.sh
-
 # Test batch processing with collisions
 beaker detect dir1/bird.jpg dir2/bird.jpg --output-dir output/
 
@@ -229,7 +215,6 @@ test -f image.beaker.toml || echo "FAIL"
 ## Success Metrics
 
 ### Phase 1 Complete When:
-- [x] Zero data corruption reports from concurrent downloads
 - [x] Interrupted downloads clean up properly
 - [x] Batch processing never loses files silently
 - [x] Quality command always produces output
@@ -276,6 +261,6 @@ Analysis codebase commit: `85436bf note`
 
 ---
 
-**Total Issues**: 13 detailed + 10 medium (summary)
+**Total Issues**: 12 detailed + 10 medium (summary)
 **Total Estimated Effort**: ~2-3 weeks for critical + high priority
 **Primary Agents**: ModelProcessor Integration, CLI Routing, Metadata Generation, Model Management, Output Management, Dead Code Analysis
