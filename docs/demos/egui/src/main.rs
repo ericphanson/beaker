@@ -18,8 +18,8 @@ fn main() -> eframe::Result {
             setup_custom_style(&cc.egui_ctx);
 
             // Check if we should use native menu (macOS only, unless USE_EGUI_MENU is set)
-            let use_native_menu = cfg!(target_os = "macos")
-                && std::env::var("USE_EGUI_MENU").is_err();
+            let use_native_menu =
+                cfg!(target_os = "macos") && std::env::var("USE_EGUI_MENU").is_err();
 
             if use_native_menu {
                 #[cfg(target_os = "macos")]
@@ -57,10 +57,14 @@ fn setup_custom_style(ctx: &egui::Context) {
     style.visuals.widgets.active.rounding = egui::Rounding::same(6.0);
 
     // Crisp, subtle borders
-    style.visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, egui::Color32::from_gray(180));
-    style.visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.5, egui::Color32::from_gray(160));
-    style.visuals.widgets.hovered.bg_stroke = egui::Stroke::new(2.0, egui::Color32::from_rgb(100, 150, 220));
-    style.visuals.widgets.active.bg_stroke = egui::Stroke::new(2.5, egui::Color32::from_rgb(80, 130, 200));
+    style.visuals.widgets.noninteractive.bg_stroke =
+        egui::Stroke::new(1.0, egui::Color32::from_gray(180));
+    style.visuals.widgets.inactive.bg_stroke =
+        egui::Stroke::new(1.5, egui::Color32::from_gray(160));
+    style.visuals.widgets.hovered.bg_stroke =
+        egui::Stroke::new(2.0, egui::Color32::from_rgb(100, 150, 220));
+    style.visuals.widgets.active.bg_stroke =
+        egui::Stroke::new(2.5, egui::Color32::from_rgb(80, 130, 200));
 
     // Refined background colors
     style.visuals.window_fill = egui::Color32::from_gray(248);
@@ -126,29 +130,59 @@ impl eframe::App for HelloWorldApp {
         // Show egui-rendered menu bar if not using native menu
         if !self.use_native_menu {
             egui::TopBottomPanel::top("menu_bar")
-                .frame(egui::Frame::none()
-                    .fill(egui::Color32::WHITE)
-                    .inner_margin(egui::Margin::symmetric(12.0, 4.0)))
+                .frame(
+                    egui::Frame::none()
+                        .fill(egui::Color32::WHITE)
+                        .inner_margin(egui::Margin::symmetric(12.0, 4.0)),
+                )
                 .show(ctx, |ui| {
                     egui::menu::bar(ui, |ui| {
                         ui.menu_button("File", |ui| {
-                            let new_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::N);
-                            if ui.add(egui::Button::new("New").shortcut_text(ctx.format_shortcut(&new_shortcut))).clicked() {}
+                            let new_shortcut =
+                                egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::N);
+                            if ui
+                                .add(
+                                    egui::Button::new("New")
+                                        .shortcut_text(ctx.format_shortcut(&new_shortcut)),
+                                )
+                                .clicked()
+                            {}
 
-                            let open_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::O);
-                            if ui.add(egui::Button::new("Open...").shortcut_text(ctx.format_shortcut(&open_shortcut))).clicked() {}
+                            let open_shortcut =
+                                egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::O);
+                            if ui
+                                .add(
+                                    egui::Button::new("Open...")
+                                        .shortcut_text(ctx.format_shortcut(&open_shortcut)),
+                                )
+                                .clicked()
+                            {}
 
                             ui.separator();
 
-                            let quit_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::Q);
-                            if ui.add(egui::Button::new("Quit").shortcut_text(ctx.format_shortcut(&quit_shortcut))).clicked() {
+                            let quit_shortcut =
+                                egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::Q);
+                            if ui
+                                .add(
+                                    egui::Button::new("Quit")
+                                        .shortcut_text(ctx.format_shortcut(&quit_shortcut)),
+                                )
+                                .clicked()
+                            {
                                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                             }
                         });
 
                         ui.menu_button("Edit", |ui| {
-                            let clear_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::K);
-                            if ui.add(egui::Button::new("Clear").shortcut_text(ctx.format_shortcut(&clear_shortcut))).clicked() {
+                            let clear_shortcut =
+                                egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::K);
+                            if ui
+                                .add(
+                                    egui::Button::new("Clear")
+                                        .shortcut_text(ctx.format_shortcut(&clear_shortcut)),
+                                )
+                                .clicked()
+                            {
                                 self.name.clear();
                             }
                         });
@@ -167,10 +201,12 @@ impl eframe::App for HelloWorldApp {
 
             // Large, prominent heading
             ui.vertical_centered(|ui| {
-                ui.heading(egui::RichText::new("Hello, World!")
-                    .size(40.0)
-                    .strong()
-                    .color(egui::Color32::from_gray(50)));
+                ui.heading(
+                    egui::RichText::new("Hello, World!")
+                        .size(40.0)
+                        .strong()
+                        .color(egui::Color32::from_gray(50)),
+                );
             });
 
             ui.add_space(40.0);
@@ -196,14 +232,18 @@ impl eframe::App for HelloWorldApp {
                     .show(ui, |ui| {
                         ui.set_max_width(card_width);
                         ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new("Your name:")
-                                .size(18.0)
-                                .color(egui::Color32::from_gray(80)));
+                            ui.label(
+                                egui::RichText::new("Your name:")
+                                    .size(18.0)
+                                    .color(egui::Color32::from_gray(80)),
+                            );
                             ui.add_space(12.0);
-                            ui.add(egui::TextEdit::singleline(&mut self.name)
-                                .hint_text("Enter your name...")
-                                .desired_width(220.0)
-                                .font(egui::TextStyle::Body));
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.name)
+                                    .hint_text("Enter your name...")
+                                    .desired_width(220.0)
+                                    .font(egui::TextStyle::Body),
+                            );
                         });
                     });
             });
@@ -213,10 +253,12 @@ impl eframe::App for HelloWorldApp {
             // Greeting with beautiful color
             if !self.name.is_empty() {
                 ui.vertical_centered(|ui| {
-                    ui.label(egui::RichText::new(format!("Hello, {}!", self.name))
-                        .size(28.0)
-                        .strong()
-                        .color(egui::Color32::from_rgb(70, 130, 200)));
+                    ui.label(
+                        egui::RichText::new(format!("Hello, {}!", self.name))
+                            .size(28.0)
+                            .strong()
+                            .color(egui::Color32::from_rgb(70, 130, 200)),
+                    );
                 });
             }
 
@@ -227,7 +269,7 @@ impl eframe::App for HelloWorldApp {
 
 #[cfg(target_os = "macos")]
 impl HelloWorldApp {
-    fn handle_menu_event(&mut self, event: MenuEvent, ctx: &egui::Context) {
+    fn handle_menu_event(&mut self, event: MenuEvent, _ctx: &egui::Context) {
         let id = event.id;
         println!("Menu event: {id:?}");
 
@@ -252,31 +294,49 @@ fn create_native_menu() -> (Menu, std::sync::mpsc::Receiver<MenuEvent>) {
 
     // App menu (first menu with app name)
     let app_menu = Submenu::new("Hello World", true);
-    app_menu.append(&PredefinedMenuItem::about(None, None)).unwrap();
+    app_menu
+        .append(&PredefinedMenuItem::about(None, None))
+        .unwrap();
     app_menu.append(&PredefinedMenuItem::separator()).unwrap();
-    app_menu.append(&PredefinedMenuItem::services(None)).unwrap();
+    app_menu
+        .append(&PredefinedMenuItem::services(None))
+        .unwrap();
     app_menu.append(&PredefinedMenuItem::separator()).unwrap();
     app_menu.append(&PredefinedMenuItem::hide(None)).unwrap();
-    app_menu.append(&PredefinedMenuItem::hide_others(None)).unwrap();
-    app_menu.append(&PredefinedMenuItem::show_all(None)).unwrap();
+    app_menu
+        .append(&PredefinedMenuItem::hide_others(None))
+        .unwrap();
+    app_menu
+        .append(&PredefinedMenuItem::show_all(None))
+        .unwrap();
     app_menu.append(&PredefinedMenuItem::separator()).unwrap();
     app_menu.append(&PredefinedMenuItem::quit(None)).unwrap();
     menu.append(&app_menu).unwrap();
 
     // File menu
     let file_menu = Submenu::new("File", true);
-    let new_item = MenuItem::new("New", true, Some(muda::accelerator::Accelerator::new(
-        Some(muda::accelerator::Modifiers::SUPER),
-        muda::accelerator::Code::KeyN,
-    )));
-    let open_item = MenuItem::new("Open...", true, Some(muda::accelerator::Accelerator::new(
-        Some(muda::accelerator::Modifiers::SUPER),
-        muda::accelerator::Code::KeyO,
-    )));
+    let new_item = MenuItem::new(
+        "New",
+        true,
+        Some(muda::accelerator::Accelerator::new(
+            Some(muda::accelerator::Modifiers::SUPER),
+            muda::accelerator::Code::KeyN,
+        )),
+    );
+    let open_item = MenuItem::new(
+        "Open...",
+        true,
+        Some(muda::accelerator::Accelerator::new(
+            Some(muda::accelerator::Modifiers::SUPER),
+            muda::accelerator::Code::KeyO,
+        )),
+    );
     file_menu.append(&new_item).unwrap();
     file_menu.append(&open_item).unwrap();
     file_menu.append(&PredefinedMenuItem::separator()).unwrap();
-    file_menu.append(&PredefinedMenuItem::close_window(None)).unwrap();
+    file_menu
+        .append(&PredefinedMenuItem::close_window(None))
+        .unwrap();
     menu.append(&file_menu).unwrap();
 
     // Edit menu
@@ -287,15 +347,25 @@ fn create_native_menu() -> (Menu, std::sync::mpsc::Receiver<MenuEvent>) {
     edit_menu.append(&PredefinedMenuItem::cut(None)).unwrap();
     edit_menu.append(&PredefinedMenuItem::copy(None)).unwrap();
     edit_menu.append(&PredefinedMenuItem::paste(None)).unwrap();
-    edit_menu.append(&PredefinedMenuItem::select_all(None)).unwrap();
+    edit_menu
+        .append(&PredefinedMenuItem::select_all(None))
+        .unwrap();
     menu.append(&edit_menu).unwrap();
 
     // Window menu
     let window_menu = Submenu::new("Window", true);
-    window_menu.append(&PredefinedMenuItem::minimize(None)).unwrap();
-    window_menu.append(&PredefinedMenuItem::maximize(None)).unwrap();
-    window_menu.append(&PredefinedMenuItem::separator()).unwrap();
-    window_menu.append(&PredefinedMenuItem::fullscreen(None)).unwrap();
+    window_menu
+        .append(&PredefinedMenuItem::minimize(None))
+        .unwrap();
+    window_menu
+        .append(&PredefinedMenuItem::maximize(None))
+        .unwrap();
+    window_menu
+        .append(&PredefinedMenuItem::separator())
+        .unwrap();
+    window_menu
+        .append(&PredefinedMenuItem::fullscreen(None))
+        .unwrap();
     menu.append(&window_menu).unwrap();
 
     // Help menu

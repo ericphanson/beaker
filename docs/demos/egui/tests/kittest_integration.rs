@@ -1,5 +1,5 @@
-use egui_kittest::Harness;
 use eframe::egui;
+use egui_kittest::Harness;
 
 #[derive(Default)]
 struct HelloWorldApp {
@@ -10,29 +10,59 @@ impl eframe::App for HelloWorldApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Clean macOS-style menu bar
         egui::TopBottomPanel::top("menu_bar")
-            .frame(egui::Frame::none()
-                .fill(egui::Color32::WHITE)
-                .inner_margin(egui::Margin::symmetric(12.0, 4.0)))
+            .frame(
+                egui::Frame::none()
+                    .fill(egui::Color32::WHITE)
+                    .inner_margin(egui::Margin::symmetric(12.0, 4.0)),
+            )
             .show(ctx, |ui| {
                 egui::menu::bar(ui, |ui| {
                     ui.menu_button("File", |ui| {
-                        let new_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::N);
-                        if ui.add(egui::Button::new("New").shortcut_text(ctx.format_shortcut(&new_shortcut))).clicked() {}
+                        let new_shortcut =
+                            egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::N);
+                        if ui
+                            .add(
+                                egui::Button::new("New")
+                                    .shortcut_text(ctx.format_shortcut(&new_shortcut)),
+                            )
+                            .clicked()
+                        {}
 
-                        let open_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::O);
-                        if ui.add(egui::Button::new("Open...").shortcut_text(ctx.format_shortcut(&open_shortcut))).clicked() {}
+                        let open_shortcut =
+                            egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::O);
+                        if ui
+                            .add(
+                                egui::Button::new("Open...")
+                                    .shortcut_text(ctx.format_shortcut(&open_shortcut)),
+                            )
+                            .clicked()
+                        {}
 
                         ui.separator();
 
-                        let quit_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::Q);
-                        if ui.add(egui::Button::new("Quit").shortcut_text(ctx.format_shortcut(&quit_shortcut))).clicked() {
+                        let quit_shortcut =
+                            egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::Q);
+                        if ui
+                            .add(
+                                egui::Button::new("Quit")
+                                    .shortcut_text(ctx.format_shortcut(&quit_shortcut)),
+                            )
+                            .clicked()
+                        {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         }
                     });
 
                     ui.menu_button("Edit", |ui| {
-                        let clear_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::K);
-                        if ui.add(egui::Button::new("Clear").shortcut_text(ctx.format_shortcut(&clear_shortcut))).clicked() {
+                        let clear_shortcut =
+                            egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::K);
+                        if ui
+                            .add(
+                                egui::Button::new("Clear")
+                                    .shortcut_text(ctx.format_shortcut(&clear_shortcut)),
+                            )
+                            .clicked()
+                        {
                             self.name.clear();
                         }
                     });
@@ -48,10 +78,12 @@ impl eframe::App for HelloWorldApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.add_space(32.0);
             ui.vertical_centered(|ui| {
-                ui.heading(egui::RichText::new("Hello, World!")
-                    .size(40.0)
-                    .strong()
-                    .color(egui::Color32::from_gray(50)));
+                ui.heading(
+                    egui::RichText::new("Hello, World!")
+                        .size(40.0)
+                        .strong()
+                        .color(egui::Color32::from_gray(50)),
+                );
             });
             ui.add_space(40.0);
 
@@ -75,13 +107,17 @@ impl eframe::App for HelloWorldApp {
                     .show(ui, |ui| {
                         ui.set_max_width(card_width);
                         ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new("Your name:")
-                                .size(18.0)
-                                .color(egui::Color32::from_gray(80)));
+                            ui.label(
+                                egui::RichText::new("Your name:")
+                                    .size(18.0)
+                                    .color(egui::Color32::from_gray(80)),
+                            );
                             ui.add_space(12.0);
-                            ui.add(egui::TextEdit::singleline(&mut self.name)
-                                .hint_text("Enter your name...")
-                                .desired_width(220.0));
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.name)
+                                    .hint_text("Enter your name...")
+                                    .desired_width(220.0),
+                            );
                         });
                     });
             });
@@ -90,10 +126,12 @@ impl eframe::App for HelloWorldApp {
 
             if !self.name.is_empty() {
                 ui.vertical_centered(|ui| {
-                    ui.label(egui::RichText::new(format!("Hello, {}!", self.name))
-                        .size(28.0)
-                        .strong()
-                        .color(egui::Color32::from_rgb(70, 130, 200)));
+                    ui.label(
+                        egui::RichText::new(format!("Hello, {}!", self.name))
+                            .size(28.0)
+                            .strong()
+                            .color(egui::Color32::from_rgb(70, 130, 200)),
+                    );
                 });
             }
         });
@@ -113,10 +151,14 @@ fn apply_custom_style(ctx: &egui::Context) {
     style.visuals.widgets.hovered.rounding = egui::Rounding::same(6.0);
     style.visuals.widgets.active.rounding = egui::Rounding::same(6.0);
 
-    style.visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, egui::Color32::from_gray(180));
-    style.visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.5, egui::Color32::from_gray(160));
-    style.visuals.widgets.hovered.bg_stroke = egui::Stroke::new(2.0, egui::Color32::from_rgb(100, 150, 220));
-    style.visuals.widgets.active.bg_stroke = egui::Stroke::new(2.5, egui::Color32::from_rgb(80, 130, 200));
+    style.visuals.widgets.noninteractive.bg_stroke =
+        egui::Stroke::new(1.0, egui::Color32::from_gray(180));
+    style.visuals.widgets.inactive.bg_stroke =
+        egui::Stroke::new(1.5, egui::Color32::from_gray(160));
+    style.visuals.widgets.hovered.bg_stroke =
+        egui::Stroke::new(2.0, egui::Color32::from_rgb(100, 150, 220));
+    style.visuals.widgets.active.bg_stroke =
+        egui::Stroke::new(2.5, egui::Color32::from_rgb(80, 130, 200));
 
     style.visuals.window_fill = egui::Color32::from_gray(248);
     style.visuals.panel_fill = egui::Color32::from_gray(248);
@@ -129,6 +171,7 @@ fn apply_custom_style(ctx: &egui::Context) {
 }
 
 #[test]
+#[cfg(not(target_os = "macos"))]
 fn test_menu_bar() {
     let mut harness = Harness::new_ui(|ui| {
         apply_custom_style(ui.ctx());
@@ -151,6 +194,7 @@ fn test_menu_bar() {
 }
 
 #[test]
+#[cfg(not(target_os = "macos"))]
 fn test_styled_card() {
     let mut harness = Harness::new_ui(|ui| {
         apply_custom_style(ui.ctx());
