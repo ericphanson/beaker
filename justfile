@@ -157,6 +157,29 @@ test-execution-providers target="" os="linux":
 
     echo "Execution provider testing complete"
 
+# Test CLI cutout command
+test-cli-cutout target="" device="auto":
+    #!/usr/bin/env bash
+    if [ -n "{{target}}" ]; then
+        BINARY="target/{{target}}/release/beaker"
+    else
+        BINARY="target/release/beaker"
+    fi
+
+    echo "Testing CLI cutout command..."
+    echo "Device: {{device}}, Target: {{target}}"
+    "$BINARY" cutout example.jpg --device {{device}}
+    echo "CLI cutout command works"
+
+# Run smoke tests (basic validation that binary and models work)
+smoke-test target="" device="auto":
+    @echo "Running smoke tests..."
+    @just test-cli-help {{target}}
+    @just preload-models {{target}} {{device}}
+    @just test-cli-detect {{target}} {{device}}
+    @just test-cli-cutout {{target}} {{device}}
+    @echo "All smoke tests passed!"
+
 # Run full CLI test suite
 test-cli-full target="" device="auto" os="linux":
     @just test-cli-help {{target}}
