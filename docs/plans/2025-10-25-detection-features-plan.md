@@ -64,6 +64,115 @@
 
 ## Feature Proposals
 
+### 📁 Proposal 0: File Navigation & Opening (Critical Foundation)
+
+**Goal:** Enable users to open images/folders from within the GUI using native file dialogs.
+
+**Current limitation:** MVP requires CLI invocation with image path, which is:
+- Not user-friendly for GUI app
+- Fine for headless testing, but not for interactive use
+- Missing standard desktop app UX
+
+**Features:**
+
+1. **Welcome screen** (when app launches without arguments)
+   - Large, clear buttons: "Open Image", "Open Folder"
+   - Recent files list (last 10 opened images/folders)
+   - Drag & drop zone: "Drop image or folder here"
+   - Getting started tips
+
+2. **Native file dialogs**
+   - File > Open Image: Native file picker for single image
+   - File > Open Folder: Native folder picker
+   - Filter by supported formats (.jpg, .png, .beaker.toml)
+   - Remember last opened directory
+
+3. **Drag & drop support**
+   - Drag image file → open in single-image mode
+   - Drag folder → open in bulk/directory mode
+   - Drag multiple images → open first or show picker?
+   - Visual feedback during drag (highlight drop zone)
+
+4. **Recent files**
+   - File > Recent menu with last 10 items
+   - Show path and timestamp
+   - Clear recent list option
+   - Persist to disk (e.g., ~/.beaker-gui/recent.json)
+
+5. **Native menu integration** (macOS/Windows/Linux)
+   - File > Open Image (Cmd+O)
+   - File > Open Folder (Cmd+Shift+O)
+   - File > Recent >
+   - File > Close (Cmd+W)
+
+6. **Smart mode detection**
+   - If folder contains .beaker.toml files → Bulk mode
+   - If single image selected → Single-image mode
+   - Show loading progress for large folders
+
+**UI mockup (Welcome screen):**
+```
+┌────────────────────────────────────────────────────┐
+│                  Beaker - Bird Analysis            │
+│                                                     │
+│         ┌───────────────────────────────┐          │
+│         │                               │          │
+│         │   Drop image or folder here   │          │
+│         │                               │          │
+│         │         📁 or 🖼️              │          │
+│         │                               │          │
+│         └───────────────────────────────┘          │
+│                                                     │
+│     [Open Image]        [Open Folder]              │
+│                                                     │
+│ ─────── Recent Files ──────────                    │
+│  📁 /path/to/birds/           (2 hours ago)        │
+│  🖼️  /path/to/bird_042.jpg   (yesterday)          │
+│  📁 /path/to/dataset/         (3 days ago)         │
+│                                                     │
+│ 💡 Tip: Process a folder to triage quality across  │
+│    multiple images, or open single image to inspect│
+└────────────────────────────────────────────────────┘
+```
+
+**UI mockup (After opening folder):**
+```
+┌────────────────────────────────────────────────────┐
+│ File  View  Help                    [macOS menu]   │
+├────────────────────────────────────────────────────┤
+│ 📁 /path/to/birds/ (47 images)     [Change Folder]│
+│ ────────────────────────────────────────────────── │
+│ [Gallery view with thumbnails...]                  │
+│ ...                                                 │
+└────────────────────────────────────────────────────┘
+```
+
+**Why critical:**
+- **Fundamental UX**: Users expect to open files from GUI, not CLI
+- **Discoverability**: New users can explore without knowing CLI flags
+- **Workflow integration**: Fits standard desktop app patterns
+- **Professionalism**: Apps without file dialogs feel incomplete
+
+**Scope:**
+- **Both modes**: Essential for single-image AND bulk modes
+- **First-run experience**: Welcome screen is the user's introduction to the app
+
+**Implementation notes:**
+- Use `rfd` (Rust File Dialog) crate for native dialogs
+- Welcome screen as default view when no args passed
+- Store recent files in JSON at `~/.config/beaker-gui/recent.json` (Linux) or equivalent
+- Drag & drop via egui's `dropped_files()` API
+- ~400-500 LOC, 3-4 days work
+
+**Dependencies:**
+```toml
+rfd = "0.15"  # Native file dialogs
+serde_json = "1.0"  # Recent files persistence
+dirs = "5.0"  # Cross-platform config directory
+```
+
+---
+
 ### 🎯 Proposal A: Bulk/Directory Mode Foundation (Essential)
 
 **Goal:** Enable analyzing directories of images with aggregate detection management.
@@ -643,60 +752,73 @@
 
 ## Recommended Implementation Roadmap
 
+### Phase 0: Foundation & File Navigation (1 week)
+**Goal:** Enable basic app launch and file/folder opening
+
+1. **Proposal 0: File Navigation & Opening** (critical)
+   - Welcome screen
+   - Native file dialogs (Open Image, Open Folder)
+   - Drag & drop support
+   - Recent files list
+
+**Deliverable:** Launch app, see welcome screen, open folder via dialog → load images.
+
+---
+
 ### Phase 1: Bulk Foundation (2-3 weeks)
 **Goal:** Make directory processing functional
 
-1. **Proposal A: Bulk/Directory Mode** (essential)
-   - Directory loading
+2. **Proposal A: Bulk/Directory Mode** (essential)
+   - Directory loading (integrates with Proposal 0)
    - Image gallery
    - Aggregate detection list
    - Navigation
 
-2. **Proposal E: Zoom & Pan** (essential)
+3. **Proposal E: Zoom & Pan** (essential)
    - Basic zoom in/out
    - Pan when zoomed
    - Zoom to detection
 
-**Deliverable:** Load directory of 50 images, navigate between images, zoom to inspect detections.
+**Deliverable:** Open folder via dialog, see gallery of 50 images, navigate between images, zoom to inspect detections.
 
 ---
 
 ### Phase 2: Quality Triage (3-4 weeks)
 **Goal:** Leverage quality data for efficient triage
 
-3. **Proposal B: Quality Triage Workflow** (high priority)
+4. **Proposal B: Quality Triage Workflow** (high priority)
    - Aggregate filtering (good/bad/unknown)
    - Triage mode for reviewing unknowns
    - Quality statistics
 
-4. **Proposal C: Quality Heatmap Visualization** (high value)
+5. **Proposal C: Quality Heatmap Visualization** (high value)
    - Load debug heatmaps
    - Layer selector
    - Opacity control
 
-5. **Proposal D: Rich Quality Metrics** (complements C)
+6. **Proposal D: Rich Quality Metrics** (complements C)
    - Expanded metric cards
    - Triage explanations
    - Contextual help
 
-**Deliverable:** Process 100 images, filter to 30 unknowns, review them with heatmaps, export 80 good detections.
+**Deliverable:** Open folder of 100 images via dialog, filter to 30 unknowns, review them with heatmaps, export 80 good detections.
 
 ---
 
 ### Phase 3: Power Features (2-3 weeks)
 **Goal:** Polish and power-user workflows
 
-6. **Proposal F: Keyboard Shortcuts** (polish)
+7. **Proposal F: Keyboard Shortcuts** (polish)
    - Navigation shortcuts
    - Triage shortcuts
    - Command palette
 
-7. **Proposal G: Export & Reporting** (power user)
+8. **Proposal G: Export & Reporting** (power user)
    - Export JSON/CSV
    - Triage overrides
    - Summary reports
 
-8. **Proposal H: Comparison View** (optional)
+9. **Proposal H: Comparison View** (optional)
    - Side-by-side comparison
    - Metric diffs
 
@@ -706,19 +828,20 @@
 
 ## Alternative: Phased by Workflow
 
-### Workflow 1: Quick Directory Triage (Week 1-2)
+### Workflow 1: Basic App & Quick Triage (Week 1-3)
+- File navigation (0)
 - Directory loading (A)
 - Quality filtering (B partial)
 - Zoom to detection (E partial)
-→ **Triage 50 images, find good detections**
+→ **Launch app, open folder, triage 50 images, find good detections**
 
-### Workflow 2: Deep Quality Understanding (Week 3-5)
+### Workflow 2: Deep Quality Understanding (Week 4-6)
 - Heatmap visualization (C)
 - Rich metrics display (D)
 - Triage mode (B complete)
 → **Understand *why* detections are good/bad**
 
-### Workflow 3: Batch Processing (Week 6-7)
+### Workflow 3: Batch Processing (Week 7-8)
 - Keyboard shortcuts (F)
 - Export (G)
 - Comparison (H)
@@ -730,11 +853,12 @@
 
 | Proposal | Single Image | Bulk Mode | Priority | Effort |
 |----------|--------------|-----------|----------|--------|
-| A: Bulk/Directory Mode | N/A | ★★★ Essential | Critical | 1 week |
-| B: Quality Triage | ★ Nice | ★★★ Essential | High | 1 week |
-| C: Heatmap Viz | ★★ Useful | ★★★ High value | High | 1-2 weeks |
+| 0: File Navigation | ★★★ Essential | ★★★ Essential | **Critical** | 3-4 days |
+| A: Bulk/Directory Mode | N/A | ★★★ Essential | **Critical** | 1 week |
+| B: Quality Triage | ★ Nice | ★★★ Essential | **High** | 1 week |
+| C: Heatmap Viz | ★★ Useful | ★★★ High value | **High** | 1-2 weeks |
 | D: Rich Metrics | ★★★ Essential | ★★ Useful | Medium | 3-4 days |
-| E: Zoom & Pan | ★★★ Essential | ★★★ Essential | Critical | 3-4 days |
+| E: Zoom & Pan | ★★★ Essential | ★★★ Essential | **Critical** | 3-4 days |
 | F: Shortcuts | ★ Nice | ★★★ Essential | Medium | 2-3 days |
 | G: Export | ★ Low value | ★★★ Essential | Medium | 2-3 days |
 | H: Comparison | ★★ Useful | ★ Specialized | Low | 3-4 days |
@@ -855,29 +979,34 @@ fn generate_heatmaps(image_path: &Path) -> Result<DebugHeatmaps> {
 
 ## Summary & Recommendation
 
-**Recommended MVP+1 scope** (6-8 weeks):
+**Recommended MVP+1 scope** (7-9 weeks):
 
-**Core (Critical):**
-1. **Proposal A** - Bulk/Directory Mode
-2. **Proposal E** - Zoom & Pan
+**Foundation (Critical - Week 1):**
+1. **Proposal 0** - File Navigation & Opening
 
-**Quality Triage (High Priority):**
-3. **Proposal B** - Quality Triage Workflow
-4. **Proposal C** - Heatmap Visualization
+**Core (Critical - Weeks 2-4):**
+2. **Proposal A** - Bulk/Directory Mode
+3. **Proposal E** - Zoom & Pan
 
-**Polish (Important):**
-5. **Proposal D** - Rich Metrics (simplified)
-6. **Proposal F** - Keyboard Shortcuts (partial)
+**Quality Triage (High Priority - Weeks 5-8):**
+4. **Proposal B** - Quality Triage Workflow
+5. **Proposal C** - Heatmap Visualization
+
+**Polish (Important - Week 9):**
+6. **Proposal D** - Rich Metrics (simplified)
+7. **Proposal F** - Keyboard Shortcuts (partial)
 
 This delivers a **production-ready quality triage tool** that:
+- ✅ **Launches like a real desktop app** (not just CLI testing tool)
+- ✅ Native file dialogs, drag & drop, recent files
 - ✅ Handles real directory-processing workflows (10-100+ images)
 - ✅ Surfaces beaker's unique quality data and visualizations
 - ✅ Makes heatmaps accessible (currently hidden in debug output)
 - ✅ Dramatically faster than CLI workflow
 - ✅ Feels professional and polished
 
-**Want maximum features?** Add Proposal G (Export) and H (Comparison) for a **8-10 week super-app**.
+**Want maximum features?** Add Proposal G (Export) and H (Comparison) for a **9-11 week super-app**.
 
-**Want minimal but functional?** Just A + B + E (4 weeks) for a **usable directory triage tool**.
+**Want minimal but functional?** Just 0 + A + B + E (5 weeks) for a **usable directory triage tool with proper file opening**.
 
 **Unique value proposition:** No other tool makes quality heatmaps this accessible. This could be a killer feature for beaker-gui.
