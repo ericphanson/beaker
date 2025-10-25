@@ -193,6 +193,42 @@ pub fn run_model_processing_with_quality_outputs<P: ModelProcessor>(
         coreml_cache: coreml_cache_stats,
     };
 
+    // Pre-check for output path collisions if output_dir is set
+    if config.base().output_dir.is_some() && !config.base().force {
+        let mut seen_stems = std::collections::HashMap::new();
+        for (image_path, _) in &image_files {
+            let stem = image_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("output");
+
+            if let Some(first_path) = seen_stems.get(stem) {
+                // Error on collision unless --force is used
+                return Err(anyhow::anyhow!(
+                    "Output path collision detected between:\n\
+                     1. {}\n\
+                     2. {}\n\
+                     \n\
+                     Both would generate the same output filename: {}_{}.jpg\n\
+                     \n\
+                     This happens when processing multiple files with the same basename\n\
+                     from different directories to a single output directory.\n\
+                     \n\
+                     Solutions:\n\
+                     1. Use --force flag to allow overwriting\n\
+                     2. Process files separately\n\
+                     3. Rename input files to have unique basenames\n\
+                     4. Don't use --output-dir (files will go to their source directories)",
+                    first_path,
+                    image_path.display(),
+                    stem,
+                    config.tool_name()
+                ));
+            }
+            seen_stems.insert(stem, image_path.display().to_string());
+        }
+    }
+
     // Process each image and collect results
     let mut successful_count = 0;
     let mut failed_count = 0;
