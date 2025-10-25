@@ -82,19 +82,7 @@ jobs:
       - name: Install just
         uses: extractions/setup-just@v2
 
-      # sccache for faster compilation
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.6
-
-      - name: Configure sccache
-        shell: bash
-        run: |
-          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-          echo "CMAKE_C_COMPILER_LAUNCHER=sccache" >> $GITHUB_ENV
-          echo "CMAKE_CXX_COMPILER_LAUNCHER=sccache" >> $GITHUB_ENV
-
-      # Rust dependency caching
+      # Rust dependency caching (provides excellent caching without sccache complexity)
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
@@ -168,11 +156,6 @@ jobs:
             target/${{ matrix.target }}/release/beaker.exe
           retention-days: 7
           if-no-files-found: ignore
-
-      # Show sccache stats
-      - name: sccache stats
-        shell: bash
-        run: sccache --show-stats
 
   # Summary job
   ci-success:
