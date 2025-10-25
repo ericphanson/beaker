@@ -19,10 +19,11 @@ egui = "0.30"
 egui_extras = { version = "0.30", features = ["image"] }
 image = "0.25"
 imageproc = "0.25"
-rusttype = "0.9"
+ab_glyph = "0.2"
 beaker = { path = "../beaker" }
 clap = { version = "4.5", features = ["derive"] }
 anyhow = "1.0"
+serde_json = "1.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 muda = "0.17"

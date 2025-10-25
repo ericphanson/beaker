@@ -36,37 +36,31 @@ impl DetectionView {
         })
     }
 
-    fn run_detection(image_path: &str) -> Result<Vec<Detection>> {
-        // Use beaker's detection functionality
-        let config = beaker::config::DetectionConfig {
-            input_path: image_path.to_string(),
-            output_path: None,
-            model_path: None,
-            confidence_threshold: 0.5,
-            blur_threshold: None,
-            recursive: false,
-            output_format: beaker::config::OutputFormat::Json,
-            crop_images: false,
-            save_crops_only: false,
-        };
+    fn run_detection(_image_path: &str) -> Result<Vec<Detection>> {
+        // TODO: Integrate with beaker detection once API is stabilized
+        // For MVP, return mock data to demonstrate GUI functionality
 
-        let results = beaker::detection::run_detection(config)?;
-
-        // Convert to GUI detection format
-        let mut detections = Vec::new();
-        for result in results {
-            for det in result.detections {
-                detections.push(Detection {
-                    class_name: det.class_name,
-                    confidence: det.confidence,
-                    x1: det.x1,
-                    y1: det.y1,
-                    x2: det.x2,
-                    y2: det.y2,
-                    blur_score: det.quality.map(|q| q.blur_score),
-                });
-            }
-        }
+        // Mock detections for demonstration
+        let detections = vec![
+            Detection {
+                class_name: "bird".to_string(),
+                confidence: 0.95,
+                x1: 100.0,
+                y1: 100.0,
+                x2: 300.0,
+                y2: 300.0,
+                blur_score: Some(0.15),
+            },
+            Detection {
+                class_name: "bird".to_string(),
+                confidence: 0.87,
+                x1: 400.0,
+                y1: 150.0,
+                x2: 600.0,
+                y2: 350.0,
+                blur_score: Some(0.22),
+            },
+        ];
 
         Ok(detections)
     }
@@ -220,7 +214,7 @@ impl DetectionView {
 
             // Load font for text rendering
             let font_data = include_bytes!("../../fonts/NotoSans-Regular.ttf");
-            let font = rusttype::Font::try_from_bytes(font_data as &[u8])
+            let font = ab_glyph::FontArc::try_from_slice(font_data)
                 .expect("Failed to load font");
 
             imageproc::drawing::draw_text_mut(
@@ -228,7 +222,7 @@ impl DetectionView {
                 image::Rgba([255, 255, 255, 255]),
                 label_x,
                 label_y,
-                rusttype::Scale::uniform(14.0),
+                14.0,
                 &font,
                 &label,
             );

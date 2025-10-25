@@ -67,16 +67,22 @@ fn main() -> eframe::Result {
             let use_native_menu = cfg!(target_os = "macos")
                 && std::env::var("USE_EGUI_MENU").is_err();
 
-            let mut app = BeakerApp::new(use_native_menu, args.image);
-
             #[cfg(target_os = "macos")]
-            if use_native_menu {
-                let (menu, rx) = create_native_menu();
-                menu.init_for_nsapp();
-                app.set_menu(menu, rx);
+            {
+                let mut app = BeakerApp::new(use_native_menu, args.image);
+                if use_native_menu {
+                    let (menu, rx) = create_native_menu();
+                    menu.init_for_nsapp();
+                    app.set_menu(menu, rx);
+                }
+                Ok(Box::new(app))
             }
 
-            Ok(Box::new(app))
+            #[cfg(not(target_os = "macos"))]
+            {
+                let app = BeakerApp::new(use_native_menu, args.image);
+                Ok(Box::new(app))
+            }
         }),
     )
 }
