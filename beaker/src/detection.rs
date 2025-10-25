@@ -9,7 +9,6 @@ use crate::output_manager::OutputManager;
 use crate::quality_processing::QualityProcessor;
 use crate::rfdetr;
 use crate::shared_metadata::IoTiming;
-use crate::yolo;
 use ab_glyph::{FontRef, PxScale};
 use anyhow::Result;
 use image::{DynamicImage, GenericImageView};
@@ -34,29 +33,14 @@ pub fn get_default_detect_model_info() -> ModelInfo {
 
 #[derive(Debug)]
 enum DetectionModelVariants {
-    HeadOnly,
-    MultiDetect,
     Orientation,
 }
 
 impl DetectionModelVariants {
     /// Determine the model variant from output dimensions
-    fn from_outputs(output_dimensions: &[i64], n_outputs: usize) -> Self {
-        // Check if legacy model based on output channels
-        let is_legacy_model = output_dimensions[1] < 8;
-
-        if is_legacy_model {
-            DetectionModelVariants::HeadOnly
-        } else if n_outputs == 1 {
-            DetectionModelVariants::MultiDetect
-        } else {
-            DetectionModelVariants::Orientation
-        }
-    }
-
-    /// Convert to boolean for compatibility with existing postprocessing function
-    fn is_legacy_model(&self) -> bool {
-        matches!(self, DetectionModelVariants::HeadOnly)
+    fn from_outputs(_output_dimensions: &[i64], _n_outputs: usize) -> Self {
+        // Only RF-DETR orientation model is supported now
+        DetectionModelVariants::Orientation
     }
 }
 
@@ -186,20 +170,12 @@ fn get_output_extension(input_path: &Path) -> &'static str {
 
 /// Dispatch preprocessing based on model variant
 fn preprocess_image_for_model(
-    model_variant: &DetectionModelVariants,
+    _model_variant: &DetectionModelVariants,
     img: &DynamicImage,
     model_size: u32,
 ) -> Result<Array<f32, ndarray::IxDyn>> {
-    match model_variant {
-        DetectionModelVariants::HeadOnly | DetectionModelVariants::MultiDetect => {
-            // YOLO models use letterboxing with gray padding
-            yolo::preprocess_image(img, model_size)
-        }
-        DetectionModelVariants::Orientation => {
-            // RF-DETR models use square resize with ImageNet normalization
-            rfdetr::preprocess_image(img, model_size)
-        }
-    }
+    // RF-DETR models use square resize with ImageNet normalization
+    rfdetr::preprocess_image(img, model_size)
 }
 
 /// Handle outputs (crops, bounding boxes, metadata) for a single image with I/O timing
@@ -521,39 +497,14 @@ impl ModelProcessor for DetectionProcessor {
 }
 
 fn postprocess_output(
-    model_variant: DetectionModelVariants,
+    _model_variant: DetectionModelVariants,
     config: &DetectionConfig,
     outputs: &ort::session::SessionOutputs,
     orig_width: u32,
     orig_height: u32,
     model_size: u32,
 ) -> Result<Vec<Detection>> {
-    match model_variant {
-        DetectionModelVariants::HeadOnly | DetectionModelVariants::MultiDetect => {
-            // Extract the output tensor using ORT v2 API and convert to owned array
-            let output_view: ndarray::ArrayBase<
-                ndarray::ViewRepr<&f32>,
-                ndarray::Dim<ndarray::IxDynImpl>,
-            > = outputs["output0"]
-                .try_extract_array::<f32>()
-                .map_err(|e| anyhow::anyhow!("Failed to extract output array: {}", e))?;
-            let output_array =
-                Array::from_shape_vec(output_view.shape(), output_view.iter().cloned().collect())?;
-
-            yolo::postprocess_output(
-                &output_array,
-                config.confidence,
-                config.iou_threshold,
-                orig_width,
-                orig_height,
-                model_size,
-                model_variant.is_legacy_model(), // Pass legacy model flag
-            )
-        }
-        DetectionModelVariants::Orientation => {
-            rfdetr::postprocess_output(outputs, orig_width, orig_height, model_size, config)
-        }
-    }
+    rfdetr::postprocess_output(outputs, orig_width, orig_height, model_size, config)
 }
 
 pub fn create_square_crop(
@@ -902,20 +853,10 @@ mod tests {
         });
         let dynamic_img = DynamicImage::ImageRgb8(img);
 
-        // Test YOLO preprocessing (should use letterboxing)
-        let yolo_result =
-            preprocess_image_for_model(&DetectionModelVariants::HeadOnly, &dynamic_img, 640)
-                .unwrap();
-        assert_eq!(yolo_result.shape(), &[1, 3, 640, 640]);
-
-        // Test RF-DETR preprocessing (should use square resize)
+        // Test RF-DETR preprocessing (should use square resize with ImageNet normalization)
         let rfdetr_result =
             preprocess_image_for_model(&DetectionModelVariants::Orientation, &dynamic_img, 640)
                 .unwrap();
         assert_eq!(rfdetr_result.shape(), &[1, 3, 640, 640]);
-
-        // The results should be different because the preprocessing methods differ
-        // (YOLO uses letterboxing with gray padding, RF-DETR uses square resize with ImageNet normalization)
-        assert_ne!(yolo_result.as_slice(), rfdetr_result.as_slice());
     }
 }
