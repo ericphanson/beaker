@@ -170,12 +170,16 @@ fn get_output_extension(input_path: &Path) -> &'static str {
 
 /// Dispatch preprocessing based on model variant
 fn preprocess_image_for_model(
-    _model_variant: &DetectionModelVariants,
+    model_variant: &DetectionModelVariants,
     img: &DynamicImage,
     model_size: u32,
 ) -> Result<Array<f32, ndarray::IxDyn>> {
-    // RF-DETR models use square resize with ImageNet normalization
-    rfdetr::preprocess_image(img, model_size)
+    match model_variant {
+        DetectionModelVariants::Orientation => {
+            // RF-DETR models use square resize with ImageNet normalization
+            rfdetr::preprocess_image(img, model_size)
+        }
+    }
 }
 
 /// Handle outputs (crops, bounding boxes, metadata) for a single image with I/O timing
@@ -497,14 +501,18 @@ impl ModelProcessor for DetectionProcessor {
 }
 
 fn postprocess_output(
-    _model_variant: DetectionModelVariants,
+    model_variant: DetectionModelVariants,
     config: &DetectionConfig,
     outputs: &ort::session::SessionOutputs,
     orig_width: u32,
     orig_height: u32,
     model_size: u32,
 ) -> Result<Vec<Detection>> {
-    rfdetr::postprocess_output(outputs, orig_width, orig_height, model_size, config)
+    match model_variant {
+        DetectionModelVariants::Orientation => {
+            rfdetr::postprocess_output(outputs, orig_width, orig_height, model_size, config)
+        }
+    }
 }
 
 pub fn create_square_crop(
