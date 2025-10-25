@@ -55,21 +55,27 @@ This demo uses `egui_kittest::Harness` for headless testing. The tests:
 
 ### Snapshot Testing
 
-The tests include visual snapshot generation using `wgpu_snapshot`. Example snapshots are provided in `tests/snapshots/`:
+The tests include visual snapshot generation using `wgpu_snapshot` with lavapipe (CPU-based Vulkan software rasterizer). Real egui snapshots are provided in `tests/snapshots/`:
 
 - `hello_world_initial.png` - Initial hello world interface
 - `simple_heading.png` - Simple heading widget
 - `text_input_widget.png` - Text input widget
 - `button_before_click.png` / `button_after_click.png` - Button interaction states
 - `multiple_widgets.png` - Multiple widget types together
-- `colored_text.png` - Colored text labels
+- `colored_text.png` - Colored text labels (with actual colors!)
 
-**Note:** Snapshot generation requires a GPU or software rasterizer. In environments without GPU access (like some sandboxes or CI runners), snapshot tests gracefully skip snapshot generation while still validating widget functionality.
+**Prerequisites:** Install lavapipe for snapshot generation:
 
-To generate/update snapshots on a GPU-enabled system:
 ```bash
-UPDATE_SNAPSHOTS=true cargo test
+sudo apt-get install mesa-vulkan-drivers libvulkan1
 ```
+
+To generate/update snapshots:
+```bash
+UPDATE_SNAPSHOTS=1 cargo test
+```
+
+egui_kittest 0.30+ automatically prefers software rasterizers, enabling real visual testing in headless environments.
 
 ## CI Integration
 
@@ -77,5 +83,11 @@ See `.github/workflows/egui-demo-ci.yml` for the CI configuration that runs thes
 
 The CI validates:
 - ✅ egui can build and run headlessly
-- ✅ Widget tests pass without GPU
+- ✅ Real visual snapshots can be generated with lavapipe
 - ✅ Tests run successfully in containerized environments
+
+To enable snapshot generation in CI, add lavapipe installation:
+```yaml
+- name: Install lavapipe
+  run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers libvulkan1
+```

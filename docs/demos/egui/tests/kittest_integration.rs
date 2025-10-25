@@ -23,18 +23,6 @@ impl eframe::App for HelloWorldApp {
     }
 }
 
-// Helper function to try creating a snapshot, skipping if no GPU adapter is available
-// In headless/sandbox environments without GPU, this will gracefully skip snapshot generation
-fn try_snapshot(harness: &mut Harness, name: &str) {
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        harness.wgpu_snapshot(name);
-    }));
-
-    if result.is_err() {
-        eprintln!("⚠ Skipping snapshot '{}' (no GPU adapter available in this environment)", name);
-    }
-}
-
 #[test]
 fn test_hello_world_initial_state() {
     let mut harness = Harness::new_ui(|ui| {
@@ -47,8 +35,8 @@ fn test_hello_world_initial_state() {
 
     harness.run();
 
-    // Create snapshot of initial state (or skip if no GPU)
-    try_snapshot(&mut harness, "hello_world_initial");
+    // Create snapshot of initial state
+    harness.wgpu_snapshot("hello_world_initial");
 }
 
 #[test]
@@ -63,7 +51,7 @@ fn test_simple_heading() {
     harness.get_by_label("Hello, World!");
 
     // Create snapshot
-    try_snapshot(&mut harness, "simple_heading");
+    harness.wgpu_snapshot("simple_heading");
 }
 
 #[test]
@@ -79,7 +67,7 @@ fn test_text_input_widget() {
     harness.get_by_label("Your name: ");
 
     // Create snapshot
-    try_snapshot(&mut harness, "text_input_widget");
+    harness.wgpu_snapshot("text_input_widget");
 }
 
 #[test]
@@ -100,13 +88,13 @@ fn test_button_widget() {
     harness.get_by_label("Click me");
 
     // Create snapshot before click
-    try_snapshot(&mut harness, "button_before_click");
+    harness.wgpu_snapshot("button_before_click");
 
     // Click the button
     harness.get_by_label("Click me").click();
 
     // Create snapshot after click (button state changes)
-    try_snapshot(&mut harness, "button_after_click");
+    harness.wgpu_snapshot("button_after_click");
 }
 
 #[test]
@@ -131,7 +119,7 @@ fn test_multiple_widgets() {
     harness.get_by_label("Button 2");
 
     // Create snapshot
-    try_snapshot(&mut harness, "multiple_widgets");
+    harness.wgpu_snapshot("multiple_widgets");
 }
 
 #[test]
@@ -146,5 +134,5 @@ fn test_colored_text() {
     harness.run();
 
     // Create snapshot showing colored text
-    try_snapshot(&mut harness, "colored_text");
+    harness.wgpu_snapshot("colored_text");
 }
