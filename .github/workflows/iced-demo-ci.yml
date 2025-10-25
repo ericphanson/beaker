@@ -1,0 +1,65 @@
+name: Iced Demo CI
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'docs/demos/iced/**'
+      - '.github/workflows/iced-demo-ci.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'docs/demos/iced/**'
+      - '.github/workflows/iced-demo-ci.yml'
+  workflow_dispatch:
+
+# Cancel old runs when new commits are pushed to the same PR/branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+  # Force software rendering for headless CI environment
+  ICED_BACKEND: tiny-skia
+
+jobs:
+  test:
+    name: Test Iced Demo
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: docs/demos/iced
+          shared-key: "iced-demo"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Check formatting
+        working-directory: docs/demos/iced
+        run: cargo fmt --check
+
+      - name: Run clippy
+        working-directory: docs/demos/iced
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Build
+        working-directory: docs/demos/iced
+        run: cargo build --verbose
+
+      - name: Run tests
+        working-directory: docs/demos/iced
+        run: cargo test --verbose
+
+      - name: Build release
+        working-directory: docs/demos/iced
+        run: cargo build --release --verbose
