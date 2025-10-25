@@ -210,7 +210,7 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 MetadataCheck::TimingBound(
                     "cutout",
                     "execution.model_processing_time_ms",
-                    100.0,
+                    1000.0,
                     300000.0,
                 ),
             ],
