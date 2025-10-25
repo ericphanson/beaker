@@ -1406,7 +1406,609 @@ export const topPrediction = derived(
 
 ---
 
-## 12. Appendix: Quick Reference
+## 12. Testing Strategy (CLI-First, No Browser Automation)
+
+### 12.1 Testing Philosophy
+
+**Goal:** Comprehensive testing via CLI commands that agents can run. Avoid complex browser automation.
+
+**Strategy:**
+1. **Rust Backend Tests** (70% coverage) - Test Tauri commands as pure functions
+2. **Frontend Unit Tests** (20% coverage) - Test stores, utils, API wrappers with Vitest
+3. **Integration Tests** (10% coverage) - Leverage existing beaker lib tests
+4. **Manual E2E** (smoke tests only) - Quick manual verification, not automated
+
+**What NOT to test:**
+- ❌ Visual appearance (CSS/styling) - Manual QA only
+- ❌ Complex UI interactions - Trust Svelte/shadcn-svelte
+- ❌ Browser-specific quirks - Manual testing on target platforms
+- ❌ Beaker lib logic - Already tested in beaker crate
+
+---
+
+### 12.2 Rust Backend Tests (Primary Test Layer)
+
+**Key Insight:** Tauri commands are just Rust functions - test them directly!
+
+#### 12.2.1 Command Unit Tests
+
+**File:** `src-tauri/src/commands/detection.rs`
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[tokio::test]
+    async fn test_detect_objects_success() {
+        let request = DetectRequest {
+            image_path: "tests/fixtures/sparrow.jpg".to_string(),
+            confidence: 0.5,
+            classes: vec!["bird".to_string(), "head".to_string()],
+        };
+
+        let result = detect_objects(request).await;
+
+        assert!(result.is_ok());
+        let response = result.unwrap();
+        assert!(!response.detections.is_empty());
+        assert!(response.processing_time_ms > 0.0);
+    }
+
+    #[tokio::test]
+    async fn test_detect_objects_invalid_path() {
+        let request = DetectRequest {
+            image_path: "/nonexistent/image.jpg".to_string(),
+            confidence: 0.5,
+            classes: vec!["bird".to_string()],
+        };
+
+        let result = detect_objects(request).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_detect_objects_low_confidence() {
+        let request = DetectRequest {
+            image_path: "tests/fixtures/sparrow.jpg".to_string(),
+            confidence: 0.95, // Very high threshold
+            classes: vec!["bird".to_string()],
+        };
+
+        let result = detect_objects(request).await;
+        assert!(result.is_ok());
+        // May have fewer or zero detections
+    }
+
+    #[test]
+    fn test_bbox_serialization() {
+        let bbox = BoundingBox {
+            x: 10.0,
+            y: 20.0,
+            width: 100.0,
+            height: 150.0,
+        };
+
+        let json = serde_json::to_string(&bbox).unwrap();
+        assert!(json.contains("\"x\":10.0"));
+        assert!(json.contains("\"y\":20.0"));
+    }
+}
+```
+
+#### 12.2.2 Test Fixtures
+
+**Structure:**
+```
+src-tauri/
+├── tests/
+│   ├── fixtures/
+│   │   ├── sparrow.jpg         # Known good image
+│   │   ├── cardinal.jpg        # Another test image
+│   │   ├── no_bird.jpg         # Image with no birds
+│   │   └── corrupted.jpg       # Invalid image
+│   ├── integration_tests.rs    # Integration tests
+│   └── common/
+│       └── mod.rs              # Test helpers
+```
+
+**Test Helpers:**
+
+```rust
+// src-tauri/tests/common/mod.rs
+use std::path::PathBuf;
+
+pub fn fixture_path(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join(name)
+}
+
+pub fn assert_valid_detection(response: &DetectResponse) {
+    assert!(!response.detections.is_empty());
+    assert!(response.processing_time_ms > 0.0);
+
+    for detection in &response.detections {
+        assert!(detection.confidence >= 0.0 && detection.confidence <= 1.0);
+        assert!(detection.bbox.width > 0.0);
+        assert!(detection.bbox.height > 0.0);
+    }
+}
+```
+
+#### 12.2.3 Integration Tests
+
+**File:** `src-tauri/tests/integration_tests.rs`
+
+```rust
+use beaker_gui::commands::{detection, cutout, quality};
+
+#[tokio::test]
+async fn test_full_detection_workflow() {
+    let fixture = common::fixture_path("sparrow.jpg");
+
+    // Test detection
+    let detect_response = detection::detect_objects(detection::DetectRequest {
+        image_path: fixture.to_string_lossy().to_string(),
+        confidence: 0.5,
+        classes: vec!["bird".to_string()],
+    })
+    .await
+    .expect("Detection failed");
+
+    common::assert_valid_detection(&detect_response);
+    assert!(!detect_response.output_paths.is_empty());
+
+    // Verify output files exist
+    for path in &detect_response.output_paths {
+        assert!(std::path::Path::new(path).exists(), "Crop file not created");
+    }
+}
+
+#[tokio::test]
+async fn test_cutout_workflow() {
+    let fixture = common::fixture_path("cardinal.jpg");
+
+    let cutout_response = cutout::remove_background(cutout::CutoutRequest {
+        image_path: fixture.to_string_lossy().to_string(),
+        post_process: true,
+        alpha_matting: false,
+        save_mask: false,
+    })
+    .await
+    .expect("Cutout failed");
+
+    assert!(!cutout_response.output_path.is_empty());
+    assert!(std::path::Path::new(&cutout_response.output_path).exists());
+}
+```
+
+#### 12.2.4 Running Rust Tests
+
+```bash
+# Run all backend tests
+cargo test --manifest-path=beaker-gui/src-tauri/Cargo.toml
+
+# Run with output
+cargo test --manifest-path=beaker-gui/src-tauri/Cargo.toml -- --nocapture
+
+# Run specific test
+cargo test --manifest-path=beaker-gui/src-tauri/Cargo.toml test_detect_objects_success
+
+# Run integration tests only
+cargo test --manifest-path=beaker-gui/src-tauri/Cargo.toml --test integration_tests
+```
+
+---
+
+### 12.3 Frontend Unit Tests (Vitest)
+
+**Setup:**
+
+```json
+// package.json
+{
+  "scripts": {
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "coverage": "vitest --coverage"
+  },
+  "devDependencies": {
+    "vitest": "^2.0.0",
+    "@testing-library/svelte": "^5.0.0",
+    "@vitest/ui": "^2.0.0",
+    "jsdom": "^25.0.0"
+  }
+}
+```
+
+```typescript
+// vitest.config.ts
+import { defineConfig } from 'vitest/config';
+import { svelte } from '@sveltejs/vite-plugin-svelte';
+
+export default defineConfig({
+  plugins: [svelte()],
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: ['./src/tests/setup.ts'],
+  },
+});
+```
+
+#### 12.3.1 Store Tests
+
+**File:** `src/lib/stores/detection.test.ts`
+
+```typescript
+import { describe, it, expect, beforeEach } from 'vitest';
+import { get } from 'svelte/store';
+import {
+  detectionParams,
+  detectionResults,
+  isDetecting,
+  processingTime,
+  detectionCount,
+} from './detection';
+
+describe('detection store', () => {
+  beforeEach(() => {
+    // Reset stores
+    detectionParams.set({ confidence: 0.5, classes: ['bird', 'head'] });
+    detectionResults.set(null);
+    isDetecting.set(false);
+  });
+
+  it('should initialize with default params', () => {
+    const params = get(detectionParams);
+    expect(params.confidence).toBe(0.5);
+    expect(params.classes).toEqual(['bird', 'head']);
+  });
+
+  it('should update detection params', () => {
+    detectionParams.set({ confidence: 0.8, classes: ['bird'] });
+    const params = get(detectionParams);
+    expect(params.confidence).toBe(0.8);
+    expect(params.classes).toEqual(['bird']);
+  });
+
+  it('should compute processing time from results', () => {
+    detectionResults.set({
+      detections: [],
+      outputPaths: [],
+      processingTimeMs: 123.45,
+    });
+
+    expect(get(processingTime)).toBe('123ms');
+  });
+
+  it('should compute detection count', () => {
+    detectionResults.set({
+      detections: [
+        { className: 'bird', confidence: 0.9, bbox: { x: 0, y: 0, width: 10, height: 10 } },
+        { className: 'head', confidence: 0.8, bbox: { x: 0, y: 0, width: 5, height: 5 } },
+      ],
+      outputPaths: [],
+      processingTimeMs: 100,
+    });
+
+    expect(get(detectionCount)).toBe(2);
+  });
+
+  it('should return null when no results', () => {
+    expect(get(processingTime)).toBeNull();
+    expect(get(detectionCount)).toBe(0);
+  });
+});
+```
+
+#### 12.3.2 API Wrapper Tests (with Mocks)
+
+**File:** `src/lib/api/detection.test.ts`
+
+```typescript
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { detectionApi, detectBirds } from './detection';
+
+// Mock Tauri invoke
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: vi.fn(),
+}));
+
+import { invoke } from '@tauri-apps/api/core';
+
+describe('detection API', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('should call detect with correct parameters', async () => {
+    const mockResponse = {
+      detections: [],
+      outputPaths: [],
+      processingTimeMs: 100,
+    };
+
+    vi.mocked(invoke).mockResolvedValue(mockResponse);
+
+    const result = await detectionApi.detect({
+      imagePath: '/path/to/image.jpg',
+      confidence: 0.5,
+      classes: ['bird'],
+    });
+
+    expect(invoke).toHaveBeenCalledWith('detect_objects', {
+      request: {
+        imagePath: '/path/to/image.jpg',
+        confidence: 0.5,
+        classes: ['bird'],
+      },
+    });
+
+    expect(result).toEqual(mockResponse);
+  });
+
+  it('should use default parameters in detectBirds', async () => {
+    const mockResponse = {
+      detections: [],
+      outputPaths: [],
+      processingTimeMs: 100,
+    };
+
+    vi.mocked(invoke).mockResolvedValue(mockResponse);
+
+    await detectBirds('/path/to/image.jpg');
+
+    expect(invoke).toHaveBeenCalledWith('detect_objects', {
+      request: {
+        imagePath: '/path/to/image.jpg',
+        confidence: 0.5,
+        classes: ['bird', 'head'],
+      },
+    });
+  });
+
+  it('should handle errors', async () => {
+    vi.mocked(invoke).mockRejectedValue(new Error('Detection failed'));
+
+    await expect(detectionApi.detect({
+      imagePath: '/invalid/path.jpg',
+      confidence: 0.5,
+      classes: ['bird'],
+    })).rejects.toThrow('Detection failed');
+  });
+});
+```
+
+#### 12.3.3 Utility Tests
+
+**File:** `src/lib/utils/formatters.test.ts`
+
+```typescript
+import { describe, it, expect } from 'vitest';
+import { formatProcessingTime, formatFileSize } from './formatters';
+
+describe('formatters', () => {
+  describe('formatProcessingTime', () => {
+    it('should format milliseconds', () => {
+      expect(formatProcessingTime(123.45)).toBe('123ms');
+      expect(formatProcessingTime(1234.56)).toBe('1.23s');
+      expect(formatProcessingTime(50.1)).toBe('50ms');
+    });
+  });
+
+  describe('formatFileSize', () => {
+    it('should format bytes', () => {
+      expect(formatFileSize(500)).toBe('500 B');
+      expect(formatFileSize(1024)).toBe('1.0 KB');
+      expect(formatFileSize(1048576)).toBe('1.0 MB');
+      expect(formatFileSize(2.5 * 1024 * 1024)).toBe('2.5 MB');
+    });
+  });
+});
+```
+
+#### 12.3.4 Running Frontend Tests
+
+```bash
+# Run all frontend tests
+npm test
+
+# Run with coverage
+npm run coverage
+
+# Run in watch mode
+npm test -- --watch
+
+# Run specific test file
+npm test -- detection.test.ts
+
+# Run with UI (interactive)
+npm run test:ui
+```
+
+---
+
+### 12.4 Test Coverage Goals
+
+**Backend (Rust):**
+- Command functions: **90%+** coverage
+- Request/response types: **100%** (serialization tests)
+- Error handling: **80%+** coverage
+- State management: **70%+** coverage
+
+**Frontend (TypeScript):**
+- Stores: **80%+** coverage
+- API wrappers: **90%+** coverage (mostly mocked)
+- Utilities: **90%+** coverage
+- Components: **30-50%** coverage (focus on logic, not rendering)
+
+**Overall:** Aim for **70%+** total coverage across backend + frontend.
+
+---
+
+### 12.5 CI/CD Integration
+
+**GitHub Actions Workflow:**
+
+```yaml
+# .github/workflows/gui-tests.yml
+name: GUI Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    paths:
+      - 'beaker-gui/**'
+      - 'beaker/src/**'
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Cache cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run backend tests
+        run: cargo test --manifest-path=beaker-gui/src-tauri/Cargo.toml
+
+      - name: Run backend tests with coverage
+        run: |
+          cargo install cargo-tarpaulin
+          cargo tarpaulin --manifest-path=beaker-gui/src-tauri/Cargo.toml --out Xml
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+
+  frontend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: beaker-gui/package-lock.json
+
+      - name: Install dependencies
+        working-directory: beaker-gui
+        run: npm ci
+
+      - name: Run frontend tests
+        working-directory: beaker-gui
+        run: npm test
+
+      - name: Run frontend tests with coverage
+        working-directory: beaker-gui
+        run: npm run coverage
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+```
+
+---
+
+### 12.6 Manual Testing Checklist (Smoke Tests)
+
+**Run before each release:**
+
+- [ ] App launches successfully
+- [ ] Can select image via file dialog
+- [ ] Detection runs and displays crops
+- [ ] Cutout runs and shows result
+- [ ] Quality assessment runs
+- [ ] Settings can be changed and persist
+- [ ] Batch processing works for 10 images
+- [ ] Dark mode toggle works
+- [ ] Asset protocol loads images correctly
+- [ ] Error messages display properly
+- [ ] App can be closed cleanly
+
+**Estimated time:** 15-20 minutes
+
+---
+
+### 12.7 Testing Command Reference
+
+```bash
+# Backend tests (Rust)
+cargo test --manifest-path=beaker-gui/src-tauri/Cargo.toml
+
+# Frontend tests (Vitest)
+cd beaker-gui && npm test
+
+# All tests (both)
+./scripts/test-all.sh  # Create this script
+
+# Coverage
+cargo tarpaulin --manifest-path=beaker-gui/src-tauri/Cargo.toml
+npm run coverage --prefix beaker-gui
+
+# Continuous (watch mode)
+cargo watch -x test --manifest-path=beaker-gui/src-tauri/Cargo.toml
+npm test -- --watch --prefix beaker-gui
+```
+
+**Create `scripts/test-all.sh`:**
+
+```bash
+#!/bin/bash
+set -e
+
+echo "Running backend tests..."
+cargo test --manifest-path=beaker-gui/src-tauri/Cargo.toml
+
+echo "Running frontend tests..."
+cd beaker-gui && npm test
+
+echo "All tests passed! ✅"
+```
+
+---
+
+### 12.8 What About E2E Tests?
+
+**Decision: Skip automated E2E for now**
+
+**Rationale:**
+- Complex setup (WebDriver, browser automation)
+- Brittle (breaks with UI changes)
+- Slow to run
+- Most logic already tested in backend/frontend unit tests
+
+**Alternative:**
+- Rely on manual smoke tests (15 min checklist)
+- Focus testing effort on backend commands (where bugs are costly)
+- Use Vitest for frontend logic
+- Trust shadcn-svelte components (already well-tested)
+
+**If E2E becomes necessary:**
+- Consider [Tauri WebDriver](https://tauri.app/v1/guides/testing/webdriver/introduction/)
+- Or [Playwright for Tauri](https://github.com/spacedriveapp/spacedrive/tree/main/apps/desktop/src-tauri/tests)
+- Keep tests minimal (critical path only)
+
+---
+
+## 13. Appendix: Quick Reference
 
 ### Build Commands
 
