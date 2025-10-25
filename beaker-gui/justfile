@@ -1,0 +1,38 @@
+# Beaker GUI justfile
+# GUI-specific commands
+#
+# Note: These recipes are imported by the root justfile and run from the root directory,
+# so all commands must be prefixed with 'cd beaker-gui &&'
+
+# Build GUI (release)
+gui-build:
+    cd beaker-gui && cargo build --release
+
+# Run GUI tests
+gui-test:
+    cd beaker-gui && cargo test --verbose
+
+# Format GUI code
+gui-fmt:
+    cd beaker-gui && cargo fmt
+
+# Check GUI formatting
+gui-fmt-check:
+    cd beaker-gui && cargo fmt --check
+
+# Lint GUI code
+gui-lint:
+    cd beaker-gui && cargo clippy -- -D warnings
+
+# Run GUI with test image
+gui-run:
+    cd beaker-gui && cargo run --release -- --image ../example.jpg
+
+# Full GUI CI workflow
+gui-ci:
+    @echo "Running GUI CI workflow..."
+    @just gui-fmt-check
+    @just gui-lint
+    @just gui-build
+    @just gui-test
+    @echo "GUI CI workflow complete!"

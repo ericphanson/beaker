@@ -1,6 +1,9 @@
 # Beaker CI/CD justfile
 # Common tasks for CI workflows and local development
 
+# Import GUI commands from beaker-gui/justfile
+import? 'beaker-gui/justfile'
+
 # Default recipe shows available commands
 default:
     @just --list
