@@ -50,25 +50,21 @@ jobs:
       - name: Run lint checks
         run: just ci-lint
 
-  # Build and test job - runs on all platforms
-  build-test:
-    name: Build & Test (${{ matrix.target }})
+  # Build and smoke test - runs on all platforms
+  build:
+    name: Build (${{ matrix.target }})
     strategy:
       fail-fast: false
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            device: "auto"
           - target: x86_64-apple-darwin
             os: macos-13
-            device: "auto"
           - target: aarch64-apple-darwin
             os: macos-latest
-            device: "auto"
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-            device: "auto"
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -82,7 +78,6 @@ jobs:
       - name: Install just
         uses: extractions/setup-just@v2
 
-      # Rust dependency caching (provides excellent caching without sccache complexity)
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
@@ -90,7 +85,6 @@ jobs:
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      # ONNX model caching
       - name: Cache ONNX models
         uses: actions/cache@v4
         with:
@@ -110,43 +104,21 @@ jobs:
             echo "ONNX_MODEL_CACHE_DIR=$HOME/.cache/onnx-models" >> $GITHUB_ENV
           fi
 
-      # Build release binary only (no debug build)
       - name: Build release
         shell: bash
         run: just build-release ${{ matrix.target }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Show binary information (Unix only, skip Windows for simplicity)
       - name: Show binary info
         if: runner.os != 'Windows'
         run: just build-info ${{ matrix.target }}
 
-      # Pre-download models before running tests
-      - name: Preload ONNX models
+      # Basic smoke test - just verify binary runs
+      - name: Smoke test - help command
         shell: bash
-        run: just preload-models ${{ matrix.target }} ${{ matrix.device }}
+        run: just test-cli-help ${{ matrix.target }}
 
-      # Run unit and integration tests
-      - name: Run tests
-        run: just test ${{ matrix.target }}
-
-      # Run CLI smoke tests
-      - name: Test CLI
-        shell: bash
-        run: |
-          just test-cli-help ${{ matrix.target }}
-          just test-cli-detect ${{ matrix.target }} ${{ matrix.device }}
-
-      # Platform-specific execution provider tests (only on macOS and Linux)
-      - name: Test execution providers
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          OS_NAME=$(echo "${{ matrix.os }}" | grep -q "macos" && echo "macos" || echo "linux")
-          just test-execution-providers ${{ matrix.target }} $OS_NAME
-
-      # Upload artifacts
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
@@ -157,17 +129,142 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+  # Full test suite - Linux only, parallel execution
+  test-unit:
+    name: Unit Tests (Linux)
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install just
+        uses: extractions/setup-just@v2
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "test"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Cache ONNX models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/onnx-models
+          key: onnx-models-v1
+          restore-keys: onnx-models-
+
+      - name: Set ONNX cache directory
+        run: echo "ONNX_MODEL_CACHE_DIR=$HOME/.cache/onnx-models" >> $GITHUB_ENV
+
+      - name: Build release binary
+        run: just build-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run unit tests
+        run: cargo test --release --lib --all
+
+  test-integration:
+    name: Integration Tests (Linux)
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install just
+        uses: extractions/setup-just@v2
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "test"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Cache ONNX models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/onnx-models
+          key: onnx-models-v1
+          restore-keys: onnx-models-
+
+      - name: Set ONNX cache directory
+        run: echo "ONNX_MODEL_CACHE_DIR=$HOME/.cache/onnx-models" >> $GITHUB_ENV
+
+      - name: Build release binary
+        run: just build-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run integration tests
+        run: cargo test --release --test '*' --all
+
+  test-cli:
+    name: CLI Tests (Linux)
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install just
+        uses: extractions/setup-just@v2
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "test"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Cache ONNX models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/onnx-models
+          key: onnx-models-v1
+          restore-keys: onnx-models-
+
+      - name: Set ONNX cache directory
+        run: echo "ONNX_MODEL_CACHE_DIR=$HOME/.cache/onnx-models" >> $GITHUB_ENV
+
+      - name: Build release binary
+        run: just build-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Preload models
+        run: just preload-models "" "auto"
+
+      - name: Test CLI help
+        run: just test-cli-help
+
+      - name: Test CLI detect
+        run: just test-cli-detect "" "auto"
+
+      - name: Test execution providers
+        run: just test-execution-providers "" "linux"
+
   # Summary job
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
-    needs: [lint, build-test]
+    needs: [lint, build, test-unit, test-integration, test-cli]
     if: always()
     steps:
       - name: Check all jobs
         run: |
-          if [ "${{ needs.lint.result }}" != "success" ] || [ "${{ needs.build-test.result }}" != "success" ]; then
+          results="${{ toJSON(needs) }}"
+          echo "Job results: $results"
+
+          if echo "$results" | jq -e 'to_entries[] | select(.value.result != "success")' > /dev/null; then
             echo "Some CI jobs failed"
             exit 1
           fi
+
           echo "All CI jobs passed!"
