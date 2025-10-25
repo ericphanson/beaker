@@ -1,0 +1,83 @@
+name: GUI CI
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'beaker-gui/**'
+      - 'beaker/src/gui_api.rs'
+      - 'beaker/src/lib.rs'
+      - 'Cargo.toml'
+      - 'justfile'
+      - '.github/workflows/gui-ci.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'beaker-gui/**'
+      - 'beaker/src/gui_api.rs'
+      - 'beaker/src/lib.rs'
+      - 'Cargo.toml'
+      - 'justfile'
+      - '.github/workflows/gui-ci.yml'
+  workflow_dispatch:
+
+# Cancel old runs when new commits are pushed to the same PR/branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+
+jobs:
+  # Lint and test GUI - Linux only for now
+  gui-ci:
+    name: GUI CI (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: 'beaker-gui/package-lock.json'
+
+      - name: Install just
+        uses: extractions/setup-just@v2
+
+      # Install GTK and other Tauri dependencies for Linux
+      - name: Install Tauri dependencies (Linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libgtk-3-dev
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "gui"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Cache npm dependencies
+        uses: actions/cache@v4
+        with:
+          path: beaker-gui/node_modules
+          key: npm-${{ hashFiles('beaker-gui/package-lock.json') }}
+          restore-keys: npm-
+
+      - name: Run GUI CI workflow
+        run: just gui-ci
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

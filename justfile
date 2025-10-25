@@ -204,3 +204,64 @@ ci-lint target="":
     @echo "Running lint checks..."
     @just lint {{target}}
     @echo "Lint checks complete!"
+
+# ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
+# GUI (beaker-gui) Commands
+# ─────────────────────────────────────────────────────────────
+#
+# NOTE: GUI commands require GTK system dependencies on Linux.
+# Install with: sudo apt-get install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libgtk-3-dev
+# On macOS, no additional dependencies needed.
+# In restricted environments (no network), GUI tests can only run in CI with proper dependencies.
+
+# Install GUI npm dependencies
+gui-install:
+    @echo "Installing GUI dependencies..."
+    cd beaker-gui && npm install
+
+# Check GUI TypeScript/Svelte types
+gui-check:
+    @echo "Checking GUI types..."
+    cd beaker-gui && npm run check
+
+# Format check GUI code
+gui-fmt-check:
+    @echo "Checking GUI formatting..."
+    cargo fmt --manifest-path beaker-gui/src-tauri/Cargo.toml --check
+
+# Format GUI code
+gui-fmt:
+    @echo "Formatting GUI code..."
+    cargo fmt --manifest-path beaker-gui/src-tauri/Cargo.toml
+
+# Run clippy on GUI backend
+gui-clippy:
+    @echo "Running clippy on GUI backend..."
+    cargo clippy --manifest-path beaker-gui/src-tauri/Cargo.toml --all-targets -- -D warnings
+
+# Run all GUI lint checks
+gui-lint:
+    @echo "Running GUI lint checks..."
+    @just gui-fmt-check
+    @just gui-clippy
+    @just gui-check
+
+# Run GUI backend tests
+gui-test:
+    @echo "Running GUI backend tests..."
+    cargo test --manifest-path beaker-gui/src-tauri/Cargo.toml
+
+# Build GUI in development mode (just check it compiles)
+gui-build-dev:
+    @echo "Building GUI (dev check)..."
+    cargo build --manifest-path beaker-gui/src-tauri/Cargo.toml
+
+# Full GUI CI workflow (requires GTK dependencies)
+gui-ci:
+    @echo "Running GUI CI workflow..."
+    @just gui-install
+    @just gui-lint
+    @just gui-build-dev
+    @just gui-test
+    @echo "GUI CI workflow complete!"
