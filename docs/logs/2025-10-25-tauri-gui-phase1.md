@@ -352,3 +352,67 @@ Following the testing strategy in the plan, add CI workflow for GUI:
 ---
 
 _Last Updated: 2025-10-25_
+
+---
+
+## Update: GUI CI Implementation - 2025-10-25
+
+### GUI CI Workflow Added ✅
+
+Implemented complete GUI CI infrastructure following the justfile pattern:
+
+**Justfile Commands:**
+- `gui-install`: Install npm dependencies
+- `gui-check`: TypeScript/Svelte type checking  
+- `gui-fmt-check`, `gui-fmt`: Format checking and formatting
+- `gui-clippy`: Clippy on GUI backend
+- `gui-lint`: All lint checks
+- `gui-test`: Backend unit tests
+- `gui-build-dev`: Development build
+- `gui-ci`: Full workflow (install + lint + build + test)
+
+**CI Workflow (`.github/workflows/gui-ci.yml`):**
+- Runs on ubuntu-latest
+- Installs GTK system dependencies automatically
+- Caches npm and Rust dependencies
+- Runs `just gui-ci` for complete validation
+- Triggers on beaker-gui/ or gui_api.rs changes
+
+### Local Testing Investigation
+
+**Attempted:** Docker-based testing for sandboxed environments
+
+**Result:** Not viable in this environment
+- No Docker/Podman available
+- Network restrictions prevent GTK installation
+- Even `cargo check` requires GTK (build.rs scripts)
+
+**Dependencies Found:**
+- Tauri 2.9.1 uses GTK3 (webkit2gtk, gdk-sys v0.18.2)
+- Requires: libwebkit2gtk-4.1-dev, libgtk-3-dev, etc.
+- These are standard and correct for Tauri 2.x
+
+**Conclusion:** GUI testing strategy is CI-based
+- ✅ CI installs dependencies automatically
+- ✅ Developers install GTK locally (or use macOS)
+- ✅ Sandboxed/restricted environments rely on CI
+- ✅ This is a common and acceptable pattern
+
+### Files Added
+
+- `.github/workflows/gui-ci.yml` - GUI CI workflow
+- Updated `justfile` - GUI commands section
+- Updated `beaker-gui/README.md` - Prerequisites and testing docs
+
+### Validation
+
+Cannot validate locally due to environment constraints. Validation will occur when:
+1. PR is created and CI runs
+2. Developer tests on macOS (target platform)
+3. Developer tests on Linux with GTK installed
+
+This is the intended and correct workflow.
+
+---
+
+_Updated: 2025-10-25_
