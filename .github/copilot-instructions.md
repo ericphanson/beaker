@@ -16,24 +16,67 @@ Execute these commands in order to set up a working development environment:
 # Check Rust toolchain (requires Rust 1.70+)
 rustc --version && cargo --version
 
-# Build all workspace members (from repository root)
-cargo build
+# Install just (task runner for development)
+cargo install just
 
+# PREFERRED: Use just for all development tasks
 # Build release version - NEVER CANCEL: takes 1 minute 40 seconds. Set timeout to 3+ minutes.
-cargo build --release
+just build-release
 
 # Format and lint code (from repository root)
-cargo fmt --all
-cargo clippy --all-targets --fix --allow-dirty -- -D warnings
+just fmt-check  # Check formatting only
+just fmt        # Auto-format code
+just clippy     # Run clippy
+
+# Or run all lints at once
+just lint
 
 # Run tests - NEVER CANCEL: takes 2 minutes 50 seconds. Set timeout to 5+ minutes.
+just test
+
+# ALTERNATIVE: Direct cargo commands (if just is not available)
+cargo build --release
+cargo fmt --all
+cargo clippy --all-targets --fix --allow-dirty -- -D warnings
 cargo test --release --all
 ```
+
+### Available Just Commands
+For a complete list of available commands, run `just --list`. Key commands:
+
+**Linting & Formatting:**
+- `just fmt-check` - Check code formatting
+- `just fmt` - Auto-format code
+- `just clippy [target]` - Run clippy (optionally for specific target)
+- `just lint [target]` - Run all lint checks
+
+**Building:**
+- `just build-release [target]` - Build release binary
+- `just build-info [target]` - Build and show binary size info
+
+**Testing:**
+- `just test [target]` - Run all tests
+- `just preload-models [target] [device]` - Pre-download ONNX models
+- `just test-cli-help [target]` - Test CLI help command
+- `just test-cli-detect [target] [device]` - Test CLI detect
+- `just test-execution-providers [target] [os]` - Test execution providers
+- `just test-cli-full [target] [device] [os]` - Full CLI test suite
+
+**CI Workflows:**
+- `just ci [target] [device] [os]` - Full CI workflow (build + test + cli tests)
+- `just ci-lint [target]` - Lint-only workflow
 
 ### Validation and Testing
 Always run these validation steps after making changes:
 
 ```bash
+# PREFERRED: Use just for CLI testing
+just test-cli-help                                    # Test help command
+just test-cli-detect "" "auto"                        # Test detect with auto device
+just preload-models "" "auto"                         # Pre-download models
+just test-cli-full "" "auto" "linux"                  # Full CLI test suite
+
+# ALTERNATIVE: Direct cargo/binary commands
 # Test CLI help (from repository root)
 cargo run --release --bin beaker -- --help
 
@@ -60,10 +103,15 @@ ls -la example_crop.jpg example_cutout.png *.beaker.toml
 Run before every commit - NEVER CANCEL: takes ~10 seconds:
 
 ```bash
-# From repository root
+# PREFERRED: Use just for code quality checks
+just lint           # Run format check and clippy
+just fmt            # Auto-format code
+just test           # Run all tests
+
+# Or run pre-commit hooks directly
 pre-commit run --all-files
 
-# Individual checks if pre-commit unavailable:
+# ALTERNATIVE: Individual checks if just/pre-commit unavailable
 cargo fmt --all --check
 cargo clippy --all-targets -- -D warnings
 cargo build --release --all
@@ -269,32 +317,37 @@ Then immediately follow up with a commit that fixes the pre-commit issues.
 # 2. Make your code changes
 # ... edit files in beaker/, beaker-stamp/, or beaker-stamp-derive/ ...
 
-# 3. Format and fix issues
+# 3. PREFERRED: Use just for all development tasks
+just fmt                                  # Auto-format code
+just lint                                 # Run fmt-check and clippy
+just build-release                        # Build release binary (~1m 40s)
+just test                                 # Run all tests (~2m 50s)
+just test-cli-full "" "auto" "linux"      # Full CLI test suite
+
+# ALTERNATIVE: Direct commands if just is not available
 cargo fmt --all
 cargo clippy --all-targets --fix --allow-dirty -- -D warnings
-
-# 4. Build and test - NEVER CANCEL: allow full time for completion
 cargo build --release --all  # ~1m 40s
-cargo test --release --all    # ~2m 50s
+cargo test --release --all   # ~2m 50s
 
-# 5. Manual CLI validation
+# Manual CLI validation
 cp example.jpg example-2-birds.jpg ./
 cargo run --release --bin beaker -- detect example.jpg --confidence 0.5 --crop
 cargo run --release --bin beaker -- cutout example.jpg
 
-# 6. Update line counts and run pre-commit
+# 4. Update line counts and run pre-commit
 bash scripts/run_warloc.sh
 pre-commit run --all-files
 
-# 7. Clean up test artifacts
+# 5. Clean up test artifacts
 rm -f *.beaker.toml *.beaker.json example_crop.jpg example_cutout.png
 
-# 8. Check git status and commit
+# 6. Check git status and commit
 git status  # verify no unintended files staged
 git add .
 git commit -m "Your change description"
 
-# 9. Push changes using report_progress tool
+# 7. Push changes using report_progress tool
 # Use report_progress to push all commits to the remote PR branch
 # If it says "Error committing and pushing changes", resolve pre-commit issues and try again
 ```
@@ -349,6 +402,7 @@ If your PR has conflicts with the main branch, merge the latest origin/main into
 
 ### Must Have
 - Rust 1.70+ (`rustup`, `cargo`)
+- `just` - Task runner for development workflows
 - Internet access (for model downloads)
 
 ### Recommended
@@ -360,6 +414,9 @@ If your PR has conflicts with the main branch, merge the latest origin/main into
 ```bash
 # Rust (if not installed)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Just task runner (REQUIRED for development)
+cargo install just
 
 # Python tools (if needed)
 pip install pre-commit ruff

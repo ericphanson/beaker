@@ -59,9 +59,28 @@ When developing proposals, technical plans, or architectural changes, align with
 
 ## Development Workflow
 
+**IMPORTANT: Always prefer `just` commands over raw cargo/bash commands.** The justfile centralizes all common development tasks with consistent behavior across local development and CI.
+
 **For complete build/test commands and validated timings, see [copilot-instructions.md](.github/copilot-instructions.md).**
 
 **For pre-commit troubleshooting and pushing changes, see [copilot-instructions.md](.github/copilot-instructions.md).**
+
+### Quick Reference
+
+```bash
+# Install just (required for development)
+cargo install just
+
+# Common development tasks
+just lint           # Format check + clippy
+just fmt            # Auto-format code
+just build-release  # Build release binary
+just test           # Run all tests
+just ci             # Full CI workflow locally
+
+# See all available commands
+just --list
+```
 ## Coding Standards
 
 ### DRY (Don't Repeat Yourself)
