@@ -6,13 +6,19 @@
 
 ---
 
-## Current State
+## Current State & Usage Patterns
 
 **Working MVP features:**
 - Detection view with bounding boxes rendered by beaker lib
 - Sidebar listing detections with class name, confidence, blur score
 - Image display with aspect-ratio-preserving scaling
 - Basic selection (click to highlight)
+
+**Typical usage:**
+- **Primary use case**: Processing directories of images (10-100+ images)
+- **Typical detections per image**: 1-2 detections
+- **Total detections across directory**: 10-200 detections to triage
+- **Secondary use case**: Single-image analysis (occasional users)
 
 **Available detection data** (from beaker lib):
 - **Basic**: class_name, confidence, x1/y1/x2/y2, angle_radians, class_id
@@ -30,569 +36,848 @@
   - `tenengrad_core_mean`: core sharpness metric
   - `tenengrad_ring_mean`: ring sharpness metric
 
+**Available debug visualizations** (`--debug-dump-images` flag):
+- **Heatmaps**: Tenengrad (t224, t112), blur probability (p224, p112), fused blur (pfused), weights
+- **Overlays**: All heatmaps overlaid on original image at 55% alpha
+- **Colormap**: Turbo-like colormap (blue=low, cyan, yellow, orange, red=high)
+
+---
+
+## Feature Architecture: Single Image vs Bulk Mode
+
+### Single Image Mode (Current MVP)
+**Scope:** Analyze 1 image with 1-2 detections
+- Simple sidebar with 1-2 detection cards
+- Image viewer with bounding boxes
+- Click to select/highlight detection
+
+### Bulk/Directory Mode (Primary Focus)
+**Scope:** Analyze 10-100+ images, 10-200 total detections
+- Gallery view with thumbnails
+- Aggregate filtering/sorting across all images
+- Quality triage workflow
+- Batch operations
+
+**Key insight:** With 1-2 detections per image, filtering/sorting only makes sense when aggregating across multiple images.
+
 ---
 
 ## Feature Proposals
 
-### Proposal A: Filter & Sort Foundation (Essential)
+### 🎯 Proposal A: Bulk/Directory Mode Foundation (Essential)
 
-**Goal:** Let users find detections of interest quickly through filtering and sorting.
+**Goal:** Enable analyzing directories of images with aggregate detection management.
 
 **Features:**
-1. **Filter by quality triage**
-   - Checkboxes: ☑ Good  ☑ Unknown  ☑ Bad
-   - Update display in real-time
-   - Show count per category (e.g., "Good (12) Bad (3) Unknown (5)")
 
-2. **Filter by confidence threshold**
-   - Slider: 0.0 to 1.0 with live preview
-   - Show filtered count vs total
+1. **Directory loading**
+   - CLI flag: `beaker-gui --dir /path/to/images/`
+   - Load all `.beaker.toml` metadata files in directory
+   - Parse all detections into single aggregate list
 
-3. **Filter by class**
-   - Multi-select for "head", "bird", etc.
-   - Show count per class
+2. **Image gallery view**
+   - Thumbnail grid showing all images in directory
+   - Badge on each thumbnail: "2 detections (1 good, 1 unknown)"
+   - Click thumbnail → open image in main view
+   - Color-code thumbnails by worst quality (red if any bad detections)
 
-4. **Sort detections**
-   - Dropdown: "Confidence ↓", "Confidence ↑", "Blur score ↓", "Blur score ↑", "Size ↓", "Coverage ↓"
-   - Apply to sidebar list
+3. **Aggregate detection list**
+   - Sidebar shows ALL detections from ALL images
+   - Format: "image1.jpg - head #1: Good (0.95)"
+   - Click detection → jump to that image + zoom to detection
 
-5. **Search/filter bar**
-   - Quick text filter by class name or index
+4. **Navigation**
+   - Next/previous image buttons
+   - Next/previous detection buttons
+   - Keyboard: Arrow keys navigate images, J/K navigate detections
 
 **UI mockup:**
 ```
-┌─────────────────────────────────────────────┐
-│ Detections (12/20 shown)         [Clear]   │
-│ ─────────────────────────────────────────   │
-│ Quality: ☑Good ☑Unknown ☐Bad               │
-│ Confidence: [====|=====] 0.65              │
-│ Class: ☑head ☑bird                         │
-│ Sort: [Confidence ↓         ▾]             │
-│ ─────────────────────────────────────────   │
-│ □ head #1  Conf: 0.95  ✓Good               │
-│ □ head #2  Conf: 0.87  ?Unknown            │
-│ ...                                         │
-└─────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│ Gallery: /path/to/images/ (47 images, 89 detections)   │
+│ ──────────────────────────────────────────────────────  │
+│ ┌──────┬──────┬──────┬──────┬──────┐                   │
+│ │img1  │img2  │img3  │img4  │img5  │                   │
+│ │ ✓1 ✗1│ ✓2   │ ?1 ✗1│ ✓1 ?1│ ✓2   │  ← Badges        │
+│ └──────┴──────┴──────┴──────┴──────┘                   │
+│                                                          │
+│ Current: img3.jpg           [← Prev | Next →]          │
+│ ┌─────────────────────┬──────────────────────┐         │
+│ │  [Image with boxes] │ All Detections (89)  │         │
+│ │                     │ ──────────────────── │         │
+│ │     [img with 1-2   │ img1.jpg - head #1   │         │
+│ │      detections]    │   ✓ Good  Conf: 0.95│         │
+│ │                     │ img1.jpg - head #2   │         │
+│ │                     │   ✗ Bad   Conf: 0.52│         │
+│ │                     │ img2.jpg - head #1   │ ← Click │
+│ │                     │   ✓ Good  Conf: 0.88│   jumps │
+│ └─────────────────────┴──────────────────────┘   image │
+└─────────────────────────────────────────────────────────┘
 ```
 
 **Why essential:**
-- With many detections (10-50+), filtering is critical for usability
-- Quality triage is the most important filter (good/bad/unknown)
-- Low implementation complexity, high user value
+- Matches primary use case (directory processing)
+- Enables all other bulk features (filtering, comparison, triage)
+- Foundation for quality triage workflow
 
 **Implementation notes:**
-- Store filter state in `DetectionView`
-- Apply filters when rendering sidebar
-- Use egui's built-in widgets (Checkbox, Slider, ComboBox)
-- ~200 LOC, 1-2 days work
+- New `DirectoryView` struct containing multiple images
+- Extend CLI args to accept `--dir` flag
+- Parse all .beaker.toml files in directory at startup
+- Store Vec<ImageDetections> with metadata
+- ~500 LOC, 1 week work
 
 ---
 
-### Proposal B: Rich Quality Metrics Display (High Value)
+### 🔥 Proposal B: Quality Triage Workflow (High Priority)
 
-**Goal:** Surface all quality metrics in an intuitive, visual way.
+**Goal:** Rapidly find and review quality detections across entire directory.
 
 **Features:**
-1. **Expanded detection cards**
-   - Collapsible sections showing all quality metrics
-   - Color-coded triage badges (green=good, yellow=unknown, red=bad)
-   - Show triage rationale as tooltip or expandable text
 
-2. **Quality metrics panel** (when detection selected)
-   - Grid layout with all 12 quality metrics
-   - Visual indicators (progress bars, gauges)
-   - Contextual explanations (what does "core_ring_sharpness_ratio" mean?)
+1. **Aggregate quality filtering**
+   - Filter across ALL images: "Show only Good detections"
+   - Checkboxes: ☑ Good  ☑ Unknown  ☐ Bad
+   - Show count: "Good (45) Unknown (32) Bad (12)"
+   - Filter updates both sidebar and gallery view
 
-3. **Metrics visualization**
-   - Mini sparklines showing metric distribution across all detections
-   - Highlight where current detection falls
+2. **Triage mode**
+   - Special view mode: "Review all Unknown detections"
+   - Show images one-by-one with unknown detections highlighted
+   - Quick actions: Mark as "Actually Good" or "Actually Bad"
+   - Keyboard shortcuts: G (good), B (bad), U (skip/keep unknown), → (next)
 
-4. **Quality overview** (top of sidebar)
-   - Summary stats: "12 good, 5 unknown, 3 bad"
-   - Quality distribution histogram
-   - Average confidence, blur scores
+3. **Quality statistics panel**
+   - Summary across directory:
+     - "45/89 detections are Good (50.5%)"
+     - "12/89 are Bad (13.5%)"
+     - "32/89 need review (36.0%)"
+   - Avg confidence per quality tier
+   - Distribution histograms
 
-**UI mockup (expanded card):**
+4. **Sort by quality metrics**
+   - Sort dropdown: "Worst blur first", "Best confidence first", "Smallest coverage first"
+   - Helps prioritize review (start with worst detections)
+
+5. **Quality trends**
+   - Show quality metrics across directory
+   - Identify problematic images: "image_042.jpg has 2 bad detections"
+   - Chart: quality score vs image index (spot patterns)
+
+**UI mockup (Triage mode):**
 ```
-┌─────────────────────────────────────────────┐
-│ □ head #1  Conf: 0.95  [✓ Good]            │
-│   ├─ Blur: 0.12  Detail: 0.89              │
-│   ├─ Size: 0.92  Coverage: 8.3 cells       │
-│   └─ Core/Ring: 2.41 (sharp subject)       │
-│   [Show all metrics ▾]                     │
-│                                             │
-│   ┌─ All Quality Metrics ─────────────┐    │
-│   │ Triage: Good ✓                    │    │
-│   │ "Sharp enough and well covered"   │    │
-│   │                                    │    │
-│   │ ROI Quality Mean:      ▓▓▓▓░  67  │    │
-│   │ Blur Probability:      ░░░▓▓  0.12│    │
-│   │ Detail Probability:    ▓▓▓▓▓  0.89│    │
-│   │ Core/Ring Sharpness:   ▓▓▓▓░  2.41│    │
-│   │ Grid Coverage:         ▓▓▓▓░  8.3 │    │
-│   │ Size Prior:            ▓▓▓▓░  0.92│    │
-│   │ ...                                │    │
-│   └────────────────────────────────────┘    │
-└─────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│ 🔍 Triage Mode: Reviewing Unknown Detections        │
+│ Progress: 8/32 reviewed                [Exit Triage] │
+│ ─────────────────────────────────────────────────── │
+│                                                       │
+│      [Large image: img_023.jpg]                      │
+│      [Detection highlighted with bbox]               │
+│                                                       │
+│ Detection: head #1                                   │
+│ Current triage: Unknown (?)                          │
+│ Rationale: "borderline sharpness region held out     │
+│            core_ring_sharpness_ratio=1.21"           │
+│                                                       │
+│ Quality Metrics:                                     │
+│   Blur probability: 0.42   ▓▓▓░░ (borderline)       │
+│   Core/Ring sharp:  1.21   ▓▓░░░ (low)              │
+│   Coverage:         5.8    ▓▓▓░░ (moderate)         │
+│                                                       │
+│ ┌─────────────────────────────────────────────────┐ │
+│ │ Mark as:  [G] Good  [B] Bad  [U] Keep Unknown  │ │
+│ │           [→] Next  [←] Previous               │ │
+│ └─────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────┘
 ```
 
-**Why high value:**
-- Beaker has rich quality data - surfacing it makes the tool powerful
-- Helps users understand *why* a detection is good/bad
-- Educational: users learn what makes a quality detection
-- Enables manual quality review workflows
+**Why high priority:**
+- Directly addresses main use case: triaging directories
+- Leverages beaker's rich quality data
+- Saves massive time vs CLI workflow
+- Educational: helps users learn quality patterns
 
 **Implementation notes:**
-- Extend `Detection` struct to include all quality fields
-- Parse quality metrics from TOML metadata
-- Use egui's Grid, ProgressBar widgets
-- Add tooltips with metric explanations
-- ~400 LOC, 2-3 days work
+- Triage mode as separate view state
+- Store user overrides: HashMap<detection_id, UserTriageOverride>
+- Export overrides to separate JSON file for training data
+- ~400 LOC, 1 week work
 
 ---
 
-### Proposal C: Interactive Visualization Modes (Medium Priority)
+### 🎨 Proposal C: Quality Heatmap Visualization (High Value)
 
-**Goal:** Let users visualize detections in different ways for different analysis needs.
+**Goal:** Surface beaker's debug heatmaps in GUI for visual quality understanding.
 
 **Features:**
-1. **Visualization mode toggle**
-   - "Boxes + Angles" (current)
-   - "Quality heatmap" (color-code boxes by quality)
-   - "Confidence heatmap" (color-code boxes by confidence)
-   - "Minimal" (no boxes, just image)
 
-2. **Quality-based coloring**
-   - Good = green, Unknown = yellow, Bad = red
-   - Override default box colors
+1. **Heatmap layer selector**
+   - Dropdown/tabs: "Blur Probability", "Tenengrad", "Fused Blur", "Weights", "None"
+   - Toggle overlay on/off
+   - Adjust opacity slider (0-100%)
 
-3. **Transparency control**
-   - Slider to adjust box/overlay opacity
-   - Useful when boxes obscure image details
+2. **Auto-generate heatmaps**
+   - Run quality analysis with `--debug-dump-images` equivalent
+   - Load generated heatmap overlays
+   - Cache for performance
 
-4. **Angle visualization options**
-   - Toggle angle arrows on/off
-   - Show angle values as text overlay
-   - Color-code by angle range (group orientations)
+3. **Heatmap gallery**
+   - Side-by-side view: Original | Blur Prob | Tenengrad | Fused
+   - Click to toggle between views
+   - Useful for comparing different quality metrics
 
-5. **Hover preview**
-   - Hover over detection card → highlight box on image
-   - Hover over box → show mini tooltip with key metrics
+4. **ROI highlighting**
+   - Overlay detection ROI on heatmap
+   - Show sampled region used for quality calculation
+   - Animate ROI pooling area
+
+5. **Multi-scale visualization**
+   - Toggle between 224 and 112 scale heatmaps (t224 vs t112, p224 vs p112)
+   - Show scale difference side-by-side
 
 **UI mockup:**
 ```
-┌─────────────────────────────────────────────┐
-│ View Mode: [Boxes+Angles ▾]                │
-│ Color by:  [Quality      ▾]                │
-│ Opacity:   [▓▓▓▓░] 80%                     │
-│ Show angles: ☑  Show labels: ☐             │
-│ ─────────────────────────────────────────   │
-│   [Image with color-coded boxes]           │
-└─────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────┐
+│ Heatmap View: img_007.jpg                          │
+│ Layer: [Blur Probability ▾]  Opacity: [▓▓▓▓░] 70%│
+│ ────────────────────────────────────────────────── │
+│  ┌──────────────────────────────────────────┐     │
+│  │                                           │     │
+│  │   [Image with blur heatmap overlay]      │     │
+│  │   Blue = sharp, Red = blurry             │     │
+│  │                                           │     │
+│  │   ┌──────┐ ← Detection ROI highlighted   │     │
+│  │   │░░Red░│   (high blur in this region!) │     │
+│  │   └──────┘                                │     │
+│  │                                           │     │
+│  └──────────────────────────────────────────┘     │
+│                                                     │
+│ Available Heatmaps:                                │
+│  [Original] [Blur Prob] [Tenengrad] [Fused Blur]  │
+│                                                     │
+│ ROI Stats:                                         │
+│  Mean blur prob in ROI: 0.65 (high!)               │
+│  This explains the "bad" triage decision           │
+└────────────────────────────────────────────────────┘
 ```
 
-**Why medium priority:**
-- Enhances exploration and analysis workflows
-- Quality heatmap is particularly valuable for quick triage
-- Adds visual polish
+**Why high value:**
+- Makes `--debug-dump-images` output accessible
+- Visual learning tool: see *why* detection is good/bad
+- Debugging: verify quality calculations are correct
+- Unique feature leveraging beaker's internals
 
 **Implementation notes:**
-- Re-render bounding box image with custom colors based on mode
-- Use egui::painter for real-time overlays (vs re-running beaker lib)
-- Store visualization preferences in DetectionView state
+- Extend beaker lib to expose heatmap generation API (or re-run quality with debug flag)
+- Load overlay images as textures
+- Use egui's Image widget with multiple layers
+- May need to run quality analysis on-demand (performance consideration)
+- ~600 LOC, 1-2 weeks work
+
+---
+
+### 📊 Proposal D: Rich Quality Metrics Display (Single Image)
+
+**Goal:** Deep-dive into quality metrics for individual detections (complements Proposal C).
+
+**Features:**
+
+1. **Expanded detection cards**
+   - Collapsible sections showing all 12 quality metrics
+   - Color-coded triage badges (green=good, yellow=unknown, red=bad)
+   - Show triage rationale prominently
+
+2. **Metric visualizations**
+   - Progress bars for normalized metrics (0-1 range)
+   - Gauges for ratios (core/ring sharpness)
+   - Icons/symbols for intuitive reading
+
+3. **Contextual explanations**
+   - Tooltip on each metric explaining what it measures
+   - Links to docs for deep dives
+   - "What does this mean?" helper text
+
+4. **Metric comparison** (when 2 detections in image)
+   - Side-by-side metric comparison
+   - Highlight differences (which has better coverage?)
+   - Explain which metrics matter most for triage decision
+
+**UI mockup:**
+```
+┌─────────────────────────────────────────────────────┐
+│ Detection Details: head #1                          │
+│ ──────────────────────────────────────────────────  │
+│                                                      │
+│ Triage: [✓ Good] ←───────────────┐                 │
+│ Reason: "Sharp enough and well   │                 │
+│         covered with margin"     │                 │
+│         (click to see why) ──────┘                 │
+│                                                      │
+│ ┌─ Core Metrics ─────────────────────────────────┐ │
+│ │ Confidence:        0.95  ▓▓▓▓▓ Excellent       │ │
+│ │ Blur Probability:  0.12  ░░▓▓▓ Low (sharp!)    │ │
+│ │ Detail Probability: 0.89  ▓▓▓▓▓ High detail    │ │
+│ │ Core/Ring Sharp:   2.41  ▓▓▓▓░ Good focus      │ │
+│ └─────────────────────────────────────────────────┘ │
+│                                                      │
+│ ┌─ Advanced Metrics ▼ ────────────────────────────┐ │
+│ │ ROI Quality Mean:     67.3  ▓▓▓▓░              │ │
+│ │ Size Prior:           0.92  ▓▓▓▓▓              │ │
+│ │ Grid Coverage:        8.3 cells                │ │
+│ │ Tenengrad Core:       0.045                    │ │
+│ │ Tenengrad Ring:       0.018                    │ │
+│ │ ...                                            │ │
+│ └─────────────────────────────────────────────────┘ │
+│                                                      │
+│ 💡 Why is this "Good"?                              │
+│ • Core/ring sharpness (2.41) > threshold (1.59)    │
+│ • Coverage (8.3 cells) > threshold (6.15)          │
+│ • Both criteria met with safety margin             │
+└─────────────────────────────────────────────────────┘
+```
+
+**Why valuable:**
+- Educational: helps users understand quality system
+- Debugging: verify metric calculations
+- Trust: explain automated decisions
+- Works for both single-image and bulk modes
+
+**Scope:**
+- **Single Image Mode**: Deep dive on 1-2 detections
+- **Bulk Mode**: Click detection in list → show metrics panel
+
+**Implementation notes:**
+- Extend GUI Detection struct to include all quality fields
+- Parse from TOML metadata
+- Use egui::Grid, ProgressBar, CollapsingHeader widgets
+- Write metric explanation strings (maybe load from separate file)
+- ~400 LOC, 3-4 days work
+
+---
+
+### 🔍 Proposal E: Zoom & Pan (Essential for Hi-Res Images)
+
+**Goal:** Navigate high-resolution images effectively to inspect detection details.
+
+**Features:**
+
+1. **Zoom controls**
+   - Mouse wheel to zoom in/out
+   - Zoom slider in toolbar
+   - Buttons: Fit-to-window, 100%, 200%
+   - Zoom to detection: click detection → zoom and center on it
+
+2. **Pan**
+   - Click-and-drag to pan when zoomed
+   - Smooth panning with momentum (optional)
+
+3. **Mini-map**
+   - Small overview showing full image
+   - Highlight current viewport
+   - Click mini-map to jump to region
+
+4. **Zoom-synchronized heatmap**
+   - When zoomed in, heatmap overlay stays aligned
+   - Important for seeing quality at pixel level
+
+**UI mockup:**
+```
+┌────────────────────────────────────────────────────┐
+│ Zoom: [- ◼ +] [Fit] [100%] [200%]                 │
+│ ────────────────────────────────────────────────── │
+│  ┌─────────────────────────┬──────────┐           │
+│  │ [Zoomed image 200%]     │ Mini-map │           │
+│  │                         │ ┌──────┐ │           │
+│  │  ▓▓▓▓▓▓▓                │ │  ░░  │ │           │
+│  │  ▓head ▓  0.95          │ │  ▓▓  │ │← viewport│
+│  │  ▓▓▓▓▓▓▓                │ └──────┘ │           │
+│  │  (zoomed to detection)  │          │           │
+│  │                         │          │           │
+│  │  (pan with click-drag)  │          │           │
+│  └─────────────────────────┴──────────┘           │
+└────────────────────────────────────────────────────┘
+```
+
+**Why essential:**
+- Hi-res images (4K+) need zoom to see detection details
+- "Zoom to detection" dramatically improves workflow
+- Standard feature in any image viewer
+- Critical for inspecting blur/sharpness at pixel level
+
+**Scope:**
+- **Single Image Mode**: Zoom into 1-2 detections
+- **Bulk Mode**: Zoom into current image while navigating directory
+
+**Implementation notes:**
+- Track zoom level, pan offset in view state
+- Transform mouse coords for hit-testing
+- Use egui::Image with custom pan/zoom transform
+- Mini-map as separate small Image widget
+- ~400 LOC, 3-4 days work
+
+---
+
+### ⚡ Proposal F: Keyboard Shortcuts & Power User Features (Polish)
+
+**Goal:** Make directory triage fast and efficient for power users.
+
+**Features:**
+
+1. **Image navigation**
+   - `→` / `←`: Next/previous image in directory
+   - `J` / `K`: Next/previous detection across all images
+   - `Home` / `End`: First/last image
+
+2. **Quality filtering shortcuts**
+   - `G`: Show only Good detections
+   - `B`: Show only Bad detections
+   - `U`: Show only Unknown detections
+   - `A`: Show All detections (clear filter)
+
+3. **Triage shortcuts** (in triage mode)
+   - `G`: Mark current detection as Good
+   - `B`: Mark as Bad
+   - `U`: Keep as Unknown
+   - `→`: Next detection
+   - `Esc`: Exit triage mode
+
+4. **View shortcuts**
+   - `Z`: Toggle zoom-to-detection
+   - `H`: Toggle heatmap overlay
+   - `1-6`: Switch heatmap layer (1=blur, 2=tenengrad, etc.)
+   - `Space`: Toggle detection selection
+
+5. **Command palette**
+   - `Ctrl+K` / `Cmd+K`: Open command palette
+   - Fuzzy search for actions: "show blur heatmap", "triage unknown", etc.
+
+6. **Status bar**
+   - Show current image, detection count, filter status
+   - Keyboard hint: "Press → for next image"
+
+**UI mockup:**
+```
+┌────────────────────────────────────────────────────┐
+│ [Cmd+K Command Palette]                            │
+│ ┌─────────────────────────────────────────────────┐│
+│ │ > blur_________________________________        ││
+│ │   Show Blur Heatmap (H)                        ││
+│ │   Filter High Blur Detections                  ││
+│ │   Sort by Blur Score ↓                         ││
+│ └─────────────────────────────────────────────────┘│
+│                                                     │
+│ Status: img_023.jpg (23/47) | 2 detections | 1 Good│
+│ Tip: Press G to show only Good detections         │
+└────────────────────────────────────────────────────┘
+```
+
+**Why polish:**
+- 10x productivity for directory triage (process 100 images in minutes)
+- Modern UX pattern (VSCode, Obsidian, etc.)
+- Low cost, high perceived quality
+- Makes bulk workflow feel professional
+
+**Scope:**
+- **Bulk Mode**: Essential for efficiency
+- **Single Image Mode**: Less critical but nice-to-have
+
+**Implementation notes:**
+- Use egui's input handling for key events
+- Store shortcuts in registry/hashmap
+- Command palette as modal overlay with fuzzy matching
 - ~300 LOC, 2-3 days work
 
 ---
 
-### Proposal D: Angle/Orientation Analysis (Specialized)
+### 📤 Proposal G: Export & Reporting (Power User)
 
-**Goal:** Leverage angle data for orientation-specific analysis.
-
-**Features:**
-1. **Angle distribution histogram**
-   - Circular histogram showing angle distribution
-   - Click to filter detections by angle range
-
-2. **Group by orientation**
-   - Auto-group into bins: "Facing left", "Facing right", "Facing up", etc.
-   - Collapsible groups in sidebar
-
-3. **Angle statistics**
-   - Mean, median, std dev of angles
-   - Detect clustering (e.g., "most birds facing 45°")
-
-4. **Angle-based sorting**
-   - Sort by angle ascending/descending
-   - Group similar angles together
-
-5. **Compass visualization**
-   - Small compass showing each detection's orientation
-   - Click to jump to detection
-
-**UI mockup:**
-```
-┌─────────────────────────────────────────────┐
-│ Angle Analysis                              │
-│ ─────────────────────────────────────────   │
-│  ┌─ Angle Distribution ─┐                   │
-│  │      N                │                   │
-│  │   W  +  E  ◄ circular │                   │
-│  │      S     histogram  │                   │
-│  └───────────────────────┘                   │
-│                                              │
-│ Mean angle: 42° (NE)                         │
-│ Most common: 30-60° (8 detections)          │
-│ ─────────────────────────────────────────   │
-│ ▼ Facing Right (30-150°)  [8]               │
-│   □ head #1  95° Conf: 0.95                 │
-│   □ head #2  102° Conf: 0.87                │
-│ ▶ Facing Left (210-330°)  [3]               │
-│ ▶ Facing Up (330-30°)     [1]               │
-└─────────────────────────────────────────────┘
-```
-
-**Why specialized:**
-- Orientation is unique to bird detection use case
-- Valuable for behavioral analysis
-- Requires moderate implementation effort
-
-**Implementation notes:**
-- Use egui custom painting for circular histogram
-- Angle binning logic for grouping
-- Parse angle_radians from detection data
-- ~350 LOC, 3-4 days work
-
----
-
-### Proposal E: Comparison & Export Tools (Power User)
-
-**Goal:** Enable advanced workflows: comparing detections, exporting results.
+**Goal:** Extract triage results for further analysis or training data.
 
 **Features:**
-1. **Multi-selection**
-   - Checkbox per detection
-   - Bulk actions: "Export selected", "Delete selected", "Compare selected"
 
-2. **Side-by-side comparison**
-   - Select 2-4 detections → open comparison view
-   - Show crops side-by-side with all metrics
-   - Highlight differences (which has better quality?)
-
-3. **Export filtered results**
+1. **Export filtered detections**
    - Export current filtered set as JSON/CSV
    - Include selected quality metrics
-   - Export cropped images for selected detections
+   - Option: export only Good, only Bad, or custom filter
 
-4. **Statistics panel**
-   - Show aggregates: avg confidence, quality distribution
-   - Export summary report
+2. **Export triage overrides**
+   - Save user's manual triage decisions (from Proposal B)
+   - Format: `{"detection_id": "img_023_head_1", "user_triage": "good", "original_triage": "unknown"}`
+   - Use for model training/refinement
+
+3. **Generate summary report**
+   - Markdown or HTML report
+   - Statistics: quality distribution, worst images, etc.
+   - Include thumbnails of bad detections
+   - Export chart images
+
+4. **Batch export crops**
+   - Export cropped images for all Good detections
+   - Useful for creating datasets
 
 5. **Copy metrics to clipboard**
-   - Click to copy detection data for external analysis
+   - Right-click detection → "Copy metrics as JSON"
+   - Quick data extraction
 
 **UI mockup:**
 ```
-┌─────────────────────────────────────────────┐
-│ Detections (3 selected)    [Compare] [Export]│
-│ ─────────────────────────────────────────   │
-│ ☑ head #1  Conf: 0.95  ✓Good               │
-│ ☐ head #2  Conf: 0.87  ?Unknown            │
-│ ☑ head #3  Conf: 0.92  ✓Good               │
-│ ☑ head #4  Conf: 0.45  ✗Bad                │
-│ ─────────────────────────────────────────   │
-│ [Comparison View: 3 detections]             │
-│ ┌───────┬───────┬───────┐                   │
-│ │ #1    │ #3    │ #4    │                   │
-│ │ [crop]│ [crop]│ [crop]│                   │
-│ │ Good  │ Good  │ Bad   │                   │
-│ │ 0.95  │ 0.92  │ 0.45  │                   │
-│ │ Blur: │ Blur: │ Blur: │                   │
-│ │ 0.12  │ 0.15  │ 0.89  │ ← Outlier!        │
-│ └───────┴───────┴───────┘                   │
-└─────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────┐
+│ Export                                [X]          │
+│ ────────────────────────────────────────────────── │
+│                                                     │
+│ What to export?                                    │
+│  ● All detections (89)                             │
+│  ○ Filtered detections (45 Good)                   │
+│  ○ Selected detections (3)                         │
+│                                                     │
+│ Format:                                            │
+│  ● JSON  ○ CSV  ○ Summary Report (HTML)           │
+│                                                     │
+│ Include:                                           │
+│  ☑ Image paths                                     │
+│  ☑ Quality metrics (all 12)                        │
+│  ☑ Triage decisions                                │
+│  ☑ User overrides                                  │
+│  ☐ Cropped images                                  │
+│                                                     │
+│ Output path:                                       │
+│  [/path/to/export.json          ] [Browse]        │
+│                                                     │
+│              [Cancel]  [Export]                    │
+└────────────────────────────────────────────────────┘
 ```
 
 **Why power user:**
-- Valuable for research/analysis workflows
-- Enables integration with external tools
-- Comparison helps calibrate quality intuition
+- Enables research workflows
+- Integration with external tools (ML training, etc.)
+- Document quality assessment results
+- Share findings with team
+
+**Scope:**
+- **Bulk Mode**: Essential for processing many images
+- **Single Image Mode**: Less useful
 
 **Implementation notes:**
-- Add selection state to DetectionView
-- Implement export using serde_json, csv crate
-- Comparison view as separate panel/window
-- Use beaker lib to re-generate crops for comparison
-- ~500 LOC, 4-5 days work
+- Use serde_json, csv crate for export
+- Report generation with simple HTML templating
+- ~300 LOC, 2-3 days work
 
 ---
 
-### Proposal F: Zoom & Pan (Essential for Large Images)
+### 🔄 Proposal H: Comparison View (Specialized)
 
-**Goal:** Navigate high-resolution images effectively.
+**Goal:** Compare detections side-by-side to understand quality differences.
+
+**Use cases:**
+1. **Within image**: Compare 2 detections in same image
+2. **Across images**: Compare same detection across different images (e.g., before/after processing)
+3. **Training**: Understand borderline cases (why is one Good and another Bad?)
 
 **Features:**
-1. **Zoom controls**
-   - Mouse wheel to zoom in/out
-   - Zoom slider in toolbar
-   - Fit-to-window, 100%, 200% buttons
 
-2. **Pan**
-   - Click-and-drag to pan zoomed image
-   - Mini-map showing current viewport
+1. **Side-by-side layout**
+   - Select 2-4 detections → open comparison view
+   - Show crops (if available) or zoomed regions
+   - Align at same zoom level
 
-3. **Zoom to detection**
-   - Click detection in sidebar → zoom and center on that detection
-   - Highlight with animated border
+2. **Metric diff**
+   - Highlight differing metrics
+   - Color-code: green=better, red=worse
+   - Show deltas (e.g., "Blur: 0.12 vs 0.45 (Δ +0.33)")
 
-4. **Overview + detail**
-   - Split view: overview (left) + zoomed detail (right)
-   - Click overview to set detail focus
+3. **Heatmap comparison**
+   - Show heatmaps side-by-side
+   - Same colormap scale for fair comparison
+
+4. **Triage comparison**
+   - Show why one is Good and other is Bad
+   - Highlight threshold crossings
 
 **UI mockup:**
 ```
-┌─────────────────────────────────────────────┐
-│ Zoom: [- ◼ +] [Fit] [100%] [200%]          │
-│ ─────────────────────────────────────────   │
-│ ┌───────────────┬─────────────────┐         │
-│ │ [overview]    │ [zoomed detail] │         │
-│ │   ┌───┐       │                 │         │
-│ │   │ ░ │<focus │  ▓▓▓▓▓          │         │
-│ │   └───┘       │  ▓head▓ 0.95    │         │
-│ │               │  ▓▓▓▓▓          │         │
-│ └───────────────┴─────────────────┘         │
-└─────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────┐
+│ Comparison: 2 detections             [Close]      │
+│ ────────────────────────────────────────────────── │
+│                                                     │
+│ ┌──────────────────────┬──────────────────────┐   │
+│ │ img_023.jpg - head#1 │ img_041.jpg - head#1 │   │
+│ │ ┌──────────────────┐ │ ┌──────────────────┐ │   │
+│ │ │  [Crop/zoom]     │ │ │  [Crop/zoom]     │ │   │
+│ │ │  Sharp, clear    │ │ │  Blurry, soft    │ │   │
+│ │ └──────────────────┘ │ └──────────────────┘ │   │
+│ │                      │                      │   │
+│ │ Triage: ✓ Good      │ Triage: ✗ Bad       │   │
+│ │                      │                      │   │
+│ │ Confidence: 0.95    │ Confidence: 0.52 ▼  │   │
+│ │ Blur Prob:  0.12    │ Blur Prob:  0.78 ▲  │   │
+│ │ Core/Ring:  2.41    │ Core/Ring:  0.95 ▼  │   │
+│ │ Coverage:   8.3     │ Coverage:   3.2  ▼  │   │
+│ │                      │                      │   │
+│ │ [Show Heatmap]      │ [Show Heatmap]      │   │
+│ └──────────────────────┴──────────────────────┘   │
+│                                                     │
+│ 📊 Key Differences:                                │
+│ • Blur probability: 0.12 vs 0.78 (Δ +0.66) ← Main!│
+│ • Core/ring sharpness: 2.41 vs 0.95 (Δ -1.46)     │
+│ → Left detection is sharper and better focused    │
+└────────────────────────────────────────────────────┘
 ```
 
-**Why essential:**
-- High-res images (e.g., 4K) need zoom to see details
-- "Zoom to detection" is a killer workflow improvement
-- Expected feature in any image viewer
+**Why specialized:**
+- Educational: understand quality boundaries
+- Debugging: verify triage logic
+- Research: analyze failure modes
+- Not needed for basic triage workflow
+
+**Scope:**
+- Works in both Single Image (compare 2 dets) and Bulk Mode (compare across images)
 
 **Implementation notes:**
-- Use egui's Image widget with custom pan/zoom logic
-- Track zoom level and pan offset in DetectionView state
-- Transform mouse coords for detection hit-testing
+- New ComparisonView struct
+- Select detections from list, enter comparison mode
+- Layout with egui::Grid (2-4 columns)
+- Highlight diffs with color coding
 - ~400 LOC, 3-4 days work
-- **Challenge**: May need to re-render bounding boxes at different zoom levels for quality
-
----
-
-### Proposal G: Keyboard Shortcuts & Accessibility (Polish)
-
-**Goal:** Make the app fast and accessible for power users.
-
-**Features:**
-1. **Keyboard navigation**
-   - Arrow keys: navigate between detections
-   - Space: toggle selection
-   - Enter: zoom to selected detection
-   - 1-5: filter by quality (1=Good, 2=Unknown, 3=Bad, 4=All)
-   - G/B/U: jump to next Good/Bad/Unknown
-
-2. **Shortcuts palette**
-   - Ctrl+K or Cmd+K: open command palette
-   - Fuzzy search for actions: "filter by good", "export selected", etc.
-
-3. **Status bar**
-   - Show current selection, filter status
-   - Keyboard hint (e.g., "Press ↑↓ to navigate")
-
-4. **Accessibility**
-   - High contrast mode
-   - Configurable font sizes
-   - Screen reader support (egui has some support)
-
-**UI mockup:**
-```
-┌─────────────────────────────────────────────┐
-│ [Command Palette: Ctrl+K]                   │
-│ ┌─────────────────────────────────────────┐ │
-│ │ > filter_________________               │ │
-│ │   Filter by Good Quality                │ │
-│ │   Filter by Confidence > 0.8            │ │
-│ │   Clear All Filters                     │ │
-│ └─────────────────────────────────────────┘ │
-│                                              │
-│ Status: 12 detections shown | 3 selected    │
-│ Tip: Press G to jump to next Good detection │
-└─────────────────────────────────────────────┘
-```
-
-**Why polish:**
-- Dramatically improves productivity for repeat users
-- Command palette is modern UX pattern (VSCode, Obsidian, etc.)
-- Low cost, high perceived quality
-
-**Implementation notes:**
-- Use egui's input handling for key events
-- Store keyboard shortcuts in a registry
-- Command palette as modal overlay
-- ~250 LOC, 2 days work
 
 ---
 
 ## Recommended Implementation Roadmap
 
-### Phase 1: Essential Foundations (1-2 weeks)
-**Goal:** Make the app usable for real workflows with 10+ detections
+### Phase 1: Bulk Foundation (2-3 weeks)
+**Goal:** Make directory processing functional
 
-1. **Proposal A: Filter & Sort** (essential)
-   - Quality triage filter (good/bad/unknown)
-   - Confidence threshold slider
-   - Sort dropdown
+1. **Proposal A: Bulk/Directory Mode** (essential)
+   - Directory loading
+   - Image gallery
+   - Aggregate detection list
+   - Navigation
 
-2. **Proposal F: Zoom & Pan** (essential for hi-res images)
+2. **Proposal E: Zoom & Pan** (essential)
    - Basic zoom in/out
-   - Click-and-drag pan
+   - Pan when zoomed
    - Zoom to detection
 
-**Deliverable:** Users can filter 50 detections down to 10 good ones, then zoom in to inspect each.
+**Deliverable:** Load directory of 50 images, navigate between images, zoom to inspect detections.
 
 ---
 
-### Phase 2: Rich Data Surfacing (2-3 weeks)
-**Goal:** Leverage beaker's rich quality data, make app educational
+### Phase 2: Quality Triage (3-4 weeks)
+**Goal:** Leverage quality data for efficient triage
 
-3. **Proposal B: Rich Quality Metrics** (high value)
-   - Expanded detection cards with all metrics
-   - Quality overview stats
-   - Metric explanations/tooltips
+3. **Proposal B: Quality Triage Workflow** (high priority)
+   - Aggregate filtering (good/bad/unknown)
+   - Triage mode for reviewing unknowns
+   - Quality statistics
 
-4. **Proposal C: Visualization Modes** (partial)
-   - Quality heatmap coloring
-   - Toggle angle arrows
-   - Hover preview
+4. **Proposal C: Quality Heatmap Visualization** (high value)
+   - Load debug heatmaps
+   - Layer selector
+   - Opacity control
 
-**Deliverable:** Users understand *why* detections are good/bad, can quickly triage by color.
+5. **Proposal D: Rich Quality Metrics** (complements C)
+   - Expanded metric cards
+   - Triage explanations
+   - Contextual help
+
+**Deliverable:** Process 100 images, filter to 30 unknowns, review them with heatmaps, export 80 good detections.
 
 ---
 
-### Phase 3: Specialized & Power Features (2-3 weeks)
-**Goal:** Enable advanced analysis workflows
+### Phase 3: Power Features (2-3 weeks)
+**Goal:** Polish and power-user workflows
 
-5. **Proposal D: Angle Analysis** (specialized)
-   - Angle histogram
-   - Group by orientation
-   - Angle-based filtering
-
-6. **Proposal E: Comparison & Export** (power user)
-   - Multi-selection
-   - Side-by-side comparison
-   - Export JSON/CSV
-
-7. **Proposal G: Keyboard Shortcuts** (polish)
-   - Arrow key navigation
+6. **Proposal F: Keyboard Shortcuts** (polish)
+   - Navigation shortcuts
+   - Triage shortcuts
    - Command palette
-   - Status bar
 
-**Deliverable:** Power users can analyze 100+ images efficiently, export results for further analysis.
+7. **Proposal G: Export & Reporting** (power user)
+   - Export JSON/CSV
+   - Triage overrides
+   - Summary reports
+
+8. **Proposal H: Comparison View** (optional)
+   - Side-by-side comparison
+   - Metric diffs
+
+**Deliverable:** Triage 500 images in under an hour, export results for training pipeline.
 
 ---
 
-## Alternative: Phased Rollout by Use Case
+## Alternative: Phased by Workflow
 
-Instead of feature-by-feature, implement by user workflow:
+### Workflow 1: Quick Directory Triage (Week 1-2)
+- Directory loading (A)
+- Quality filtering (B partial)
+- Zoom to detection (E partial)
+→ **Triage 50 images, find good detections**
 
-### Workflow 1: Quick Quality Triage (Week 1)
-- Filter by quality (A)
-- Quality heatmap coloring (C)
-- Zoom to detection (F)
+### Workflow 2: Deep Quality Understanding (Week 3-5)
+- Heatmap visualization (C)
+- Rich metrics display (D)
+- Triage mode (B complete)
+→ **Understand *why* detections are good/bad**
 
-→ **User can quickly find and inspect good detections**
+### Workflow 3: Batch Processing (Week 6-7)
+- Keyboard shortcuts (F)
+- Export (G)
+- Comparison (H)
+→ **Process 100+ images efficiently**
 
-### Workflow 2: Deep Quality Analysis (Week 2-3)
-- Full quality metrics display (B)
-- Angle analysis (D)
-- Comparison view (E)
+---
 
-→ **User can understand quality in depth, compare detections**
+## Feature Scope Summary
 
-### Workflow 3: Batch Processing (Week 4)
-- Export filtered results (E)
-- Keyboard shortcuts (G)
-- Statistics panel (E)
+| Proposal | Single Image | Bulk Mode | Priority | Effort |
+|----------|--------------|-----------|----------|--------|
+| A: Bulk/Directory Mode | N/A | ★★★ Essential | Critical | 1 week |
+| B: Quality Triage | ★ Nice | ★★★ Essential | High | 1 week |
+| C: Heatmap Viz | ★★ Useful | ★★★ High value | High | 1-2 weeks |
+| D: Rich Metrics | ★★★ Essential | ★★ Useful | Medium | 3-4 days |
+| E: Zoom & Pan | ★★★ Essential | ★★★ Essential | Critical | 3-4 days |
+| F: Shortcuts | ★ Nice | ★★★ Essential | Medium | 2-3 days |
+| G: Export | ★ Low value | ★★★ Essential | Medium | 2-3 days |
+| H: Comparison | ★★ Useful | ★ Specialized | Low | 3-4 days |
 
-→ **User can process many images efficiently**
+**Legend:**
+- ★★★ = Essential/High value
+- ★★ = Useful
+- ★ = Nice-to-have/Specialized
 
 ---
 
 ## Open Questions
 
-1. **Cutout handling**: User said "skip cutout stuff for now" - does this mean:
-   - Don't show crop previews in comparison view?
-   - Don't implement export cropped images?
-   - Answer: Probably means don't add features *requiring* cutouts, but can use them if already generated
+1. **How to handle metadata-less images?**
+   - If user points GUI at images without .beaker.toml files, should GUI run detection on-demand?
+   - Answer: Probably show error + suggest running `beaker detect --dir` first
 
-2. **Multi-image mode**: Should the app support multiple images at once?
-   - Tab-based image switching?
-   - Aggregate statistics across images?
-   - This would be a separate major feature
+2. **Heatmap generation performance**
+   - Should GUI re-run quality analysis to generate heatmaps?
+   - Or require user to run `beaker quality --debug-dump-images` first?
+   - Trade-off: convenience vs performance
 
-3. **Real-time re-detection**: Should users be able to adjust confidence threshold and re-run detection?
-   - Probably not in Phase 1 (too slow, complex state management)
-   - Could add in Phase 3 with proper caching
+3. **Triage override persistence**
+   - Where to save user's manual triage decisions?
+   - Separate `*_triage_overrides.json` file?
+   - Or extend .beaker.toml format?
 
-4. **Annotation mode**: Should users be able to manually correct/annotate detections?
-   - Add/remove bounding boxes
-   - Adjust angles
-   - Mark false positives
-   - Would require new "annotation view" - significant work
+4. **Directory watching**
+   - Should GUI auto-reload when new images added to directory?
+   - Useful for live processing workflows
 
-5. **Performance**: With 50+ detections, will sidebar scroll be smooth?
-   - Use egui::ScrollArea with virtual scrolling if needed
-   - Lazy-load detection data
+5. **Multi-image aggregate metrics**
+   - Show aggregate stats: "50% of images have at least 1 bad detection"
+   - Image-level quality score (worst detection quality per image)?
 
 ---
 
 ## Testing Strategy
 
-Each proposal should include:
+### Unit Tests
+- Directory loading/parsing logic
+- Filtering across multiple images
+- Quality metric aggregation
+- Export format correctness
 
-1. **Unit tests** for pure logic (filtering, sorting, angle binning)
-2. **Integration tests** exercising the full view (use egui_kittest)
-3. **Manual test scenarios** (e.g., "Load image with 50 detections, filter to 10, zoom to detection #3")
-4. **Snapshot tests** for 1-2 key states per proposal
+### Integration Tests
+- Load directory with 10 test images
+- Filter to Good detections
+- Navigate through images
+- Export results
 
-**Testing priorities:**
-- Phase 1: Test filtering logic, zoom math thoroughly (critical for usability)
-- Phase 2: Test quality metric parsing, color mapping
-- Phase 3: Test export format correctness, comparison view layout
+### Manual Test Scenarios
+1. **Directory triage**: Load 50 images, filter to 10 good detections, zoom to each
+2. **Heatmap workflow**: Enable blur heatmap, review all bad detections
+3. **Keyboard workflow**: Use only keyboard to triage 20 images
+4. **Export workflow**: Filter and export, verify JSON format
 
----
-
-## UI/UX Principles
-
-**Design goals:**
-- **Information density**: Show lots of data without overwhelming
-- **Progressive disclosure**: Hide complexity behind expand/collapse
-- **Visual hierarchy**: Most important info (quality triage, confidence) stands out
-- **Contextual help**: Tooltips explain technical metrics
-- **Consistency**: Same patterns across proposals (e.g., collapsible cards)
-
-**Egui patterns to use:**
-- `egui::CollapsingHeader` for expandable sections
-- `egui::Grid` for metric layouts
-- `egui::ProgressBar` for 0-1 normalized metrics
-- `egui::Slider` for thresholds
-- `egui::combo_box_with_label` for dropdowns
-- `egui::color_picker` for color scheme customization (future)
+### Performance Tests
+- Load directory with 100+ images (should be <2 seconds)
+- Navigate between images (should be instant)
+- Filter 200 detections (should be <100ms)
 
 ---
 
-## Summary
+## Technical Architecture Notes
 
-**Recommended MVP+1 scope** (4-6 weeks):
-1. **Proposal A** - Filter & Sort (essential)
-2. **Proposal F** - Zoom & Pan (essential)
-3. **Proposal B** - Rich Quality Metrics (high value)
-4. **Proposal C** - Visualization Modes (partial - just quality heatmap)
+### Directory Mode Data Structures
+```rust
+struct DirectoryView {
+    directory_path: PathBuf,
+    images: Vec<ImageWithDetections>,
+    current_image_idx: usize,
+    filter_state: FilterState,
+    // Flattened list of all detections across images
+    all_detections: Vec<DetectionRef>,
+}
 
-This delivers a **featureful, production-ready app** that:
-- Handles real workflows (10-50 detections per image)
-- Surfaces beaker's unique quality data
-- Feels polished and professional
-- Serves as foundation for power features later
+struct ImageWithDetections {
+    image_path: PathBuf,
+    toml_path: PathBuf,
+    detections: Vec<Detection>,
+    thumbnail: Option<TextureHandle>,
+}
 
-**Want maximum features?** Add Proposal D (Angle Analysis) and Proposal E (Export) for a **6-8 week super-app**.
+struct DetectionRef {
+    image_idx: usize,
+    detection_idx: usize,
+    // Cached quality for sorting/filtering
+    quality: DetectionQuality,
+}
 
-**Want minimal but solid?** Just A + F (2 weeks) for a **usable, zoomable, filterable viewer**.
+struct FilterState {
+    show_good: bool,
+    show_unknown: bool,
+    show_bad: bool,
+    min_confidence: f32,
+    sort_by: SortMode,
+}
+```
+
+### Heatmap Integration
+```rust
+// Option 1: Load pre-generated debug images
+fn load_debug_heatmaps(image_path: &Path) -> Option<DebugHeatmaps> {
+    let stem = image_path.file_stem()?;
+    let debug_dir = image_path.parent()?.join(format!("quality_debug_images_{}", stem));
+    // Load overlay_*.png files
+}
+
+// Option 2: Generate on-demand (slower but always available)
+fn generate_heatmaps(image_path: &Path) -> Result<DebugHeatmaps> {
+    // Run quality analysis with debug flag
+    // Returns in-memory heatmap data
+}
+```
+
+---
+
+## Summary & Recommendation
+
+**Recommended MVP+1 scope** (6-8 weeks):
+
+**Core (Critical):**
+1. **Proposal A** - Bulk/Directory Mode
+2. **Proposal E** - Zoom & Pan
+
+**Quality Triage (High Priority):**
+3. **Proposal B** - Quality Triage Workflow
+4. **Proposal C** - Heatmap Visualization
+
+**Polish (Important):**
+5. **Proposal D** - Rich Metrics (simplified)
+6. **Proposal F** - Keyboard Shortcuts (partial)
+
+This delivers a **production-ready quality triage tool** that:
+- ✅ Handles real directory-processing workflows (10-100+ images)
+- ✅ Surfaces beaker's unique quality data and visualizations
+- ✅ Makes heatmaps accessible (currently hidden in debug output)
+- ✅ Dramatically faster than CLI workflow
+- ✅ Feels professional and polished
+
+**Want maximum features?** Add Proposal G (Export) and H (Comparison) for a **8-10 week super-app**.
+
+**Want minimal but functional?** Just A + B + E (4 weeks) for a **usable directory triage tool**.
+
+**Unique value proposition:** No other tool makes quality heatmaps this accessible. This could be a killer feature for beaker-gui.
