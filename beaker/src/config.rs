@@ -270,6 +270,10 @@ pub struct QualityCommand {
     /// MD5 checksum for model verification (used with --model-url)
     #[arg(long)]
     pub model_checksum: Option<String>,
+
+    /// Dump debug heatmap and overlay images for blur analysis
+    #[arg(long)]
+    pub debug_dump_images: bool,
 }
 
 /// Internal configuration for cutout processing
@@ -310,6 +314,8 @@ pub struct QualityConfig {
     /// CLI-provided model checksum override
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_checksum: Option<String>,
+    /// Whether to dump debug heatmap and overlay images
+    pub debug_dump_images: bool,
 }
 
 impl QualityConfig {
@@ -320,6 +326,7 @@ impl QualityConfig {
             model_checksum: None,
             model_url: None,
             model_path: None,
+            debug_dump_images: false,
         }
     }
 }
@@ -396,6 +403,7 @@ impl QualityConfig {
             model_path: cmd.model_path,
             model_url: cmd.model_url,
             model_checksum: cmd.model_checksum,
+            debug_dump_images: cmd.debug_dump_images,
         }
     }
 }
@@ -580,6 +588,7 @@ mod tests {
             model_path: Some("/custom/model.onnx".to_string()),
             model_url: None,
             model_checksum: None,
+            debug_dump_images: true,
         };
 
         let config = QualityConfig::from_args(global_args, quality_cmd);
@@ -593,6 +602,7 @@ mod tests {
         assert_eq!(config.model_path, Some("/custom/model.onnx".to_string()));
         assert_eq!(config.model_url, None);
         assert_eq!(config.model_checksum, None);
+        assert!(config.debug_dump_images);
     }
 
     #[test]

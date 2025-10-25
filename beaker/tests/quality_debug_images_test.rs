@@ -1,16 +1,16 @@
 use std::process::Command;
 use tempfile::TempDir;
 
-/// Test that quality debug images directory is only created when debug logging is enabled
+/// Test that quality debug images directory is only created when --debug-dump-images flag is passed
 #[test]
-fn test_quality_debug_images_not_created_without_debug_flag() {
+fn test_quality_debug_images_not_created_without_flag() {
     let temp_dir = TempDir::new().unwrap();
 
     // Create a test image
     let test_image = temp_dir.path().join("test.jpg");
     std::fs::copy("../example.jpg", &test_image).unwrap();
 
-    // Run quality command without debug logging
+    // Run quality command without --debug-dump-images flag
     let output = Command::new("cargo")
         .args([
             "run",
@@ -35,21 +35,21 @@ fn test_quality_debug_images_not_created_without_debug_flag() {
     let debug_dir_pattern = temp_dir.path().join("quality_debug_images_test");
     assert!(
         !debug_dir_pattern.exists(),
-        "Debug directory should not exist without debug logging: {:?}",
+        "Debug directory should not exist without --debug-dump-images flag: {:?}",
         debug_dir_pattern
     );
 }
 
-/// Test that quality debug images directory IS created when debug logging is enabled
+/// Test that quality debug images directory IS created when --debug-dump-images flag is passed
 #[test]
-fn test_quality_debug_images_created_with_debug_flag() {
+fn test_quality_debug_images_created_with_flag() {
     let temp_dir = TempDir::new().unwrap();
 
     // Create a test image
     let test_image = temp_dir.path().join("test.jpg");
     std::fs::copy("../example.jpg", &test_image).unwrap();
 
-    // Run quality command with debug logging (-vv)
+    // Run quality command with --debug-dump-images flag
     let output = Command::new("cargo")
         .args([
             "run",
@@ -58,7 +58,7 @@ fn test_quality_debug_images_created_with_debug_flag() {
             test_image.to_str().unwrap(),
             "--output-dir",
             temp_dir.path().to_str().unwrap(),
-            "-vv",
+            "--debug-dump-images",
         ])
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .output()
@@ -75,7 +75,7 @@ fn test_quality_debug_images_created_with_debug_flag() {
     let debug_dir_pattern = temp_dir.path().join("quality_debug_images_test");
     assert!(
         debug_dir_pattern.exists(),
-        "Debug directory should exist with debug logging: {:?}",
+        "Debug directory should exist with --debug-dump-images flag: {:?}",
         debug_dir_pattern
     );
 

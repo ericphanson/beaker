@@ -127,7 +127,7 @@ impl ModelProcessor for QualityProcessor {
     fn process_single_image(
         session: &mut Session,
         image_path: &Path,
-        _config: &Self::Config,
+        config: &Self::Config,
         output_manager: &crate::output_manager::OutputManager,
     ) -> Result<Self::Result> {
         let start_time = Instant::now();
@@ -143,8 +143,8 @@ impl ModelProcessor for QualityProcessor {
         let input_array = preprocess_image_for_quality(&img)?;
 
         let input_stem = output_manager.input_stem();
-        // Only create debug directory when debug logging is enabled
-        let output_dir = if log::log_enabled!(log::Level::Debug) {
+        // Only create debug directory when --debug-dump-images flag is passed
+        let output_dir = if config.debug_dump_images {
             Some(
                 output_manager
                     .get_output_dir()?

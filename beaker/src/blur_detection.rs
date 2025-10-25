@@ -469,24 +469,22 @@ pub fn blur_weights_from_nchw(
     }
 
     if let Some(out) = out_dir {
-        // Only emit heatmaps for debugging
-        if log::log_enabled!(log::Level::Debug) {
-            let start = Instant::now();
-            dump_debug_heatmaps(
-                &out,
-                DebugMaps {
-                    x224: x,
-                    t224: &t224,
-                    t112: Some(&t112),
-                    p224: &p224,
-                    p112: Some(&p112),
-                    pfused: &p,
-                    w20: &w,
-                },
-            )
-            .unwrap();
-            log::debug!("Finished dumping debug heatmaps in {:?}", start.elapsed());
-        }
+        // Dump debug heatmaps when requested via --debug-dump-images flag
+        let start = Instant::now();
+        dump_debug_heatmaps(
+            &out,
+            DebugMaps {
+                x224: x,
+                t224: &t224,
+                t112: Some(&t112),
+                p224: &p224,
+                p112: Some(&p112),
+                pfused: &p,
+                w20: &w,
+            },
+        )
+        .unwrap();
+        log::debug!("Finished dumping debug heatmaps in {:?}", start.elapsed());
     }
 
     let blur_global = p.sum() / 400.0;
