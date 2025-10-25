@@ -1371,27 +1371,36 @@ dirs = "5.0"  # Cross-platform config directory
 
 ## Open Questions
 
-1. **How to handle metadata-less images?**
-   - If user points GUI at images without .beaker.toml files, should GUI run detection on-demand?
-   - Answer: Probably show error + suggest running `beaker detect --dir` first
+1. **Heatmap generation strategy**
+   - **Question:** Should debug heatmaps be generated on-demand when user toggles them on, or always generated during initial detection run?
+   - **Trade-off:**
+     - On-demand: Faster initial processing, but delay when enabling heatmaps
+     - Always generate: Slower initial processing, but instant heatmap display
+   - **Recommendation:** Generate on-demand with caching. Most users won't use heatmaps, so don't slow down the common case.
+   - **Implementation:** Add `--with-debug-heatmaps` checkbox in GUI; when checked, pass flag to beaker lib
 
-2. **Heatmap generation performance**
-   - Should GUI re-run quality analysis to generate heatmaps?
-   - Or require user to run `beaker quality --debug-dump-images` first?
-   - Trade-off: convenience vs performance
+2. **Triage override persistence**
+   - **Question:** When user manually marks an "unknown" detection as "good" or "bad" in triage mode, where should this override be saved?
+   - **Options:**
+     - a) Separate `{stem}_triage_overrides.json` file alongside .beaker.toml
+     - b) Extend .beaker.toml with new `[triage_overrides]` section
+     - c) New `{stem}.beaker_triage.json` file
+   - **Recommendation:** Option (c) - keeps triage data separate from automated analysis results, easy to export for ML training
 
-3. **Triage override persistence**
-   - Where to save user's manual triage decisions?
-   - Separate `*_triage_overrides.json` file?
-   - Or extend .beaker.toml format?
+3. **Directory watching (future enhancement)**
+   - **Question:** Should GUI auto-reload when new images are added to watched directory?
+   - **Use case:** Live processing workflows where images are added during session
+   - **Complexity:** Requires file system watcher (e.g., `notify` crate)
+   - **Recommendation:** Defer to Phase 4+ (not MVP). Add manual "Refresh" button first.
 
-4. **Directory watching**
-   - Should GUI auto-reload when new images added to directory?
-   - Useful for live processing workflows
-
-5. **Multi-image aggregate metrics**
-   - Show aggregate stats: "50% of images have at least 1 bad detection"
-   - Image-level quality score (worst detection quality per image)?
+4. **Multi-image aggregate metrics (future enhancement)**
+   - **Question:** What aggregate statistics should be shown across all images in directory?
+   - **Ideas:**
+     - "50% of images have at least 1 bad detection"
+     - Image-level quality score (worst detection quality per image)
+     - Quality distribution histogram across entire directory
+     - "Images with errors" count
+   - **Recommendation:** Include in Proposal B (Quality Triage Workflow) - this is valuable for understanding overall directory quality
 
 ---
 
@@ -1416,9 +1425,13 @@ dirs = "5.0"  # Cross-platform config directory
 4. **Export workflow**: Filter and export, verify JSON format
 
 ### Performance Tests
-- Load directory with 100+ images (should be <2 seconds)
-- Navigate between images (should be instant)
-- Filter 200 detections (should be <100ms)
+- **Process** directory with 100+ images (will take several minutes - ~1-2s per image for quality+detection)
+  - Progress UI should update smoothly (at least 10 FPS)
+  - UI should remain responsive during processing
+- Navigate between processed images (should be instant, <16ms)
+- Filter 200 detections across images (should be <100ms)
+- Render heatmap overlay (should be <50ms for texture update)
+- Handle cancellation cleanly (stop within 1-2 seconds of button press)
 
 ---
 
@@ -1428,24 +1441,39 @@ dirs = "5.0"  # Cross-platform config directory
 ```rust
 struct DirectoryView {
     directory_path: PathBuf,
-    images: Vec<ImageWithDetections>,
+    images: Vec<ImageState>,
     current_image_idx: usize,
     filter_state: FilterState,
-    // Flattened list of all detections across images
+    // Processing state
+    processing_receiver: Option<Receiver<ProcessingEvent>>,
+    cancel_flag: Arc<AtomicBool>,
+    // Flattened list of all detections across images (populated after processing)
     all_detections: Vec<DetectionRef>,
 }
 
-struct ImageWithDetections {
+struct ImageState {
     image_path: PathBuf,
-    toml_path: PathBuf,
-    detections: Vec<Detection>,
+    status: ProcessingStatus,
+    detections: Vec<Detection>,  // Populated after successful processing
     thumbnail: Option<TextureHandle>,
+}
+
+enum ProcessingStatus {
+    Waiting,
+    Processing,
+    Success {
+        toml_path: PathBuf,  // Generated .beaker.toml file
+        processing_time_ms: f64,
+    },
+    Error {
+        message: String,
+    },
 }
 
 struct DetectionRef {
     image_idx: usize,
     detection_idx: usize,
-    // Cached quality for sorting/filtering
+    // Cached quality for sorting/filtering (from detection result)
     quality: DetectionQuality,
 }
 
@@ -1459,20 +1487,49 @@ struct FilterState {
 ```
 
 ### Heatmap Integration
+
+**Recommended approach: On-demand generation with caching**
+
 ```rust
-// Option 1: Load pre-generated debug images
-fn load_debug_heatmaps(image_path: &Path) -> Option<DebugHeatmaps> {
-    let stem = image_path.file_stem()?;
-    let debug_dir = image_path.parent()?.join(format!("quality_debug_images_{}", stem));
-    // Load overlay_*.png files
+struct HeatmapCache {
+    // Cache heatmaps in memory after generation
+    cache: HashMap<PathBuf, DebugHeatmaps>,
 }
 
-// Option 2: Generate on-demand (slower but always available)
-fn generate_heatmaps(image_path: &Path) -> Result<DebugHeatmaps> {
-    // Run quality analysis with debug flag
-    // Returns in-memory heatmap data
+impl HeatmapCache {
+    fn get_or_generate(&mut self, image_path: &Path) -> Result<&DebugHeatmaps> {
+        if !self.cache.contains_key(image_path) {
+            // Generate heatmaps on first access
+            let heatmaps = self.generate_heatmaps(image_path)?;
+            self.cache.insert(image_path.to_path_buf(), heatmaps);
+        }
+        Ok(&self.cache[image_path])
+    }
+
+    fn generate_heatmaps(&self, image_path: &Path) -> Result<DebugHeatmaps> {
+        // Check if debug images directory already exists
+        let stem = image_path.file_stem().unwrap();
+        let debug_dir = image_path.parent().unwrap()
+            .join(format!("quality_debug_images_{}", stem.to_string_lossy()));
+
+        if debug_dir.exists() {
+            // Load pre-existing debug images
+            load_debug_heatmaps_from_dir(&debug_dir)
+        } else {
+            // Generate on-demand by re-running quality with --debug-dump-images
+            // (This only happens if user toggles heatmap view)
+            run_quality_with_debug_flag(image_path)?;
+            load_debug_heatmaps_from_dir(&debug_dir)
+        }
+    }
 }
 ```
+
+**Why on-demand:**
+- Most users won't use heatmaps (they're for debugging/learning)
+- Don't slow down initial processing for rare feature
+- Can still load pre-existing debug images if available
+- Cache in memory after first generation (instant subsequent access)
 
 ---
 
