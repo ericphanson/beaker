@@ -1,0 +1,13 @@
+[package]
+name = "egui_hello_world"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+eframe = "0.30"
+egui = "0.30"
+
+[dev-dependencies]
+egui_kittest = "0.30"

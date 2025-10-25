@@ -1,0 +1,51 @@
+name: egui Demo CI
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'docs/demos/egui/**'
+      - '.github/workflows/egui-demo-ci.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'docs/demos/egui/**'
+      - '.github/workflows/egui-demo-ci.yml'
+  workflow_dispatch:
+
+# Cancel old runs when new commits are pushed to the same PR/branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test egui Demo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: docs/demos/egui
+          shared-key: "egui-demo"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build
+        working-directory: docs/demos/egui
+        run: cargo build --verbose
+
+      - name: Run tests
+        working-directory: docs/demos/egui
+        run: cargo test --verbose
+
+      - name: Build release
+        working-directory: docs/demos/egui
+        run: cargo build --release --verbose
