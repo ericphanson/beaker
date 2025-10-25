@@ -289,8 +289,21 @@ When running on macOS:
 - ✅ Review all code
 - ⏸️ Cannot run `just ci` (GTK dependencies)
 - ✅ Update this log
-- ⏳ Commit changes
-- ⏳ Push to feature branch
+- ✅ Commit changes
+- ✅ Push to feature branch
+
+### TODO: GUI CI Setup
+Following the testing strategy in the plan, add CI workflow for GUI:
+- Create `.github/workflows/gui-ci.yml` for beaker-gui
+- Run on macOS runner (target platform)
+- Steps:
+  1. Install Node.js and Rust
+  2. Install npm dependencies: `cd beaker-gui && npm install`
+  3. Run TypeScript checks: `npm run check`
+  4. Build Tauri app: `npm run tauri build`
+  5. Run backend tests: `cargo test --manifest-path=beaker-gui/src-tauri/Cargo.toml`
+  6. Optional: Run Vitest frontend tests when added: `npm test`
+- Consider CLI view testing script from plan: `scripts/test-views.sh`
 
 ### Phase 2 Planning:
 - Test on macOS target platform
