@@ -1,5 +1,8 @@
 use eframe::egui;
 
+#[cfg(target_os = "macos")]
+use muda::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
+
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -13,7 +16,21 @@ fn main() -> eframe::Result {
         options,
         Box::new(|cc| {
             setup_custom_style(&cc.egui_ctx);
-            Ok(Box::new(HelloWorldApp::default()))
+
+            #[cfg(target_os = "macos")]
+            {
+                let mut app = Box::new(HelloWorldApp::default());
+                let (menu, rx) = create_native_menu();
+                menu.init_for_nsapp();
+                app.menu = Some(menu);
+                app.menu_rx = Some(rx);
+                Ok(app)
+            }
+
+            #[cfg(not(target_os = "macos"))]
+            {
+                Ok(Box::new(HelloWorldApp::default()))
+            }
         }),
     )
 }
@@ -62,65 +79,76 @@ fn setup_custom_style(ctx: &egui::Context) {
     ctx.set_style(style);
 }
 
-#[derive(Default)]
 struct HelloWorldApp {
     name: String,
+    #[cfg(target_os = "macos")]
+    menu: Option<Menu>,
+    #[cfg(target_os = "macos")]
+    menu_rx: Option<std::sync::mpsc::Receiver<MenuEvent>>,
+}
+
+impl Default for HelloWorldApp {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            #[cfg(target_os = "macos")]
+            menu: None,
+            #[cfg(target_os = "macos")]
+            menu_rx: None,
+        }
+    }
 }
 
 impl eframe::App for HelloWorldApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Clean macOS-style menu bar
-        egui::TopBottomPanel::top("menu_bar")
-            .frame(egui::Frame::none()
-                .fill(egui::Color32::WHITE)
-                .inner_margin(egui::Margin::symmetric(12.0, 4.0)))
-            .show(ctx, |ui| {
-                egui::menu::bar(ui, |ui| {
-                    ui.menu_button("File", |ui| {
-                        let new_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::N);
-                        if ui.add(egui::Button::new("New").shortcut_text(ctx.format_shortcut(&new_shortcut))).clicked() {
-                            // Action placeholder
-                        }
-                        if ctx.input_mut(|i| i.consume_shortcut(&new_shortcut)) {
-                            // Handle Cmd+N
-                        }
+        // Poll menu events on macOS
+        #[cfg(target_os = "macos")]
+        if let Some(rx) = self.menu_rx.take() {
+            while let Ok(event) = rx.try_recv() {
+                self.handle_menu_event(event, ctx);
+            }
+            self.menu_rx = Some(rx);
+        }
 
-                        let open_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::O);
-                        if ui.add(egui::Button::new("Open...").shortcut_text(ctx.format_shortcut(&open_shortcut))).clicked() {
-                            // Action placeholder
-                        }
-                        if ctx.input_mut(|i| i.consume_shortcut(&open_shortcut)) {
-                            // Handle Cmd+O
-                        }
+        // On non-macOS platforms, show egui-rendered menu bar
+        #[cfg(not(target_os = "macos"))]
+        {
+            egui::TopBottomPanel::top("menu_bar")
+                .frame(egui::Frame::none()
+                    .fill(egui::Color32::WHITE)
+                    .inner_margin(egui::Margin::symmetric(12.0, 4.0)))
+                .show(ctx, |ui| {
+                    egui::menu::bar(ui, |ui| {
+                        ui.menu_button("File", |ui| {
+                            let new_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::N);
+                            if ui.add(egui::Button::new("New").shortcut_text(ctx.format_shortcut(&new_shortcut))).clicked() {}
 
-                        ui.separator();
+                            let open_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::O);
+                            if ui.add(egui::Button::new("Open...").shortcut_text(ctx.format_shortcut(&open_shortcut))).clicked() {}
 
-                        let quit_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::Q);
-                        if ui.add(egui::Button::new("Quit").shortcut_text(ctx.format_shortcut(&quit_shortcut))).clicked() {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                        }
-                        if ctx.input_mut(|i| i.consume_shortcut(&quit_shortcut)) {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                        }
-                    });
+                            ui.separator();
 
-                    ui.menu_button("Edit", |ui| {
-                        let clear_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::K);
-                        if ui.add(egui::Button::new("Clear").shortcut_text(ctx.format_shortcut(&clear_shortcut))).clicked() {
-                            self.name.clear();
-                        }
-                        if ctx.input_mut(|i| i.consume_shortcut(&clear_shortcut)) {
-                            self.name.clear();
-                        }
-                    });
+                            let quit_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::Q);
+                            if ui.add(egui::Button::new("Quit").shortcut_text(ctx.format_shortcut(&quit_shortcut))).clicked() {
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                            }
+                        });
 
-                    ui.menu_button("Help", |ui| {
-                        ui.label("egui Demo Application");
-                        ui.separator();
-                        ui.label("Built with egui 0.30");
+                        ui.menu_button("Edit", |ui| {
+                            let clear_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::K);
+                            if ui.add(egui::Button::new("Clear").shortcut_text(ctx.format_shortcut(&clear_shortcut))).clicked() {
+                                self.name.clear();
+                            }
+                        });
+
+                        ui.menu_button("Help", |ui| {
+                            ui.label("egui Demo Application");
+                            ui.separator();
+                            ui.label("Built with egui 0.30");
+                        });
                     });
                 });
-            });
+        }
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.add_space(32.0);
@@ -183,6 +211,88 @@ impl eframe::App for HelloWorldApp {
             ui.add_space(24.0);
         });
     }
+}
+
+#[cfg(target_os = "macos")]
+impl HelloWorldApp {
+    fn handle_menu_event(&mut self, event: MenuEvent, ctx: &egui::Context) {
+        let id = event.id;
+        println!("Menu event: {id:?}");
+
+        // Handle menu events based on ID
+        // Since we're using PredefinedMenuItems, they handle their actions automatically
+        // We can add custom handling here if needed
+
+        // For custom items, we'd check the ID and handle accordingly
+        // For now, the predefined items (Quit, etc.) work automatically
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn create_native_menu() -> (Menu, std::sync::mpsc::Receiver<MenuEvent>) {
+    let menu = Menu::new();
+
+    // Set up menu event channel
+    let (tx, rx) = std::sync::mpsc::channel();
+    MenuEvent::set_event_handler(Some(move |event| {
+        let _ = tx.send(event);
+    }));
+
+    // App menu (first menu with app name)
+    let app_menu = Submenu::new("Hello World", true);
+    app_menu.append(&PredefinedMenuItem::about(None, None)).unwrap();
+    app_menu.append(&PredefinedMenuItem::separator()).unwrap();
+    app_menu.append(&PredefinedMenuItem::services(None)).unwrap();
+    app_menu.append(&PredefinedMenuItem::separator()).unwrap();
+    app_menu.append(&PredefinedMenuItem::hide(None)).unwrap();
+    app_menu.append(&PredefinedMenuItem::hide_others(None)).unwrap();
+    app_menu.append(&PredefinedMenuItem::show_all(None)).unwrap();
+    app_menu.append(&PredefinedMenuItem::separator()).unwrap();
+    app_menu.append(&PredefinedMenuItem::quit(None)).unwrap();
+    menu.append(&app_menu).unwrap();
+
+    // File menu
+    let file_menu = Submenu::new("File", true);
+    let new_item = MenuItem::new("New", true, Some(muda::accelerator::Accelerator::new(
+        Some(muda::accelerator::Modifiers::SUPER),
+        muda::accelerator::Code::KeyN,
+    )));
+    let open_item = MenuItem::new("Open...", true, Some(muda::accelerator::Accelerator::new(
+        Some(muda::accelerator::Modifiers::SUPER),
+        muda::accelerator::Code::KeyO,
+    )));
+    file_menu.append(&new_item).unwrap();
+    file_menu.append(&open_item).unwrap();
+    file_menu.append(&PredefinedMenuItem::separator()).unwrap();
+    file_menu.append(&PredefinedMenuItem::close_window(None)).unwrap();
+    menu.append(&file_menu).unwrap();
+
+    // Edit menu
+    let edit_menu = Submenu::new("Edit", true);
+    edit_menu.append(&PredefinedMenuItem::undo(None)).unwrap();
+    edit_menu.append(&PredefinedMenuItem::redo(None)).unwrap();
+    edit_menu.append(&PredefinedMenuItem::separator()).unwrap();
+    edit_menu.append(&PredefinedMenuItem::cut(None)).unwrap();
+    edit_menu.append(&PredefinedMenuItem::copy(None)).unwrap();
+    edit_menu.append(&PredefinedMenuItem::paste(None)).unwrap();
+    edit_menu.append(&PredefinedMenuItem::select_all(None)).unwrap();
+    menu.append(&edit_menu).unwrap();
+
+    // Window menu
+    let window_menu = Submenu::new("Window", true);
+    window_menu.append(&PredefinedMenuItem::minimize(None)).unwrap();
+    window_menu.append(&PredefinedMenuItem::maximize(None)).unwrap();
+    window_menu.append(&PredefinedMenuItem::separator()).unwrap();
+    window_menu.append(&PredefinedMenuItem::fullscreen(None)).unwrap();
+    menu.append(&window_menu).unwrap();
+
+    // Help menu
+    let help_menu = Submenu::new("Help", true);
+    let about_item = MenuItem::new("About Hello World", true, None);
+    help_menu.append(&about_item).unwrap();
+    menu.append(&help_menu).unwrap();
+
+    (menu, rx)
 }
 
 #[cfg(test)]
