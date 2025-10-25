@@ -62,6 +62,119 @@
 
 ---
 
+## Core Workflow: Running Detection from GUI
+
+**IMPORTANT:** The GUI doesn't just load existing .beaker.toml files - it **runs detection itself**.
+
+### Basic Workflow
+1. Open app → Welcome screen
+2. Click "Open Folder" → Select directory with images
+3. **App runs `beaker detect` on directory** (not just loading existing results!)
+4. Show progress bar during processing
+5. Surface errors gracefully (per-image checkmarks as processed)
+6. Note: `detect` runs `quality` first → 2 passes through directory, 1 image at a time
+7. Browse results: original image + detections + quality info
+
+### Advanced Workflows (build on basic)
+- Quality heatmap overlays
+- Filtering by quality/confidence
+- Triage unknown detections
+- Export results
+
+### Lib→GUI Interop Requirements
+
+**Critical architecture question:** How does GUI get progress updates from beaker lib?
+
+**Current beaker lib architecture:**
+- Processes images sequentially (1 at a time)
+- Quality pass first, then detection pass
+- Logs to stdout/stderr via `log` crate
+- No progress callbacks currently
+
+**GUI needs:**
+1. **Progress reporting**
+   - "Processing image 23/47: bird_042.jpg"
+   - "Quality analysis: 12% complete"
+   - "Detection: 87% complete"
+
+2. **Per-image status**
+   - ✓ bird_001.jpg: 2 detections (1 good, 1 unknown)
+   - ✓ bird_002.jpg: 1 detection (1 good)
+   - ⚠ bird_003.jpg: Error - file corrupt
+   - ⏳ bird_004.jpg: Processing...
+
+3. **Error handling**
+   - Per-image errors shouldn't crash entire run
+   - Continue processing remaining images
+   - Show errors in UI naturally
+
+4. **Cancellation**
+   - User clicks "Cancel" → stop processing gracefully
+   - Save partial results
+
+**Implementation options:**
+
+**Option 1: Progress callbacks** (cleanest)
+```rust
+// In beaker lib
+pub trait ProgressCallback {
+    fn on_image_start(&mut self, path: &Path, index: usize, total: usize);
+    fn on_image_complete(&mut self, path: &Path, result: Result<DetectionResult>);
+    fn on_quality_progress(&mut self, percent: f32);
+}
+
+pub fn run_detection_with_progress<P: ProgressCallback>(
+    config: DetectionConfig,
+    callback: &mut P,
+) -> Result<usize> {
+    // Call callback at each stage
+}
+```
+
+GUI implements callback, updates UI on each call.
+
+**Option 2: Channel-based progress** (egui-friendly)
+```rust
+// GUI creates channel
+let (tx, rx) = std::sync::mpsc::channel();
+
+// Spawn detection in background thread
+std::thread::spawn(move || {
+    run_detection_with_channel(config, tx);
+});
+
+// In update() loop, check for messages
+if let Ok(msg) = rx.try_recv() {
+    match msg {
+        ProgressMsg::ImageStart { path, index, total } => { /* update UI */ }
+        ProgressMsg::ImageComplete { path, result } => { /* update UI */ }
+        // ...
+    }
+}
+```
+
+**Option 3: Async/stream-based** (modern but more complex)
+```rust
+// Use async streams
+let mut progress_stream = run_detection_async(config);
+while let Some(event) = progress_stream.next().await {
+    // update UI
+}
+```
+
+**Recommendation:** Option 2 (channels) is most egui-compatible and doesn't require lib to be async.
+
+### What needs to be added to beaker lib:
+
+1. **Progress API**: Add callback or channel support to `run_detection()`
+2. **Graceful error handling**: Don't panic on single image failure
+3. **Incremental results**: Return results as they're available (not just at end)
+4. **Cancellation support**: Check for cancel signal between images
+
+**This is significant lib work** - maybe 1-2 weeks to add proper progress infrastructure.
+
+---
+
 ## Feature Proposals
 
 ### 📁 Proposal 0: File Navigation & Opening (Critical Foundation)
@@ -175,49 +288,88 @@ dirs = "5.0"  # Cross-platform config directory
 
 ### 🎯 Proposal A: Bulk/Directory Mode Foundation (Essential)
 
-**Goal:** Enable analyzing directories of images with aggregate detection management.
+**Goal:** Run detection on directories and manage results with aggregate views.
 
 **Features:**
 
-1. **Directory loading**
-   - CLI flag: `beaker-gui --dir /path/to/images/`
-   - Load all `.beaker.toml` metadata files in directory
-   - Parse all detections into single aggregate list
+1. **Directory processing** (integrates with Proposal 0)
+   - User selects folder via "Open Folder" dialog
+   - GUI runs `beaker detect` on all images in directory
+   - **Progress UI during processing:**
+     - Overall progress: "Processing 23/47 images..."
+     - Current stage: "Quality analysis..." or "Detecting..."
+     - Per-image status list with checkmarks/errors (see UI mockup below)
+     - Cancel button to stop gracefully
 
-2. **Image gallery view**
-   - Thumbnail grid showing all images in directory
+2. **Progress display** (critical for UX)
+   - Live progress bar showing overall % complete
+   - Image list showing status per image:
+     - ⏳ bird_001.jpg: Processing...
+     - ✓ bird_002.jpg: 2 detections (1 good, 1 unknown)
+     - ⚠ bird_003.jpg: Error - file corrupt
+   - Real-time updates as each image completes
+   - Estimated time remaining
+
+3. **Image gallery view** (after processing completes)
+   - Thumbnail grid showing all processed images
    - Badge on each thumbnail: "2 detections (1 good, 1 unknown)"
    - Click thumbnail → open image in main view
    - Color-code thumbnails by worst quality (red if any bad detections)
 
-3. **Aggregate detection list**
+4. **Aggregate detection list**
    - Sidebar shows ALL detections from ALL images
    - Format: "image1.jpg - head #1: Good (0.95)"
    - Click detection → jump to that image + zoom to detection
 
-4. **Navigation**
+5. **Navigation**
    - Next/previous image buttons
    - Next/previous detection buttons
    - Keyboard: Arrow keys navigate images, J/K navigate detections
 
-**UI mockup:**
+**UI mockup (During processing):**
 ```
 ┌─────────────────────────────────────────────────────────┐
-│ Gallery: /path/to/images/ (47 images, 89 detections)   │
+│ Processing: /path/to/birds/ (47 images)                │
+│ ──────────────────────────────────────────────────────  │
+│ Stage: Detecting... (Quality complete)                  │
+│ Progress: [▓▓▓▓▓▓▓▓▓▓░░░░░░] 23/47 (49%)              │
+│ Estimated time: 2 minutes remaining      [Cancel]      │
+│ ──────────────────────────────────────────────────────  │
+│                                                          │
+│ Images:                                                  │
+│  ✓ bird_001.jpg: 2 detections (1 good, 1 unknown)      │
+│  ✓ bird_002.jpg: 1 detection (1 good)                  │
+│  ⚠ bird_003.jpg: Error - unsupported format            │
+│  ✓ bird_004.jpg: 2 detections (2 good)                 │
+│  ...                                                     │
+│  ⏳ bird_023.jpg: Processing...            ← Current    │
+│  ⏸ bird_024.jpg: Waiting...                            │
+│  ⏸ bird_025.jpg: Waiting...                            │
+│  ...                                                     │
+│  ⏸ bird_047.jpg: Waiting...                            │
+│                                                          │
+│ 💡 Tip: This may take a few minutes for large folders  │
+└─────────────────────────────────────────────────────────┘
+```
+
+**UI mockup (After processing complete):**
+```
+┌─────────────────────────────────────────────────────────┐
+│ Gallery: /path/to/birds/ (47 images, 89 detections)    │
 │ ──────────────────────────────────────────────────────  │
 │ ┌──────┬──────┬──────┬──────┬──────┐                   │
 │ │img1  │img2  │img3  │img4  │img5  │                   │
-│ │ ✓1 ✗1│ ✓2   │ ?1 ✗1│ ✓1 ?1│ ✓2   │  ← Badges        │
+│ │ ✓1 ?1│ ✓2   │ ⚠Err │ ✓1 ?1│ ✓2   │  ← Badges        │
 │ └──────┴──────┴──────┴──────┴──────┘                   │
 │                                                          │
-│ Current: img3.jpg           [← Prev | Next →]          │
+│ Current: img1.jpg           [← Prev | Next →]          │
 │ ┌─────────────────────┬──────────────────────┐         │
 │ │  [Image with boxes] │ All Detections (89)  │         │
 │ │                     │ ──────────────────── │         │
 │ │     [img with 1-2   │ img1.jpg - head #1   │         │
 │ │      detections]    │   ✓ Good  Conf: 0.95│         │
 │ │                     │ img1.jpg - head #2   │         │
-│ │                     │   ✗ Bad   Conf: 0.52│         │
+│ │                     │   ? Unknown 0.52    │         │
 │ │                     │ img2.jpg - head #1   │ ← Click │
 │ │                     │   ✓ Good  Conf: 0.88│   jumps │
 │ └─────────────────────┴──────────────────────┘   image │
@@ -228,13 +380,21 @@ dirs = "5.0"  # Cross-platform config directory
 - Matches primary use case (directory processing)
 - Enables all other bulk features (filtering, comparison, triage)
 - Foundation for quality triage workflow
+- **Actually runs detection** - not just a viewer
 
 **Implementation notes:**
-- New `DirectoryView` struct containing multiple images
-- Extend CLI args to accept `--dir` flag
-- Parse all .beaker.toml files in directory at startup
-- Store Vec<ImageDetections> with metadata
-- ~500 LOC, 1 week work
+- New `DirectoryView` struct managing processing state
+- Background thread for detection (don't block UI)
+- Channel-based progress communication (lib → GUI)
+- Store Vec<ImageDetectionState> with status per image
+- Progress bar using egui::ProgressBar
+- **Requires lib changes**: Add progress callback/channel to `run_detection()`
+- **Requires error handling**: Single image failures shouldn't crash whole run
+- ~800-1000 LOC, 2 weeks work (including lib changes)
+
+**Dependencies:**
+- Lib changes: Add progress API to beaker (1 week)
+- GUI implementation: Build progress UI + integration (1 week)
 
 ---
 
@@ -765,12 +925,23 @@ dirs = "5.0"  # Cross-platform config directory
 
 ---
 
-### Phase 1: Bulk Foundation (2-3 weeks)
-**Goal:** Make directory processing functional
+### Phase 1: Bulk Foundation + Lib Changes (3-4 weeks)
+**Goal:** Make directory processing functional with progress reporting
+
+**Week 1-2: Lib changes (beaker crate)**
+- Add progress callback/channel API to `run_detection()`
+- Graceful per-image error handling
+- Cancellation support
+
+**Week 3-4: GUI implementation**
 
 2. **Proposal A: Bulk/Directory Mode** (essential)
-   - Directory loading (integrates with Proposal 0)
-   - Image gallery
+   - Directory processing with progress UI
+   - Channel-based communication with lib
+   - Per-image status tracking
+   - Error display
+   - Cancel functionality
+   - Image gallery (after processing)
    - Aggregate detection list
    - Navigation
 
@@ -779,7 +950,7 @@ dirs = "5.0"  # Cross-platform config directory
    - Pan when zoomed
    - Zoom to detection
 
-**Deliverable:** Open folder via dialog, see gallery of 50 images, navigate between images, zoom to inspect detections.
+**Deliverable:** Open folder via dialog → watch progress bar as detection runs → see gallery of 50 processed images with checkmarks/errors → navigate between images → zoom to inspect detections.
 
 ---
 
@@ -979,34 +1150,39 @@ fn generate_heatmaps(image_path: &Path) -> Result<DebugHeatmaps> {
 
 ## Summary & Recommendation
 
-**Recommended MVP+1 scope** (7-9 weeks):
+**Recommended MVP+1 scope** (8-11 weeks):
 
 **Foundation (Critical - Week 1):**
 1. **Proposal 0** - File Navigation & Opening
 
-**Core (Critical - Weeks 2-4):**
-2. **Proposal A** - Bulk/Directory Mode
+**Core (Critical - Weeks 2-5):**
+- **Weeks 2-3**: Lib changes for progress reporting
+- **Weeks 4-5**: GUI implementation
+2. **Proposal A** - Bulk/Directory Mode (with progress UI)
 3. **Proposal E** - Zoom & Pan
 
-**Quality Triage (High Priority - Weeks 5-8):**
+**Quality Triage (High Priority - Weeks 6-9):**
 4. **Proposal B** - Quality Triage Workflow
 5. **Proposal C** - Heatmap Visualization
 
-**Polish (Important - Week 9):**
+**Polish (Important - Weeks 10-11):**
 6. **Proposal D** - Rich Metrics (simplified)
 7. **Proposal F** - Keyboard Shortcuts (partial)
 
 This delivers a **production-ready quality triage tool** that:
 - ✅ **Launches like a real desktop app** (not just CLI testing tool)
+- ✅ **Runs detection from GUI** with progress feedback
 - ✅ Native file dialogs, drag & drop, recent files
+- ✅ Per-image status tracking (checkmarks, errors)
+- ✅ Graceful error handling (single failures don't crash whole run)
 - ✅ Handles real directory-processing workflows (10-100+ images)
 - ✅ Surfaces beaker's unique quality data and visualizations
 - ✅ Makes heatmaps accessible (currently hidden in debug output)
 - ✅ Dramatically faster than CLI workflow
 - ✅ Feels professional and polished
 
-**Want maximum features?** Add Proposal G (Export) and H (Comparison) for a **9-11 week super-app**.
+**Want maximum features?** Add Proposal G (Export) and H (Comparison) for a **10-13 week super-app**.
 
-**Want minimal but functional?** Just 0 + A + B + E (5 weeks) for a **usable directory triage tool with proper file opening**.
+**Want minimal but functional?** Just 0 + A + E (6 weeks including lib changes) for a **basic directory processor with progress UI**.
 
 **Unique value proposition:** No other tool makes quality heatmaps this accessible. This could be a killer feature for beaker-gui.
