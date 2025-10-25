@@ -14,9 +14,13 @@ pub struct DetectionView {
 pub struct Detection {
     pub class_name: String,
     pub confidence: f32,
+    #[allow(dead_code)] // May be used for highlighting in future
     pub x1: f32,
+    #[allow(dead_code)]
     pub y1: f32,
+    #[allow(dead_code)]
     pub x2: f32,
+    #[allow(dead_code)]
     pub y2: f32,
     pub blur_score: Option<f32>,
 }
@@ -39,11 +43,13 @@ impl DetectionView {
 
     fn run_detection(image_path: &str) -> Result<(String, Vec<Detection>)> {
         use std::collections::HashSet;
-        use std::path::PathBuf;
 
         // Create temp directory for output
         let temp_dir = std::env::temp_dir().join(format!("beaker-gui-{}", std::process::id()));
         std::fs::create_dir_all(&temp_dir)?;
+
+        eprintln!("Running detection for: {}", image_path);
+        eprintln!("Output directory: {}", temp_dir.display());
 
         let base_config = beaker::config::BaseModelConfig {
             sources: vec![image_path.to_string()],
@@ -68,16 +74,36 @@ impl DetectionView {
         // Run detection
         beaker::detection::run_detection(config)?;
 
+        // List files created in temp directory
+        eprintln!("Files in output directory:");
+        if let Ok(entries) = std::fs::read_dir(&temp_dir) {
+            for entry in entries.flatten() {
+                eprintln!("  - {}", entry.file_name().to_string_lossy());
+            }
+        }
+
         // Find the bounding box image
         let image_stem = std::path::Path::new(image_path)
             .file_stem()
             .unwrap()
             .to_str()
             .unwrap();
+
+        // Try to find the actual bounding box file
         let bbox_image_path = temp_dir.join(format!("{}_bounding-box.jpg", image_stem));
+        eprintln!("Looking for bounding box image: {}", bbox_image_path.display());
+
+        if !bbox_image_path.exists() {
+            anyhow::bail!(
+                "Bounding box image not found at: {}",
+                bbox_image_path.display()
+            );
+        }
 
         // Read the JSON to get detection metadata
         let json_path = temp_dir.join(format!("{}.beaker.json", image_stem));
+        eprintln!("Looking for JSON: {}", json_path.display());
+
         let json_data = std::fs::read_to_string(&json_path)?;
 
         // Parse JSON manually to extract detection info
@@ -103,6 +129,8 @@ impl DetectionView {
                 }
             }
         }
+
+        eprintln!("Found {} detections", detections.len());
 
         Ok((bbox_image_path.to_str().unwrap().to_string(), detections))
     }
