@@ -86,8 +86,8 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
+          prefix-key: "v1"
           key: ${{ matrix.target }}
-          cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Cache ONNX models
@@ -148,6 +148,7 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
+          prefix-key: "v1"
           shared-key: "test"
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -161,9 +162,15 @@ jobs:
       - name: Set ONNX cache directory
         run: echo "ONNX_MODEL_CACHE_DIR=$HOME/.cache/onnx-models" >> $GITHUB_ENV
 
-      # Run all tests (unit + integration) - cargo handles compilation
-      - name: Run all tests
-        run: cargo test --release --all
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      # Run all tests (unit + integration) with nextest for ~5x speedup
+      # Nextest will handle building test binaries with proper environment
+      - name: Run all tests with nextest
+        run: cargo nextest run --release --all --no-fail-fast
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -183,6 +190,7 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
+          prefix-key: "v1"
           shared-key: "test"
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
