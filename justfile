@@ -1,6 +1,9 @@
 # Beaker CI/CD justfile
 # Common tasks for CI workflows and local development
 
+# Import GUI commands from beaker-gui/justfile
+import? 'beaker-gui/justfile'
+
 # Default recipe shows available commands
 default:
     @just --list
@@ -213,40 +216,3 @@ ci-lint target="":
     @echo "Running lint checks..."
     @just lint {{target}}
     @echo "Lint checks complete!"
-
-# ─────────────────────────────────────────────────────────────
-# Beaker GUI
-# ─────────────────────────────────────────────────────────────
-
-# Build GUI (release)
-gui-build:
-    cd beaker-gui && cargo build --release
-
-# Run GUI tests
-gui-test:
-    cd beaker-gui && cargo test --verbose
-
-# Format GUI code
-gui-fmt:
-    cd beaker-gui && cargo fmt
-
-# Check GUI formatting
-gui-fmt-check:
-    cd beaker-gui && cargo fmt --check
-
-# Lint GUI code
-gui-lint:
-    cd beaker-gui && cargo clippy -- -D warnings
-
-# Run GUI with test image
-gui-run:
-    cd beaker-gui && cargo run --release -- --image ../example.jpg
-
-# Full GUI CI workflow
-gui-ci:
-    @echo "Running GUI CI workflow..."
-    @just gui-fmt-check
-    @just gui-lint
-    @just gui-build
-    @just gui-test
-    @echo "GUI CI workflow complete!"

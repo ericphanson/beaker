@@ -9,6 +9,7 @@ on:
       - 'beaker-stamp-derive/**'
       - 'Cargo.toml'
       - 'justfile'
+      - '!beaker-gui/justfile'
       - '.github/workflows/beaker-ci.yml'
   pull_request:
     branches: [ main ]
@@ -18,6 +19,7 @@ on:
       - 'beaker-stamp-derive/**'
       - 'Cargo.toml'
       - 'justfile'
+      - '!beaker-gui/justfile'
       - '.github/workflows/beaker-ci.yml'
   workflow_dispatch:
 
