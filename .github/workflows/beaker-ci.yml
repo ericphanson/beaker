@@ -86,9 +86,20 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: "v1"
-          key: ${{ matrix.target }}
+          prefix-key: "v2"
+          shared-key: ${{ matrix.target }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Cache ONNX Runtime binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ort
+            ~/.local/share/ort
+            ~/Library/Caches/ort
+            ~\AppData\Local\ort\Cache
+          key: ort-binaries-${{ matrix.target }}-v1
+          restore-keys: ort-binaries-${{ matrix.target }}-
 
       - name: Cache ONNX models
         uses: actions/cache@v4
@@ -148,9 +159,18 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: "v1"
-          shared-key: "test"
+          prefix-key: "v2"
+          shared-key: "x86_64-unknown-linux-gnu"
           save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Cache ONNX Runtime binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ort
+            ~/.local/share/ort
+          key: ort-binaries-x86_64-unknown-linux-gnu-v1
+          restore-keys: ort-binaries-x86_64-unknown-linux-gnu-
 
       - name: Cache ONNX models
         uses: actions/cache@v4
@@ -190,9 +210,18 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: "v1"
-          shared-key: "test"
+          prefix-key: "v2"
+          shared-key: "x86_64-unknown-linux-gnu"
           save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Cache ONNX Runtime binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ort
+            ~/.local/share/ort
+          key: ort-binaries-x86_64-unknown-linux-gnu-v1
+          restore-keys: ort-binaries-x86_64-unknown-linux-gnu-
 
       - name: Cache ONNX models
         uses: actions/cache@v4
