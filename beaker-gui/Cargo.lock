@@ -630,7 +630,8 @@ dependencies = [
  "image",
  "imageproc",
  "muda",
- "serde_json",
+ "serde",
+ "toml 0.8.2",
 ]
 
 [[package]]
