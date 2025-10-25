@@ -21,6 +21,60 @@ use crate::onnx_session::{create_onnx_session, ModelSource, SessionConfig};
 use crate::color_utils::maybe_dim_stderr;
 use crate::shared_metadata::{InputProcessing, SystemInfo};
 
+// Progress event types for GUI integration
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::Sender;
+use std::sync::Arc;
+
+/// Progress events emitted during processing
+#[derive(Debug, Clone)]
+pub enum ProcessingEvent {
+    /// Processing started for an image
+    ImageStart {
+        path: PathBuf,
+        index: usize,
+        total: usize,
+        stage: ProcessingStage,
+    },
+
+    /// Image processing completed (success or failure)
+    ImageComplete {
+        path: PathBuf,
+        index: usize,
+        result: ProcessingResult,
+    },
+
+    /// Stage transition (quality → detection)
+    StageChange {
+        stage: ProcessingStage,
+        images_total: usize,
+    },
+
+    /// Overall progress update
+    Progress {
+        completed: usize,
+        total: usize,
+        stage: ProcessingStage,
+    },
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ProcessingStage {
+    Quality,
+    Detection,
+}
+
+#[derive(Debug, Clone)]
+pub enum ProcessingResult {
+    Success {
+        processing_time_ms: f64,
+    },
+    Error {
+        error_message: String,
+    },
+}
+
 /// Configuration trait for models that can be processed generically
 pub trait ModelConfig: std::any::Any {
     fn base(&self) -> &BaseModelConfig;
@@ -86,7 +140,15 @@ pub trait ModelProcessor {
 }
 
 pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usize> {
-    match run_model_processing_with_quality_outputs::<P>(config) {
+    run_model_processing_with_progress::<P>(config, None, None)
+}
+
+pub fn run_model_processing_with_progress<P: ModelProcessor>(
+    config: P::Config,
+    progress_tx: Option<Sender<ProcessingEvent>>,
+    cancel_flag: Option<Arc<AtomicBool>>,
+) -> Result<usize> {
+    match run_model_processing_with_quality_outputs::<P>(config, progress_tx, cancel_flag) {
         Ok((successful_count, _quality_results)) => {
             // Process successful results
             // Do something with _quality_results
@@ -101,6 +163,8 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
 /// Generic batch processing function that works with any model
 pub fn run_model_processing_with_quality_outputs<P: ModelProcessor>(
     config: P::Config,
+    progress_tx: Option<Sender<ProcessingEvent>>,
+    cancel_flag: Option<Arc<AtomicBool>>,
 ) -> Result<(usize, HashMap<String, QualityResult>)> {
     use crate::onnx_session::determine_optimal_device;
     use chrono::Utc;
@@ -241,6 +305,24 @@ pub fn run_model_processing_with_quality_outputs<P: ModelProcessor>(
     let mut failed_images = Vec::new();
 
     for (index, (image_path, (source_type, source_string))) in image_files.iter().enumerate() {
+        // Check for cancellation
+        if let Some(ref flag) = cancel_flag {
+            if flag.load(Ordering::Relaxed) {
+                log::info!("Processing cancelled by user");
+                break;
+            }
+        }
+
+        // Emit ImageStart event (stage will be determined by processor type)
+        if let Some(ref tx) = progress_tx {
+            let _ = tx.send(ProcessingEvent::ImageStart {
+                path: image_path.to_path_buf(),
+                index,
+                total: image_files.len(),
+                stage: ProcessingStage::Detection, // Default to Detection, will be overridden by quality processor
+            });
+        }
+
         // Create input processing info
         let input = InputProcessing {
             image_path: image_path.to_string_lossy().to_string(),
@@ -278,6 +360,18 @@ pub fn run_model_processing_with_quality_outputs<P: ModelProcessor>(
         match P::process_single_image(&mut session, image_path, &config, &output_manager) {
             Ok(result) => {
                 successful_count += 1;
+
+                // Emit success event
+                if let Some(ref tx) = progress_tx {
+                    let _ = tx.send(ProcessingEvent::ImageComplete {
+                        path: image_path.to_path_buf(),
+                        index,
+                        result: ProcessingResult::Success {
+                            processing_time_ms: result.processing_time_ms(),
+                        },
+                    });
+                }
+
                 if let Some(quality) = result.get_quality_result() {
                     quality_results.insert(image_path.to_string_lossy().to_string(), quality);
                 };
@@ -309,6 +403,17 @@ pub fn run_model_processing_with_quality_outputs<P: ModelProcessor>(
             }
             Err(e) => {
                 failed_count += 1;
+
+                // Emit error event
+                if let Some(ref tx) = progress_tx {
+                    let _ = tx.send(ProcessingEvent::ImageComplete {
+                        path: image_path.to_path_buf(),
+                        index,
+                        result: ProcessingResult::Error {
+                            error_message: e.to_string(),
+                        },
+                    });
+                }
 
                 failed_images.push(image_path.to_str().unwrap_or_default().to_string());
 

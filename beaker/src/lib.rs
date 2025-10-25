@@ -22,3 +22,7 @@ pub mod progress;
 pub mod quality_processing;
 pub mod rfdetr;
 pub mod shared_metadata;
+
+// Re-export commonly used types for GUI integration
+pub use detection::{run_detection, run_detection_with_progress};
+pub use model_processing::{ProcessingEvent, ProcessingResult, ProcessingStage};

@@ -93,11 +93,33 @@ pub struct DetectionWithPath {
 
 /// Process multiple images sequentially
 pub fn run_detection(config: DetectionConfig) -> Result<usize> {
+    run_detection_with_progress(config, None, None)
+}
+
+/// Process multiple images with progress reporting and cancellation support
+pub fn run_detection_with_progress(
+    config: DetectionConfig,
+    progress_tx: Option<std::sync::mpsc::Sender<crate::model_processing::ProcessingEvent>>,
+    cancel_flag: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+) -> Result<usize> {
+    use crate::model_processing::{ProcessingEvent, ProcessingStage};
+
+    // Determine total images for stage changes
+    let images_total = config.base.sources.len();
+
+    // Emit quality stage change
+    if let Some(ref tx) = progress_tx {
+        let _ = tx.send(ProcessingEvent::StageChange {
+            stage: ProcessingStage::Quality,
+            images_total,
+        });
+    }
+
     log::info!("   Analyzing image quality");
     let quality_config = crate::config::QualityConfig::from_detection_config(&config);
     let quality_results = crate::model_processing::run_model_processing_with_quality_outputs::<
         QualityProcessor,
-    >(quality_config);
+    >(quality_config, progress_tx.clone(), cancel_flag.clone());
 
     let config = match quality_results {
         Ok((_count, results)) => DetectionConfig {
@@ -107,8 +129,20 @@ pub fn run_detection(config: DetectionConfig) -> Result<usize> {
         Err(_) => config,
     };
 
+    // Emit detection stage change
+    if let Some(ref tx) = progress_tx {
+        let _ = tx.send(ProcessingEvent::StageChange {
+            stage: ProcessingStage::Detection,
+            images_total,
+        });
+    }
+
     log::info!("   Detecting...");
-    crate::model_processing::run_model_processing::<DetectionProcessor>(config)
+    crate::model_processing::run_model_processing_with_progress::<DetectionProcessor>(
+        config,
+        progress_tx,
+        cancel_flag,
+    )
 }
 
 impl ModelResult for DetectionResult {
