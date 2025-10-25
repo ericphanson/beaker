@@ -148,8 +148,8 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "test-nextest"
-          cache-on-failure: false
+          prefix-key: "v1"
+          shared-key: "test"
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Cache ONNX models
