@@ -52,9 +52,6 @@ jobs:
       - name: Run tests with snapshot generation
         working-directory: docs/demos/egui
         run: UPDATE_SNAPSHOTS=1 cargo test --verbose
-        env:
-          # Force egui menu on macOS to test fallback path
-          USE_EGUI_MENU: ${{ runner.os == 'macOS' && '1' || '' }}
 
       - name: Build release
         working-directory: docs/demos/egui
