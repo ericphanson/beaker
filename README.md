@@ -134,10 +134,38 @@ Create GitHub releases with trained models:
 
 ```bash
 git clone https://github.com/ericphanson/beaker
-cd beaker/beaker
+cd beaker
+
+# Build and install
 cargo build --release
-cargo install --path .
+cargo install --path beaker
 ```
+
+### Development
+
+For active development, use `just` (a task runner) for common workflows:
+
+```bash
+# Install just
+cargo install just
+
+# See all available commands
+just --list
+
+# Common development tasks
+just lint           # Run formatting and clippy checks
+just fmt            # Auto-format code
+just build-release  # Build release binary
+just test           # Run all tests
+just ci             # Full CI workflow locally
+
+# CLI testing
+just test-cli-help
+just test-cli-detect "" "auto"
+just test-cli-full "" "auto" "linux"
+```
+
+See the [justfile](./justfile) for all available commands, or [`.github/copilot-instructions.md`](.github/copilot-instructions.md) for detailed development instructions.
 
 ## 6. Note
 

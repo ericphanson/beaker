@@ -59,9 +59,42 @@ When developing proposals, technical plans, or architectural changes, align with
 
 ## Development Workflow
 
+**CRITICAL REQUIREMENTS:**
+1. **Always use `just` commands** - Never use raw cargo/bash commands for development tasks
+2. **Before finalizing ANY task, run `just ci`** - This ensures changes will pass CI on first attempt
+3. The justfile is the single source of truth for all development workflows
+
 **For complete build/test commands and validated timings, see [copilot-instructions.md](.github/copilot-instructions.md).**
 
 **For pre-commit troubleshooting and pushing changes, see [copilot-instructions.md](.github/copilot-instructions.md).**
+
+### Quick Reference
+
+```bash
+# Install just (REQUIRED for all development)
+cargo install just
+
+# Common development tasks
+just fmt            # Auto-format code
+just lint           # Format check + clippy
+just build-release  # Build release binary
+just test           # Run all tests
+
+# CRITICAL: Run before finalizing any task
+just ci             # Full CI workflow locally - REQUIRED before task completion
+
+# See all available commands
+just --list
+```
+
+### Task Finalization Checklist
+Before completing any task, you MUST:
+1. Run `just ci` successfully
+2. Ensure all tests pass
+3. Commit your changes
+4. Push to the remote branch
+
+**Never skip `just ci` - it prevents CI failures and wasted time.**
 ## Coding Standards
 
 ### DRY (Don't Repeat Yourself)
@@ -87,6 +120,7 @@ When developing proposals, technical plans, or architectural changes, align with
 - **Breaking changes are acceptable**: Don't prioritize backwards compatibility at this development stage
 - **Preserve example files**: Do not delete `example-no-bg.png` and `example_crop.jpg` as they are used in README and documentation
 - **No test artifacts**: Do not commit test output files (*.beaker.toml, *.beaker.json), temporary files, or build artifacts
+- **CI validation**: Always run `just ci` before finalizing to ensure CI passes on first attempt
 
 ### Test Environment Variable Isolation
 Environment variable functionality is tested using integration tests with subprocess execution, which avoids race conditions by setting environment variables only on subprocesses rather than modifying the global process environment.
