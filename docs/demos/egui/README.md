@@ -20,6 +20,15 @@ cargo run
 
 This will open a window with a simple "Hello, World!" interface where you can enter your name.
 
+**On macOS**: By default, the app uses the native macOS menu bar at the top of the screen.
+
+**To test the egui-rendered menu (useful for development)**:
+```bash
+USE_EGUI_MENU=1 cargo run
+```
+
+This forces the app to use the egui-rendered menu bar inside the window, even on macOS, so you can test both menu implementations on one platform.
+
 ### Run tests
 
 ```bash
@@ -42,7 +51,14 @@ The tests run headlessly and verify:
 
 - `eframe` - The egui application framework
 - `egui` - The immediate mode GUI library
+- `muda` - Native menu bar support (macOS only)
 - `egui_kittest` - Testing framework for egui (dev dependency)
+
+### Platform-Specific Features
+
+**macOS**: Uses native menu bar at the top of the screen via `muda`. Set `USE_EGUI_MENU=1` to test the egui-rendered fallback.
+
+**Windows/Linux**: Uses egui-rendered menu bar inside the window.
 
 ## Testing Approach
 

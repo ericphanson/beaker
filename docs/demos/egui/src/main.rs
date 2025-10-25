@@ -17,20 +17,23 @@ fn main() -> eframe::Result {
         Box::new(|cc| {
             setup_custom_style(&cc.egui_ctx);
 
-            #[cfg(target_os = "macos")]
-            {
-                let mut app = Box::new(HelloWorldApp::default());
-                let (menu, rx) = create_native_menu();
-                menu.init_for_nsapp();
-                app.menu = Some(menu);
-                app.menu_rx = Some(rx);
-                Ok(app)
+            // Check if we should use native menu (macOS only, unless USE_EGUI_MENU is set)
+            let use_native_menu = cfg!(target_os = "macos")
+                && std::env::var("USE_EGUI_MENU").is_err();
+
+            if use_native_menu {
+                #[cfg(target_os = "macos")]
+                {
+                    let mut app = Box::new(HelloWorldApp::new(true));
+                    let (menu, rx) = create_native_menu();
+                    menu.init_for_nsapp();
+                    app.menu = Some(menu);
+                    app.menu_rx = Some(rx);
+                    return Ok(app);
+                }
             }
 
-            #[cfg(not(target_os = "macos"))]
-            {
-                Ok(Box::new(HelloWorldApp::default()))
-            }
+            Ok(Box::new(HelloWorldApp::new(false)))
         }),
     )
 }
@@ -81,16 +84,18 @@ fn setup_custom_style(ctx: &egui::Context) {
 
 struct HelloWorldApp {
     name: String,
+    use_native_menu: bool,
     #[cfg(target_os = "macos")]
     menu: Option<Menu>,
     #[cfg(target_os = "macos")]
     menu_rx: Option<std::sync::mpsc::Receiver<MenuEvent>>,
 }
 
-impl Default for HelloWorldApp {
-    fn default() -> Self {
+impl HelloWorldApp {
+    fn new(use_native_menu: bool) -> Self {
         Self {
             name: String::new(),
+            use_native_menu,
             #[cfg(target_os = "macos")]
             menu: None,
             #[cfg(target_os = "macos")]
@@ -99,20 +104,27 @@ impl Default for HelloWorldApp {
     }
 }
 
+impl Default for HelloWorldApp {
+    fn default() -> Self {
+        Self::new(false)
+    }
+}
+
 impl eframe::App for HelloWorldApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Poll menu events on macOS
+        // Poll menu events on macOS if using native menu
         #[cfg(target_os = "macos")]
-        if let Some(rx) = self.menu_rx.take() {
-            while let Ok(event) = rx.try_recv() {
-                self.handle_menu_event(event, ctx);
+        if self.use_native_menu {
+            if let Some(rx) = self.menu_rx.take() {
+                while let Ok(event) = rx.try_recv() {
+                    self.handle_menu_event(event, ctx);
+                }
+                self.menu_rx = Some(rx);
             }
-            self.menu_rx = Some(rx);
         }
 
-        // On non-macOS platforms, show egui-rendered menu bar
-        #[cfg(not(target_os = "macos"))]
-        {
+        // Show egui-rendered menu bar if not using native menu
+        if !self.use_native_menu {
             egui::TopBottomPanel::top("menu_bar")
                 .frame(egui::Frame::none()
                     .fill(egui::Color32::WHITE)
