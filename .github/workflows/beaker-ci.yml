@@ -134,9 +134,9 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-  # Full test suite - Linux only, parallel execution
-  test-unit:
-    name: Unit Tests (Linux)
+  # Full test suite - Linux only
+  test:
+    name: Tests (Linux)
     runs-on: ubuntu-latest
     needs: lint
     steps:
@@ -161,41 +161,9 @@ jobs:
       - name: Set ONNX cache directory
         run: echo "ONNX_MODEL_CACHE_DIR=$HOME/.cache/onnx-models" >> $GITHUB_ENV
 
-      # cargo test compiles what it needs - no pre-build required
-      - name: Run unit tests
-        run: cargo test --release --lib --all
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  test-integration:
-    name: Integration Tests (Linux)
-    runs-on: ubuntu-latest
-    needs: lint
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "test"
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-
-      - name: Cache ONNX models
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/onnx-models
-          key: onnx-models-v1
-          restore-keys: onnx-models-
-
-      - name: Set ONNX cache directory
-        run: echo "ONNX_MODEL_CACHE_DIR=$HOME/.cache/onnx-models" >> $GITHUB_ENV
-
-      # cargo test compiles what it needs - no pre-build required
-      - name: Run integration tests
-        run: cargo test --release --test '*' --all
+      # Run all tests (unit + integration) - cargo handles compilation
+      - name: Run all tests
+        run: cargo test --release --all
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -249,7 +217,7 @@ jobs:
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
-    needs: [lint, build, test-unit, test-integration, test-cli]
+    needs: [lint, build, test, test-cli]
     if: always()
     steps:
       - name: Check all jobs
