@@ -16,10 +16,9 @@ Execute these commands in order to set up a working development environment:
 # Check Rust toolchain (requires Rust 1.70+)
 rustc --version && cargo --version
 
-# Install just (task runner for development)
+# Install just (REQUIRED - task runner for all development)
 cargo install just
 
-# PREFERRED: Use just for all development tasks
 # Build release version - NEVER CANCEL: takes 1 minute 40 seconds. Set timeout to 3+ minutes.
 just build-release
 
@@ -34,11 +33,9 @@ just lint
 # Run tests - NEVER CANCEL: takes 2 minutes 50 seconds. Set timeout to 5+ minutes.
 just test
 
-# ALTERNATIVE: Direct cargo commands (if just is not available)
-cargo build --release
-cargo fmt --all
-cargo clippy --all-targets --fix --allow-dirty -- -D warnings
-cargo test --release --all
+# IMPORTANT: Before finalizing any task, always run the full CI workflow:
+just ci
+# This ensures your changes will pass CI on first attempt
 ```
 
 ### Available Just Commands
@@ -70,54 +67,24 @@ For a complete list of available commands, run `just --list`. Key commands:
 Always run these validation steps after making changes:
 
 ```bash
-# PREFERRED: Use just for CLI testing
-just test-cli-help                                    # Test help command
-just test-cli-detect "" "auto"                        # Test detect with auto device
-just preload-models "" "auto"                         # Pre-download models
-just test-cli-full "" "auto" "linux"                  # Full CLI test suite
-
-# ALTERNATIVE: Direct cargo/binary commands
-# Test CLI help (from repository root)
-cargo run --release --bin beaker -- --help
-
-# Copy test image for validation (beaker binary reads from current working directory)
-cp example.jpg example-2-birds.jpg ./
-
-# Test basic detect command (requires --crop, --bounding-box, or --metadata)
-cargo run --release --bin beaker -- detect example.jpg --confidence 0.5 --crop
-
-# Test metadata generation
-cargo run --release --bin beaker -- detect example.jpg --confidence 0.5 --metadata
-
-# Test cutout functionality (takes ~6 seconds for model loading)
-cargo run --release --bin beaker -- cutout example.jpg
-
-# Test with two birds image
-cargo run --release --bin beaker -- detect example-2-birds.jpg --confidence 0.5 --crop
-
-# Verify output files are created
-ls -la example_crop.jpg example_cutout.png *.beaker.toml
+# Use just for all CLI testing
+just test-cli-help                       # Test help command
+just test-cli-detect "" "auto"           # Test detect with auto device
+just preload-models "" "auto"            # Pre-download models
+just test-cli-full "" "auto" "linux"     # Full CLI test suite
 ```
 
 ### Pre-commit and Code Quality
 Run before every commit - NEVER CANCEL: takes ~10 seconds:
 
 ```bash
-# PREFERRED: Use just for code quality checks
+# Use just for code quality checks
 just lint           # Run format check and clippy
 just fmt            # Auto-format code
 just test           # Run all tests
 
 # Or run pre-commit hooks directly
 pre-commit run --all-files
-
-# ALTERNATIVE: Individual checks if just/pre-commit unavailable
-cargo fmt --all --check
-cargo clippy --all-targets -- -D warnings
-cargo build --release --all
-cargo test --release --all
-ruff check --config=ruff.toml --fix .
-ruff format --config=ruff.toml .
 
 # Update line counts
 bash scripts/run_warloc.sh
@@ -207,24 +174,13 @@ The CI runs comprehensive tests on Linux, macOS, and Windows. Ensure changes pas
 - **Linux/Windows**: Falls back to CPU execution provider
 - **All platforms**: Support both `auto` and `cpu` device modes
 
-### Commands CI Runs
+### Running CI Locally
+**CRITICAL: Before finalizing any task, always run:**
 ```bash
-# Formatting and linting (from repository root)
-cargo fmt --all --check
-cargo clippy --all-targets --target <platform> -- -D warnings
-
-# Building (from repository root)
-cargo build --target <platform>
-cargo build --release --target <platform>
-
-# CLI testing (binary located in target/<platform>/release/)
-./target/<platform>/release/beaker --help
-./target/<platform>/release/beaker detect example.jpg --confidence 0.5 --device auto --metadata
-./target/<platform>/release/beaker cutout example.jpg --device auto
-
-# Integration tests
-cargo test --release --all --target <platform> --verbose
+just ci
 ```
+
+This runs the full CI workflow locally (lint + build + test + CLI tests) to ensure your changes will pass CI on first attempt.
 
 ## Repository Structure
 
@@ -317,23 +273,12 @@ Then immediately follow up with a commit that fixes the pre-commit issues.
 # 2. Make your code changes
 # ... edit files in beaker/, beaker-stamp/, or beaker-stamp-derive/ ...
 
-# 3. PREFERRED: Use just for all development tasks
+# 3. Format, lint, build, and test
 just fmt                                  # Auto-format code
 just lint                                 # Run fmt-check and clippy
 just build-release                        # Build release binary (~1m 40s)
 just test                                 # Run all tests (~2m 50s)
 just test-cli-full "" "auto" "linux"      # Full CLI test suite
-
-# ALTERNATIVE: Direct commands if just is not available
-cargo fmt --all
-cargo clippy --all-targets --fix --allow-dirty -- -D warnings
-cargo build --release --all  # ~1m 40s
-cargo test --release --all   # ~2m 50s
-
-# Manual CLI validation
-cp example.jpg example-2-birds.jpg ./
-cargo run --release --bin beaker -- detect example.jpg --confidence 0.5 --crop
-cargo run --release --bin beaker -- cutout example.jpg
 
 # 4. Update line counts and run pre-commit
 bash scripts/run_warloc.sh
@@ -342,22 +287,27 @@ pre-commit run --all-files
 # 5. Clean up test artifacts
 rm -f *.beaker.toml *.beaker.json example_crop.jpg example_cutout.png
 
-# 6. Check git status and commit
+# 6. CRITICAL: Run full CI workflow before finalizing
+just ci
+# This ensures your changes will pass CI on first attempt
+
+# 7. Check git status and commit
 git status  # verify no unintended files staged
 git add .
 git commit -m "Your change description"
 
-# 7. Push changes using report_progress tool
+# 8. Push changes using report_progress tool
 # Use report_progress to push all commits to the remote PR branch
 # If it says "Error committing and pushing changes", resolve pre-commit issues and try again
 ```
 
 ### Code Style Standards
-- **Rust**: Use `cargo fmt` for formatting, fix all `cargo clippy` warnings
+- **Rust**: Use `just fmt` for formatting, `just clippy` for linting
 - **Python**: Use `ruff` for linting and formatting
 - **Emojis**: All emojis must go through `color_utils::symbols` functions
 - **Error messages**: Include context and actionable suggestions
 - **Breaking changes**: Acceptable during development
+- **Before finalizing**: Always run `just ci` to ensure CI will pass
 
 ### File Naming Conventions
 - Example test files: Keep `example.jpg`, `example-2-birds.jpg` (used in README)
