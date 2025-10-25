@@ -207,12 +207,10 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                     10.0,
                     300000.0,
                 ),
-                // Lower bound for cutout in multi-tool test since parallel
-                // execution can make this run faster than standalone cutout tests
                 MetadataCheck::TimingBound(
                     "cutout",
                     "execution.model_processing_time_ms",
-                    500.0,
+                    1000.0,
                     300000.0,
                 ),
             ],

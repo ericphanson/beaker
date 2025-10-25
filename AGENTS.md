@@ -166,6 +166,12 @@ Contact your network administrator to allowlist the required URLs.
 - **Check disk space**: Model caching requires ~100MB
 - **Verify environment**: Check `ONNX_MODEL_CACHE_DIR` if set
 
+**CRITICAL: DO NOT MODIFY TEST TIMING BOUNDS**
+- **NEVER change timing assertion values** in test files
+- Timing bounds are intentionally set and must not be adjusted
+- If tests fail due to timing, investigate the actual performance issue
+- Do not "fix" timing tests by changing the bounds - this masks real problems
+
 ### Pre-commit Issues
 
 **For detailed pre-commit troubleshooting, see [copilot-instructions.md](.github/copilot-instructions.md).**
