@@ -1,0 +1,16 @@
+[package]
+name = "egui_hello_world"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+eframe = "0.30"
+egui = "0.30"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+muda = "0.17"
+
+[dev-dependencies]
+egui_kittest = { version = "0.30", features = ["wgpu", "snapshot"] }
