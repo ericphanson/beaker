@@ -39,3 +39,6 @@ beaker/*.tif
 # Exception: example_crop.jpg and example_bounding-box.jpg are shown in README.md and should be committed
 !/example_crop.jpg
 !/example_bounding-box.jpg
+
+# Exception: iced demo screenshots are documentation and should be committed
+!/docs/demos/iced/screenshots/*.png

@@ -2,12 +2,27 @@
 
 This is a minimal demonstration of the [iced](https://iced.rs/) GUI framework with headless testing support.
 
+## Screenshots
+
+The demo generates visual mockups of the counter application in different states:
+
+| Initial State | Positive Counter | Negative Counter | High Value |
+|--------------|------------------|------------------|------------|
+| ![Initial](screenshots/counter_initial.png) | ![Positive](screenshots/counter_positive.png) | ![Negative](screenshots/counter_negative.png) | ![High](screenshots/counter_high_value.png) |
+
+These screenshots are generated headlessly using `tiny-skia` and demonstrate:
+- ✅ CPU-only rendering (no GPU required)
+- ✅ Automated screenshot generation in tests
+- ✅ Visual representations of app states
+- ✅ Works in CI environments
+
 ## Purpose
 
 This demo validates that:
 - Iced applications can be built and tested in isolated environments
 - Headless testing works in CI environments without GPU/display
 - Software rendering (via tiny-skia) functions correctly
+- Screenshots can be generated programmatically for documentation
 
 ## Application
 
@@ -44,14 +59,16 @@ cargo test --test integration_test
 ### Screenshot Tests
 Tests headless rendering with screenshot generation and snapshot testing:
 ```bash
-cargo test --test screenshot_test
+cargo test --test screenshot_test       # Basic shapes and patterns
+cargo test --test app_screenshot_test   # App UI mockups
 ```
 
 These tests demonstrate:
 - Headless rendering using `tiny-skia` (CPU-only, no GPU required)
 - Screenshot generation and saving to PNG files
 - Snapshot testing with `insta` for regression detection
-- Screenshots are saved to `target/screenshots/`
+- Visual mockups of the counter application
+- Screenshots saved to `screenshots/` directory (committed to repo)
 
 To review and accept snapshot changes:
 ```bash
