@@ -533,7 +533,6 @@ mod tests {
                 config: Some(
                     toml::toml! {
                         confidence = 0.25
-                        iou_threshold = 0.45
                         crop = ["head"]
                     }
                     .into(),

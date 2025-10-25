@@ -23,7 +23,6 @@ mod progress;
 mod quality_processing;
 mod rfdetr;
 mod shared_metadata;
-mod yolo;
 
 use color_utils::{colors, symbols};
 use config::{
@@ -154,10 +153,9 @@ fn main() {
             };
 
             info!(
-                "{} Detection | conf: {} | IoU: {} | device: {}{}",
+                "{} Detection | conf: {} | device: {}{}",
                 symbols::detection_start(),
                 detect_cmd.confidence,
-                detect_cmd.iou_threshold,
                 cli.global.device,
                 output_str
             );

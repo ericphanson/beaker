@@ -74,13 +74,6 @@ Each issue follows this structure:
 
 ### ⚠️ FEATURE DECISIONS (P2) - Maintainer Input Required
 
-- **[FEATURE-01](FEATURE-01-yolo-removal-decision.md)**: YOLO Support - Remove or Keep?
-  - 300+ lines of legacy code
-  - Removing unlocks Apache 2.0 license (currently AGPL-3.0)
-  - **Decision**: Remove immediately / Deprecate / Keep?
-  - **Impact**: License change, 50KB binary reduction
-  - **Effort**: 1 day if removed
-
 - **[FEATURE-02](FEATURE-02-eye-beak-detection-decision.md)**: Eye/Beak Detection - Finish or Remove?
   - Half-implemented (works for crops, not visualization)
   - Unreliable quality
@@ -142,12 +135,7 @@ See **[MEDIUM-PRIORITY-ISSUES.md](MEDIUM-PRIORITY-ISSUES.md)** for 10 smaller is
 
 **Requires maintainer decisions BEFORE work**:
 
-1. **FEATURE-01** (YOLO removal)
-   - **Decision**: Remove or deprecate?
-   - If remove: 1 day
-   - **Outcome**: Simpler code + license flexibility
-
-2. **FEATURE-02** (eye/beak detection)
+1. **FEATURE-02** (eye/beak detection)
    - **Decision**: Document / Finish / Remove?
    - 30 min to 4 hours depending on choice
 
@@ -176,8 +164,6 @@ Issues requiring maintainer decisions:
 | CRITICAL-04 | Quality output? | Always metadata / Visualization / Require flag | Always metadata (simplest) |
 | CRITICAL-04 | If visualization? | Heatmap / Histogram / Side-by-side / Reuse debug | Reuse debug images |
 | UX-01 | Error type? | `String` / `anyhow::Error` / Custom enum | `String` (consistency) |
-| FEATURE-01 | YOLO support? | Remove / Deprecate / Keep | Remove (unlocks Apache 2.0) |
-| FEATURE-01 | License change? | Apache 2.0 / Dual license / Keep AGPL | Apache 2.0 |
 | FEATURE-02 | Eye/Beak detection? | Document experimental / Finish / Remove | Document experimental |
 | MEDIUM-02 | Checksum algorithm? | Switch to SHA256 / Keep MD5 | Add SHA256 support, migrate gradually |
 | MEDIUM-05 | Overwrite behavior? | Always overwrite / Require --force | Require --force (safety) |
@@ -217,9 +203,8 @@ test -f image.beaker.toml || echo "FAIL"
 - [x] No empty debug directories created
 
 ### Phase 3 Complete When:
-- [x] YOLO decision made and implemented (remove or keep)
 - [x] Eye/beak detection documented or improved
-- [x] Technical debt reduced by 300+ lines
+- [x] Technical debt reduced
 
 ### Overall Success:
 - No critical bugs remain

@@ -17,33 +17,3 @@ pub struct Detection {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quality: Option<DetectionQuality>,
 }
-
-impl Detection {
-    pub fn area(&self) -> f32 {
-        (self.x2 - self.x1) * (self.y2 - self.y1)
-    }
-
-    pub fn intersection_area(&self, other: &Detection) -> f32 {
-        let x1 = self.x1.max(other.x1);
-        let y1 = self.y1.max(other.y1);
-        let x2 = self.x2.min(other.x2);
-        let y2 = self.y2.min(other.y2);
-
-        if x2 > x1 && y2 > y1 {
-            (x2 - x1) * (y2 - y1)
-        } else {
-            0.0
-        }
-    }
-
-    pub fn iou(&self, other: &Detection) -> f32 {
-        let intersection = self.intersection_area(other);
-        let union = self.area() + other.area() - intersection;
-
-        if union > 0.0 {
-            intersection / union
-        } else {
-            0.0
-        }
-    }
-}

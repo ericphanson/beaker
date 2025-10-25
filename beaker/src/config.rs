@@ -155,10 +155,6 @@ pub struct DetectCommand {
     #[arg(short, long, default_value = "0.5")]
     pub confidence: f32,
 
-    /// IoU threshold for non-maximum suppression (0.0-1.0). Only used for YOLO models.
-    #[arg(long, default_value = "0.45")]
-    pub iou_threshold: f32,
-
     /// Classes to crop as comma-separated list (bird,head,eye,beak) or 'all' for all classes.
     /// Leave empty to disable cropping.
     #[arg(long, value_name = "CLASSES")]
@@ -187,7 +183,6 @@ pub struct DetectionConfig {
     #[serde(skip)]
     pub base: BaseModelConfig,
     pub confidence: f32,
-    pub iou_threshold: f32,
     pub crop_classes: HashSet<DetectionClass>,
     pub bounding_box: bool,
     /// CLI-provided model path override
@@ -359,7 +354,6 @@ impl DetectionConfig {
         Ok(Self {
             base,
             confidence: cmd.confidence,
-            iou_threshold: cmd.iou_threshold,
             crop_classes,
             bounding_box: cmd.bounding_box,
             model_path: cmd.model_path,
@@ -480,7 +474,6 @@ mod tests {
         let detect_cmd = DetectCommand {
             sources: vec!["bird.jpg".to_string()],
             confidence: 0.8,
-            iou_threshold: 0.5,
             crop: Some("head,bird".to_string()),
             bounding_box: false,
             model_path: None,
@@ -492,7 +485,6 @@ mod tests {
 
         assert_eq!(config.base.sources, vec!["bird.jpg"]);
         assert_eq!(config.confidence, 0.8);
-        assert_eq!(config.iou_threshold, 0.5);
         assert!(config
             .crop_classes
             .contains(&crate::config::DetectionClass::Head));
@@ -555,7 +547,6 @@ mod tests {
                 strict: true,
             },
             confidence: 0.25,
-            iou_threshold: 0.45,
             crop_classes: HashSet::new(),
             bounding_box: false,
             model_path: None,
