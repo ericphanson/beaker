@@ -145,9 +145,6 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install just
-        uses: extractions/setup-just@v2
-
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
@@ -164,13 +161,11 @@ jobs:
       - name: Set ONNX cache directory
         run: echo "ONNX_MODEL_CACHE_DIR=$HOME/.cache/onnx-models" >> $GITHUB_ENV
 
-      - name: Build release binary
-        run: just build-release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
+      # cargo test compiles what it needs - no pre-build required
       - name: Run unit tests
         run: cargo test --release --lib --all
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   test-integration:
     name: Integration Tests (Linux)
@@ -182,9 +177,6 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install just
-        uses: extractions/setup-just@v2
-
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
@@ -201,13 +193,11 @@ jobs:
       - name: Set ONNX cache directory
         run: echo "ONNX_MODEL_CACHE_DIR=$HOME/.cache/onnx-models" >> $GITHUB_ENV
 
-      - name: Build release binary
-        run: just build-release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
+      # cargo test compiles what it needs - no pre-build required
       - name: Run integration tests
         run: cargo test --release --test '*' --all
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   test-cli:
     name: CLI Tests (Linux)
