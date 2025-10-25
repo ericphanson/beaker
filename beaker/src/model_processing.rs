@@ -549,3 +549,112 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_processing_stage_variants() {
+        // Test that ProcessingStage variants exist and can be created
+        let quality = ProcessingStage::Quality;
+        let detection = ProcessingStage::Detection;
+
+        // Verify Debug trait works
+        assert_eq!(format!("{:?}", quality), "Quality");
+        assert_eq!(format!("{:?}", detection), "Detection");
+    }
+
+    #[test]
+    fn test_processing_result_variants() {
+        // Test Success variant
+        let success = ProcessingResult::Success {
+            processing_time_ms: 123.45,
+        };
+
+        match success {
+            ProcessingResult::Success { processing_time_ms } => {
+                assert_eq!(processing_time_ms, 123.45);
+            }
+            _ => panic!("Expected Success variant"),
+        }
+
+        // Test Error variant
+        let error = ProcessingResult::Error {
+            error_message: "Test error".to_string(),
+        };
+
+        match error {
+            ProcessingResult::Error { error_message } => {
+                assert_eq!(error_message, "Test error");
+            }
+            _ => panic!("Expected Error variant"),
+        }
+    }
+
+    #[test]
+    fn test_processing_event_variants() {
+        use std::path::PathBuf;
+
+        // Test ImageStart variant
+        let image_start = ProcessingEvent::ImageStart {
+            path: PathBuf::from("test.jpg"),
+            index: 0,
+            total: 10,
+            stage: ProcessingStage::Quality,
+        };
+
+        match image_start {
+            ProcessingEvent::ImageStart { index, total, .. } => {
+                assert_eq!(index, 0);
+                assert_eq!(total, 10);
+            }
+            _ => panic!("Expected ImageStart variant"),
+        }
+
+        // Test ImageComplete variant
+        let image_complete = ProcessingEvent::ImageComplete {
+            path: PathBuf::from("test.jpg"),
+            index: 0,
+            result: ProcessingResult::Success {
+                processing_time_ms: 100.0,
+            },
+        };
+
+        match image_complete {
+            ProcessingEvent::ImageComplete { index, result, .. } => {
+                assert_eq!(index, 0);
+                assert!(matches!(result, ProcessingResult::Success { .. }));
+            }
+            _ => panic!("Expected ImageComplete variant"),
+        }
+
+        // Test StageChange variant
+        let stage_change = ProcessingEvent::StageChange {
+            stage: ProcessingStage::Detection,
+            images_total: 5,
+        };
+
+        match stage_change {
+            ProcessingEvent::StageChange { images_total, .. } => {
+                assert_eq!(images_total, 5);
+            }
+            _ => panic!("Expected StageChange variant"),
+        }
+
+        // Test Progress variant
+        let progress = ProcessingEvent::Progress {
+            completed: 3,
+            total: 10,
+            stage: ProcessingStage::Quality,
+        };
+
+        match progress {
+            ProcessingEvent::Progress { completed, total, .. } => {
+                assert_eq!(completed, 3);
+                assert_eq!(total, 10);
+            }
+            _ => panic!("Expected Progress variant"),
+        }
+    }
+}

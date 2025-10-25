@@ -39,9 +39,32 @@ Will be managed via TodoWrite tool.
 - ✅ Exported new types from beaker lib for GUI use
 - ✅ All existing tests pass (61 tests)
 
+### Phase 2: Proposal 0 - File Navigation & Opening (Completed)
+- ✅ Created WelcomeView struct with:
+  - Native file dialogs using rfd crate (Open Image, Open Folder)
+  - Drag & drop support for files and folders
+  - Recent files list (persisted to JSON)
+  - Clean, centered UI with drop zone
+  - Error display for failed operations
+- ✅ Updated BeakerApp to use AppState enum (Welcome, Detection)
+- ✅ Implemented action handling for opening files/folders
+- ✅ Added menu items for File > Open Image/Folder
+- ✅ Added dependencies: chrono, rfd, dirs, serde_json
+- ✅ Fixed deprecated API usage (allocate_ui_at_rect → new_child)
+- ✅ GUI builds successfully in release mode
+- ✅ Added unit tests for ProcessingEvent types (3 tests pass)
+
+**Features working:**
+- Launch app → See welcome screen
+- Click "Open Image" → Native file dialog → Opens image in DetectionView
+- Click "Open Folder" → Shows "not yet implemented" (will be Proposal A)
+- Drag & drop image → Opens in DetectionView
+- Recent files persisted to ~/.config/beaker-gui/recent.json
+- File > Open Image/Folder menu items
+
 ## Issues Encountered
 
-(Any issues will be documented here)
+None so far. All tests passing (64 tests total: 61 lib + 3 new).
 
 ## Next Steps
 
