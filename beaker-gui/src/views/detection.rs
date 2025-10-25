@@ -100,30 +100,59 @@ impl DetectionView {
             );
         }
 
-        // Read the JSON to get detection metadata
-        let json_path = temp_dir.join(format!("{}.beaker.json", image_stem));
-        eprintln!("Looking for JSON: {}", json_path.display());
+        // Read the TOML metadata to get detection info
+        let toml_path = temp_dir.join(format!("{}.beaker.toml", image_stem));
+        eprintln!("Looking for TOML: {}", toml_path.display());
 
-        let json_data = std::fs::read_to_string(&json_path)?;
+        let toml_data = std::fs::read_to_string(&toml_path)?;
 
-        // Parse JSON manually to extract detection info
-        let json: serde_json::Value = serde_json::from_str(&json_data)?;
+        // Parse TOML to extract detection info
+        let toml_value: toml::Value = toml::from_str(&toml_data)?;
         let mut detections = Vec::new();
 
-        if let Some(dets) = json["detections"].as_array() {
-            for det_json in dets {
-                if let (Some(class_name), Some(confidence)) =
-                    (det_json["class_name"].as_str(), det_json["confidence"].as_f64())
-                {
-                    let blur_score = det_json["quality"]["blur_score"].as_f64().map(|v| v as f32);
+        if let Some(dets) = toml_value.get("detections").and_then(|v| v.as_array()) {
+            for det_toml in dets {
+                if let Some(det_table) = det_toml.as_table() {
+                    let class_name = det_table
+                        .get("class_name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown");
+                    let confidence = det_table
+                        .get("confidence")
+                        .and_then(|v| v.as_float())
+                        .unwrap_or(0.0) as f32;
+
+                    let blur_score = det_table
+                        .get("quality")
+                        .and_then(|q| q.as_table())
+                        .and_then(|q| q.get("blur_score"))
+                        .and_then(|v| v.as_float())
+                        .map(|v| v as f32);
+
+                    let x1 = det_table
+                        .get("x1")
+                        .and_then(|v| v.as_float())
+                        .unwrap_or(0.0) as f32;
+                    let y1 = det_table
+                        .get("y1")
+                        .and_then(|v| v.as_float())
+                        .unwrap_or(0.0) as f32;
+                    let x2 = det_table
+                        .get("x2")
+                        .and_then(|v| v.as_float())
+                        .unwrap_or(0.0) as f32;
+                    let y2 = det_table
+                        .get("y2")
+                        .and_then(|v| v.as_float())
+                        .unwrap_or(0.0) as f32;
 
                     detections.push(Detection {
                         class_name: class_name.to_string(),
-                        confidence: confidence as f32,
-                        x1: det_json["x1"].as_f64().unwrap_or(0.0) as f32,
-                        y1: det_json["y1"].as_f64().unwrap_or(0.0) as f32,
-                        x2: det_json["x2"].as_f64().unwrap_or(0.0) as f32,
-                        y2: det_json["y2"].as_f64().unwrap_or(0.0) as f32,
+                        confidence,
+                        x1,
+                        y1,
+                        x2,
+                        y2,
                         blur_score,
                     });
                 }
