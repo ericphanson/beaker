@@ -87,11 +87,6 @@ Each issue follows this structure:
   - **Decision**: Document as experimental / Finish / Remove?
   - **Effort**: 30 min (docs) or 4 hours (finish) or 2 hours (remove)
 
-- **[FEATURE-03](FEATURE-03-quality-debug-images-cleanup.md)**: Quality Debug Images Always Created
-  - Empty `quality_debug_images_*/` directories pollute output
-  - **Fix**: Only create when `-vv` debug logging enabled
-  - **Effort**: 1 hour
-
 ### 🟢 MEDIUM (P2) - Fix When Convenient
 
 See **[MEDIUM-PRIORITY-ISSUES.md](MEDIUM-PRIORITY-ISSUES.md)** for 10 smaller issues (1-2 hours each):
@@ -140,11 +135,7 @@ See **[MEDIUM-PRIORITY-ISSUES.md](MEDIUM-PRIORITY-ISSUES.md)** for 10 smaller is
    - Add numeric range checks
    - **Effort**: 0.5 day (both together after UX-01)
 
-3. **FEATURE-03** (debug image cleanup)
-   - Quick win, easy fix
-   - **Effort**: 0.25 day
-
-**Total Week 2**: 1.25 days of implementation
+**Total Week 2**: 1.0 days of implementation
 
 ### Phase 3: Feature Decisions (Week 3)
 **Goal**: Reduce technical debt

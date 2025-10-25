@@ -149,7 +149,7 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 MetadataCheck::TimingBound(
                     "cutout",
                     "execution.model_processing_time_ms",
-                    1000.0,
+                    800.0,
                     300000.0,
                 ),
                 MetadataCheck::ExitCode("cutout", 0),
@@ -179,7 +179,7 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 MetadataCheck::TimingBound(
                     "cutout",
                     "execution.model_processing_time_ms",
-                    1000.0,
+                    800.0,
                     300000.0,
                 ),
                 MetadataCheck::ExitCode("cutout", 0),
@@ -210,7 +210,7 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 MetadataCheck::TimingBound(
                     "cutout",
                     "execution.model_processing_time_ms",
-                    1000.0,
+                    800.0,
                     300000.0,
                 ),
             ],
