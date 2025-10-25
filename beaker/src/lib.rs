@@ -12,6 +12,7 @@ pub mod cutout_preprocessing;
 pub mod cutout_processing;
 pub mod detection;
 pub mod detection_obj;
+pub mod gui_api;
 pub mod image_input;
 pub mod mask_encoding;
 pub mod model_access;
