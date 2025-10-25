@@ -131,13 +131,26 @@ All existing tests pass with the YOLO support removed:
 
 The `multi_detect` test was removed as it specifically tested a legacy YOLO model that is no longer supported.
 
+## License Change
+
+As a result of removing YOLO support, the project license has been changed from **AGPL-3.0** to **Apache-2.0**.
+
+**Rationale:**
+- No longer depends on AGPL-licensed Ultralytics YOLOv8 code
+- RF-DETR training code is Apache 2.0 licensed
+- All remaining dependencies use permissive licenses
+- More flexible for users and contributors
+
+**Note:** The trained model weights remain subject to CUB-200-2011 dataset restrictions (non-commercial use only).
+
 ## Next Steps
 
 1. ✅ Code cleanup complete
 2. ✅ Tests updated
 3. ✅ Documentation updated
-4. ⏳ Run full CI validation
-5. ⏳ Commit and push changes
+4. ✅ Run full CI validation
+5. ✅ Commit and push changes
+6. ✅ License changed to Apache-2.0
 
 ## Notes
 
