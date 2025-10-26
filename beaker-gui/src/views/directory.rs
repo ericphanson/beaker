@@ -7,6 +7,13 @@
 // - Should show detection count badge on each thumbnail
 // - Clicking thumbnail should update current_image_idx
 
+// VISUAL TEST: Aggregate Detection Sidebar
+// - Should show "All Detections (N)" header
+// - Should list all detections from all images
+// - Format: "filename - class_name #N: confidence"
+// - Clicking detection should jump to that image
+// - Selected detection should be highlighted
+
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::Receiver;
@@ -427,22 +434,74 @@ impl DirectoryView {
         ui.separator();
         ui.add_space(10.0);
 
-        // Two-panel layout: Gallery + Current Image
+        // Three-panel layout: Thumbnails + Current Image + Aggregate Detections
         ui.horizontal(|ui| {
             // Left panel: Thumbnail grid
             egui::ScrollArea::vertical()
-                .max_width(300.0)
+                .max_width(250.0)
                 .show(ui, |ui| {
                     self.show_thumbnail_grid(ui);
                 });
 
             ui.separator();
 
-            // Right panel: Current image + detections
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                self.show_current_image(ui);
-            });
+            // Middle panel: Current image + detections
+            egui::ScrollArea::vertical()
+                .max_width(600.0)
+                .show(ui, |ui| {
+                    self.show_current_image(ui);
+                });
+
+            ui.separator();
+
+            // Right panel: Aggregate detection list
+            egui::ScrollArea::vertical()
+                .show(ui, |ui| {
+                    self.show_aggregate_detection_list(ui);
+                });
         });
+    }
+
+    fn show_aggregate_detection_list(&mut self, ui: &mut egui::Ui) {
+        ui.heading(format!("All Detections ({})", self.all_detections.len()));
+        ui.add_space(10.0);
+
+        if self.all_detections.is_empty() {
+            ui.label("No detections");
+            return;
+        }
+
+        for (flat_idx, det_ref) in self.all_detections.iter().enumerate() {
+            let image_state = &self.images[det_ref.image_idx];
+            let detection = &image_state.detections[det_ref.detection_idx];
+
+            let filename = image_state.path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown");
+
+            let is_selected = Some(flat_idx) == self.selected_detection_idx;
+
+            let label_text = format!(
+                "{} - {} #{}: {:.2}",
+                filename,
+                detection.class_name,
+                det_ref.detection_idx + 1,
+                detection.confidence
+            );
+
+            let response = ui.selectable_label(is_selected, label_text);
+
+            if response.clicked() {
+                // Jump to this image and select detection
+                self.current_image_idx = det_ref.image_idx;
+                self.selected_detection_idx = Some(flat_idx);
+            }
+
+            // Show quality info if available
+            if let Some(blur) = detection.blur_score {
+                ui.label(format!("  blur: {:.2}", blur));
+            }
+        }
     }
 
     fn show_thumbnail_grid(&mut self, ui: &mut egui::Ui) {
