@@ -179,6 +179,7 @@ pub fn render_overlay(
     composite_with_alpha(&original_rgba, &heatmap_resized, style.alpha)
 }
 
+#[allow(dead_code)]
 impl QualityVisualization {
     /// Render all heatmaps from raw data and scores
     pub fn render(

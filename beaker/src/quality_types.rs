@@ -181,6 +181,7 @@ pub enum ColorMap {
 
 /// Visualization layer (parameter-dependent, rendered on-demand)
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct QualityVisualization {
     /// Rendered heatmap images (in-memory buffers)
     pub blur_probability_heatmap: Option<RgbaImage>,

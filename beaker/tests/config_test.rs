@@ -1,5 +1,5 @@
 use beaker::config::{BaseModelConfig, QualityConfig};
-use beaker::quality_types::QualityParams;
+use beaker::quality_types::{ColorMap, QualityParams};
 
 #[test]
 fn test_quality_config_default_params() {
@@ -19,6 +19,9 @@ fn test_quality_config_default_params() {
         model_checksum: None,
         debug_dump_images: false,
         params: None,
+        heatmap_output: None,
+        colormap: ColorMap::Viridis,
+        overlay: false,
     };
 
     let params = config.params.unwrap_or_default();
@@ -50,6 +53,9 @@ fn test_quality_config_custom_params() {
         model_checksum: None,
         debug_dump_images: false,
         params: Some(custom_params),
+        heatmap_output: None,
+        colormap: ColorMap::Viridis,
+        overlay: false,
     };
 
     assert!(config.params.is_some());
