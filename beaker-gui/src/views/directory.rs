@@ -57,6 +57,9 @@ pub struct DirectoryView {
     progress_receiver: Option<Receiver<beaker::ProcessingEvent>>,
     cancel_flag: Arc<AtomicBool>,
     output_dir: Option<PathBuf>,
+    current_stage: Option<beaker::ProcessingStage>,
+    quality_completed: usize,
+    detection_completed: usize,
 
     // Aggregate detection list (populated after processing)
     all_detections: Vec<DetectionRef>,
@@ -97,6 +100,9 @@ impl DirectoryView {
             progress_receiver: None,
             cancel_flag: Arc::new(AtomicBool::new(false)),
             output_dir: None,
+            current_stage: None,
+            quality_completed: 0,
+            detection_completed: 0,
             all_detections: Vec::new(),
             show_good: true,
             show_unknown: true,
@@ -181,49 +187,81 @@ impl DirectoryView {
     /// Update state based on progress event from background thread
     pub fn update_from_event(&mut self, event: beaker::ProcessingEvent) {
         match event {
-            beaker::ProcessingEvent::ImageStart { index, .. } => {
+            beaker::ProcessingEvent::ImageStart { index, stage, .. } => {
                 if index < self.images.len() {
                     self.images[index].status = ProcessingStatus::Processing;
-                    eprintln!("[DirectoryView] Image {} started processing", index);
+                    eprintln!(
+                        "[DirectoryView] Image {} started processing (stage: {:?})",
+                        index, stage
+                    );
                 }
             }
             beaker::ProcessingEvent::ImageSuccess { path, index } => {
                 if index < self.images.len() {
-                    // Find TOML file
-                    let stem = path
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("unknown");
+                    // Track completion by stage
+                    if let Some(stage) = self.current_stage {
+                        match stage {
+                            beaker::ProcessingStage::Quality => {
+                                self.quality_completed += 1;
+                                eprintln!(
+                                    "[DirectoryView] Image {} quality completed ({}/{})",
+                                    index,
+                                    self.quality_completed,
+                                    self.images.len()
+                                );
+                            }
+                            beaker::ProcessingStage::Detection => {
+                                self.detection_completed += 1;
+                                eprintln!(
+                                    "[DirectoryView] Image {} detection completed ({}/{})",
+                                    index,
+                                    self.detection_completed,
+                                    self.images.len()
+                                );
+                            }
+                        }
+                    }
 
-                    let toml_path = if let Some(ref output_dir) = self.output_dir {
-                        output_dir.join(format!("{}.beaker.toml", stem))
-                    } else {
-                        path.parent()
-                            .map(|p| p.join(format!("{}.beaker.toml", stem)))
-                            .unwrap_or_else(|| PathBuf::from(format!("{}.beaker.toml", stem)))
-                    };
+                    // Only load detections and update final status after detection stage
+                    if matches!(self.current_stage, Some(beaker::ProcessingStage::Detection)) {
+                        // Find TOML file
+                        let stem = path
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("unknown");
 
-                    // Load detections
-                    let detections =
-                        Self::load_detections_from_toml(&toml_path).unwrap_or_default();
+                        let toml_path = if let Some(ref output_dir) = self.output_dir {
+                            output_dir.join(format!("{}.beaker.toml", stem))
+                        } else {
+                            path.parent()
+                                .map(|p| p.join(format!("{}.beaker.toml", stem)))
+                                .unwrap_or_else(|| PathBuf::from(format!("{}.beaker.toml", stem)))
+                        };
 
-                    let detections_count = detections.len();
+                        // Load detections
+                        let detections =
+                            Self::load_detections_from_toml(&toml_path).unwrap_or_default();
 
-                    // Count triage results
-                    let (good_count, unknown_count, bad_count) =
-                        Self::count_triage_results(&toml_path);
+                        let detections_count = detections.len();
 
-                    self.images[index].detections = detections;
-                    self.images[index].status = ProcessingStatus::Success {
-                        detections_count,
-                        good_count,
-                        unknown_count,
-                        bad_count,
-                        processing_time_ms: 0.0,
-                    };
+                        // Count triage results
+                        let (good_count, unknown_count, bad_count) =
+                            Self::count_triage_results(&toml_path);
 
-                    eprintln!("[DirectoryView] Image {} completed: {} detections ({} good, {} unknown, {} bad)",
-                        index, detections_count, good_count, unknown_count, bad_count);
+                        self.images[index].detections = detections;
+                        self.images[index].status = ProcessingStatus::Success {
+                            detections_count,
+                            good_count,
+                            unknown_count,
+                            bad_count,
+                            processing_time_ms: 0.0,
+                        };
+
+                        eprintln!(
+                            "[DirectoryView] Image {} final: {} detections ({} good, {} unknown, {} bad)",
+                            index, detections_count, good_count, unknown_count, bad_count
+                        );
+                    }
                 }
             }
             beaker::ProcessingEvent::ImageError { index, error, .. } => {
@@ -235,6 +273,7 @@ impl DirectoryView {
                 }
             }
             beaker::ProcessingEvent::StageChange { stage, .. } => {
+                self.current_stage = Some(stage);
                 eprintln!("[DirectoryView] Stage changed to {:?}", stage);
             }
         }
@@ -354,18 +393,46 @@ impl DirectoryView {
             );
             ui.add_space(25.0);
 
-            // Progress stats
-            let (completed, total, processing_idx) = self.calculate_progress_stats();
-            let progress = completed as f32 / total as f32;
+            // Calculate overall progress across both stages
+            let total_images = self.images.len();
+            let total_steps = total_images * 2; // Quality + Detection
+            let completed_steps = self.quality_completed + self.detection_completed;
+            let overall_progress = if total_steps > 0 {
+                completed_steps as f32 / total_steps as f32
+            } else {
+                0.0
+            };
 
-            // Styled progress bar with color
+            // Show current stage
+            if let Some(stage) = self.current_stage {
+                let stage_name = match stage {
+                    beaker::ProcessingStage::Quality => "Quality Analysis",
+                    beaker::ProcessingStage::Detection => "Bird Detection",
+                };
+                let stage_completed = match stage {
+                    beaker::ProcessingStage::Quality => self.quality_completed,
+                    beaker::ProcessingStage::Detection => self.detection_completed,
+                };
+
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Stage: {} ({}/{} images)",
+                        stage_name, stage_completed, total_images
+                    ))
+                    .size(16.0)
+                    .color(color_processing),
+                );
+                ui.add_space(10.0);
+            }
+
+            // Styled progress bar with overall progress
             ui.add(
-                egui::ProgressBar::new(progress)
+                egui::ProgressBar::new(overall_progress)
                     .text(format!(
-                        "{}/{} images ({:.0}%)",
-                        completed,
-                        total,
-                        progress * 100.0
+                        "Overall: {}/{} steps ({:.0}%)",
+                        completed_steps,
+                        total_steps,
+                        overall_progress * 100.0
                     ))
                     .desired_width(700.0)
                     .desired_height(30.0)
@@ -373,6 +440,12 @@ impl DirectoryView {
             );
 
             ui.add_space(15.0);
+
+            // Find currently processing image
+            let processing_idx = self
+                .images
+                .iter()
+                .position(|img| matches!(img.status, ProcessingStatus::Processing));
 
             // Currently processing with emphasis
             if let Some(idx) = processing_idx {
@@ -1074,6 +1147,9 @@ mod tests {
         let img1 = PathBuf::from("/tmp/test/img1.jpg");
         let mut view = DirectoryView::new(dir_path, vec![img1.clone()]);
 
+        // Set current stage to Quality (won't load detections, but will count completion)
+        view.current_stage = Some(beaker::ProcessingStage::Quality);
+
         let event = beaker::ProcessingEvent::ImageSuccess {
             path: img1,
             index: 0,
@@ -1081,11 +1157,9 @@ mod tests {
 
         view.update_from_event(event);
 
-        // Status should be Success (with placeholder counts)
-        match &view.images[0].status {
-            ProcessingStatus::Success { .. } => {}
-            _ => panic!("Expected Success status"),
-        }
+        // Quality stage doesn't load detections, so status should still be Waiting
+        // But quality_completed should increment
+        assert_eq!(view.quality_completed, 1);
     }
 
     #[test]
@@ -1216,6 +1290,9 @@ detections = [
 
         // Set output directory so we can find TOML
         view.output_dir = Some(temp_dir.path().to_path_buf());
+
+        // Set current stage to Detection (so detections will be loaded)
+        view.current_stage = Some(beaker::ProcessingStage::Detection);
 
         let event = beaker::ProcessingEvent::ImageSuccess {
             path: img_path,
