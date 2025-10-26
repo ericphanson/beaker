@@ -30,6 +30,7 @@ sha2    = "0.10"
 md5     = "0.8"
 reqwest = { version = "0.12", features = ["blocking"] }
 base64  = "0.22"
+cached = { version = "0.53", features = ["proc_macro"] }
 flate2  = "1.1"
 colored = "3.0.0"
 indicatif = "0.18"

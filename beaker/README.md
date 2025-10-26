@@ -101,3 +101,75 @@ after installing `rembg`. The full results on a M1 macbook pro are in [benchmark
 - Small head model is 4x slower to load with CoreML (156ms vs 40ms) but 2.3x faster (25ms vs 57ms). Worth it for batches, not single images
 - Larger `isnet-general-use` model for background removal is worth loading with CoreML even for single images. And CoreML provides 2-3x speedup for batches.
 - rembg here is only configured with ONNX on CPU. It has some overhead relative to beaker but that overhead is amortized over batches, so it comes out to the approximately the same time as beaker on CPU in the batch case.
+
+## Quality Assessment
+
+Beaker includes a no-reference image quality assessment model (PaQ-2-PiQ) combined with blur detection.
+
+### Basic Usage
+
+```bash
+# Assess single image
+beaker quality image.jpg
+
+# Assess multiple images
+beaker quality *.jpg
+
+# Write metadata to sidecar files
+beaker quality --metadata image.jpg
+```
+
+### Parameter Tuning
+
+Quality assessment uses several tunable parameters for blur detection:
+
+```bash
+# Adjust blur sensitivity (lower = more sensitive)
+beaker quality --tau 0.01 image.jpg
+
+# Adjust blur weight impact (higher = more penalty for blur)
+beaker quality --alpha 0.8 image.jpg
+
+# Adjust probability curve steepness
+beaker quality --beta 1.5 image.jpg
+```
+
+**Parameter Reference:**
+
+- `--alpha` (0.0-1.0, default 0.7): Weight coefficient - how much blur reduces quality score
+- `--beta` (0.5-2.0, default 1.2): Probability curve exponent - steeper = more aggressive blur detection
+- `--tau` (0.001-0.1, default 0.02): Tenengrad threshold - lower = more sensitive to blur
+
+### Programmatic API
+
+```rust
+use beaker::quality_processing::{compute_quality_raw, load_onnx_session_default};
+use beaker::quality_types::{QualityParams, QualityScores};
+
+// Load model once
+let session = load_onnx_session_default()?;
+
+// Compute raw data (expensive, cached automatically)
+let raw = compute_quality_raw("image.jpg", &session)?;
+
+// Compute scores with default parameters
+let params = QualityParams::default();
+let scores = QualityScores::compute(&raw, &params);
+
+println!("Quality: {:.1}", scores.final_score);
+
+// Adjust parameters and recompute instantly
+let strict_params = QualityParams {
+    tau_ten_224: 0.01,
+    ..Default::default()
+};
+let strict_scores = QualityScores::compute(&raw, &strict_params);
+```
+
+### Performance
+
+- First run: ~60ms per image (preprocessing + ONNX inference + blur detection)
+- Cached run: <1ms per image (cache hit for raw computation)
+- Parameter adjustment: <0.1ms per image (recomputes scores from cached raw data)
+
+This makes real-time parameter tuning feasible for GUI applications.

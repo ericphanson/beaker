@@ -21,6 +21,8 @@ mod onnx_session;
 mod output_manager;
 mod progress;
 mod quality_processing;
+mod quality_types;
+mod quality_visualization;
 mod rfdetr;
 mod shared_metadata;
 

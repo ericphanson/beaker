@@ -4,15 +4,9 @@ use ndarray::{Array2, Array4, Axis};
 use serde::Serialize;
 
 /// ------------------------- tunables -------------------------
-/// Blur weighting (from fused blur probability P via W = 1 - ALPHA*P)
-const ALPHA: f32 = 0.7;
-const MIN_WEIGHT: f32 = 0.2;
-
 /// Tenengrad mapping + multi-scale
 const TAU_TEN_224: f32 = 0.02; // threshold for 224x224 in [0,1]
-const BETA: f32 = 1.2; // P = (tau / (T + tau))^BETA
 const EPS_T: f32 = 1e-12; // safety epsilon for divisions
-const P_FLOOR: f32 = 0.0; // set to 0.01..0.02 to avoid W==1.0 saturation
 
 /// ROI / priors
 const S_REF: f32 = 96.0; // min bbox side (px) for "fully reliable"
@@ -24,6 +18,100 @@ const GAUSS_SIGMA_NATIVE: f32 = 1.0; // denoise native crop before Tenengrad/det
 const CORE_RATIO: f32 = 0.60; // inner 60% treated as "core"
 
 /// ------------------------- basic types -------------------------
+use anyhow::Result;
+
+/// Raw Tenengrad computation results (parameter-independent)
+#[derive(Clone, Debug)]
+pub struct RawTenengradData {
+    pub t224: Array2<f32>, // 20x20 Tenengrad scores at 224x224
+    pub t112: Array2<f32>, // 20x20 Tenengrad scores at 112x112
+    pub median_224: f32,   // Median for adaptive thresholding
+    pub scale_ratio: f32,  // Scale ratio (112/224)
+}
+
+/// Compute raw Tenengrad scores without applying parameters (expensive: ~2ms)
+/// This is parameter-independent - compute once, cache forever
+pub fn compute_raw_tenengrad(x: &Array4<f32>) -> Result<RawTenengradData> {
+    // Convert to grayscale and compute Tenengrad at both scales
+    let gray224 = nchw_to_gray_224(x);
+    let t224 = tenengrad_mean_grid_20(&gray224);
+
+    let gray112 = downsample_2x_gray_f32(&gray224);
+    let t112 = tenengrad_mean_grid_20(&gray112);
+
+    // Compute median and scale ratio (same logic as current code)
+    let mut v224: Vec<f32> = t224.iter().copied().collect();
+    v224.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let median_224 = v224[v224.len() / 2].max(1e-12);
+
+    let mut v112: Vec<f32> = t112.iter().copied().collect();
+    v112.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let median_112 = v112[v112.len() / 2];
+
+    let scale_ratio = if median_224 > 0.0 {
+        (median_112 / median_224).clamp(0.05, 0.80)
+    } else {
+        0.25
+    };
+
+    Ok(RawTenengradData {
+        t224,
+        t112,
+        median_224,
+        scale_ratio,
+    })
+}
+
+use crate::quality_types::QualityParams;
+
+const BIAS112: f32 = 1.25;
+
+/// Apply parameters to raw Tenengrad to get blur probabilities (cheap: <0.1ms)
+pub fn apply_tenengrad_params(
+    t224: &Array2<f32>,
+    t112: &Array2<f32>,
+    _median_224: f32,
+    scale_ratio: f32,
+    params: &QualityParams,
+) -> (Array2<f32>, Array2<f32>) {
+    // Apply parameters to 224 Tenengrad
+    let p224 = t224.mapv(|t| {
+        let tau = params.tau_ten_224.max(EPS_T);
+        let p = (tau / (t + tau)).powf(params.beta);
+        (p + params.p_floor).min(1.0)
+    });
+
+    // Apply parameters to 112 Tenengrad
+    let tau112 = params.tau_ten_224 * scale_ratio * BIAS112;
+    let p112 = t112.mapv(|t| {
+        let tau = tau112.max(EPS_T);
+        let p = (tau / (t + tau)).powf(params.beta);
+        (p + params.p_floor).min(1.0)
+    });
+
+    (p224, p112)
+}
+
+/// Fuse two probability maps (probabilistic OR)
+pub fn fuse_probabilities(p224: &Array2<f32>, p112: &Array2<f32>) -> Array2<f32> {
+    let mut p = Array2::<f32>::zeros((20, 20));
+    ndarray::Zip::from(&mut p)
+        .and(p224)
+        .and(p112)
+        .for_each(|p_elem, &a, &b| {
+            *p_elem = 1.0 - (1.0 - a) * (1.0 - b);
+        });
+    p
+}
+
+/// Compute blur weights from probabilities
+pub fn compute_weights(blur_probability: &Array2<f32>, params: &QualityParams) -> Array2<f32> {
+    blur_probability.mapv(|p| {
+        let w: f32 = 1.0 - params.alpha * p;
+        w.clamp(params.min_weight, 1.0)
+    })
+}
+
 type GrayF32 = ImageBuffer<Luma<f32>, Vec<f32>>;
 
 #[derive(Copy, Clone, Debug)]
@@ -395,46 +483,26 @@ fn tenengrad_mean_grid_20(gray: &GrayF32) -> Array2<f32> {
 // ---------------- multi-scale blur weights (224 + 112, fused) ----------------
 
 /// Returns: (weights_20x20, fused_blur_prob_20x20, t224_20x20, blur_global)
+///
+/// This is a backward-compatible wrapper that internally uses the new layered functions.
 pub fn blur_weights_from_nchw(
     x: &Array4<f32>,
     out_dir: Option<PathBuf>,
 ) -> (Array2<f32>, Array2<f32>, Array2<f32>, f32) {
-    // 224 path
-    let gray224 = nchw_to_gray_224(x);
-    let t224 = tenengrad_mean_grid_20(&gray224);
+    // Use new layered functions internally
+    let raw = compute_raw_tenengrad(x).expect("Failed to compute raw Tenengrad");
 
-    let p224 = t224.mapv(|t| {
-        let tau = TAU_TEN_224.max(EPS_T);
-        let p = (tau / (t + tau)).powf(BETA);
-        (p + P_FLOOR).min(1.0)
-    });
+    // Use default parameters (matches old hardcoded constants)
+    let params = QualityParams::default();
 
-    // 112 path (2× downsample with antialias), calibrated tau per image
-    let gray112 = downsample_2x_gray_f32(&gray224);
-    let t112 = tenengrad_mean_grid_20(&gray112);
-
-    // medians (robust)
-    let mut v224: Vec<f32> = t224.iter().copied().collect();
-    let mut v112: Vec<f32> = t112.iter().copied().collect();
-    v224.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    v112.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    let med224 = v224[v224.len() / 2].max(1e-12);
-    let med112 = v112[v112.len() / 2];
-
-    // per-image scale ratio
-    let r = if med224 > 0.0 {
-        (med112 / med224).clamp(0.05, 0.80)
-    } else {
-        0.25
-    };
-    const BIAS112: f32 = 1.25; // try 1.2–1.4
-    let tau112 = TAU_TEN_224 * r * BIAS112;
-
-    let p112 = t112.mapv(|t| {
-        let tau = tau112.max(EPS_T);
-        let p = (tau / (t + tau)).powf(BETA);
-        (p + P_FLOOR).min(1.0)
-    });
+    // Apply parameters
+    let (p224, p112) = apply_tenengrad_params(
+        &raw.t224,
+        &raw.t112,
+        raw.median_224,
+        raw.scale_ratio,
+        &params,
+    );
 
     if log::log_enabled!(log::Level::Debug) {
         let _ = stats("p224", &p224);
@@ -442,32 +510,24 @@ pub fn blur_weights_from_nchw(
         msanity(&p224, &p112);
     }
 
-    // Fuse probabilities (probabilistic OR)
-    let mut p = Array2::<f32>::zeros((20, 20));
-    ndarray::Zip::from(&mut p)
-        .and(&p224)
-        .and(&p112)
-        .for_each(|p_elem, &a, &b| {
-            *p_elem = 1.0 - (1.0 - a) * (1.0 - b);
-        });
+    // Fuse probabilities
+    let blur_probability = fuse_probabilities(&p224, &p112);
 
     let mean = |a: &Array2<f32>| a.sum() / (a.len() as f32);
     log::debug!(
         "mean p224={:.4}, mean p112={:.4}, mean pfused={:.4}",
         mean(&p224),
         mean(&p112),
-        mean(&p)
+        mean(&blur_probability)
     );
 
-    // Weights from fused blur prob
-    let mut w = Array2::<f32>::zeros((20, 20));
-    for i in 0..20 {
-        for j in 0..20 {
-            let val = 1.0 - ALPHA * p[[i, j]];
-            w[[i, j]] = val.clamp(MIN_WEIGHT, 1.0);
-        }
-    }
+    // Compute weights
+    let blur_weights = compute_weights(&blur_probability, &params);
 
+    // Global blur score
+    let global_blur_score = blur_probability.sum() / 400.0;
+
+    // Optional debug output (if out_dir provided)
     if let Some(out) = out_dir {
         // Dump debug heatmaps when requested via --debug-dump-images flag
         let start = Instant::now();
@@ -475,20 +535,20 @@ pub fn blur_weights_from_nchw(
             &out,
             DebugMaps {
                 x224: x,
-                t224: &t224,
-                t112: Some(&t112),
+                t224: &raw.t224,
+                t112: Some(&raw.t112),
                 p224: &p224,
                 p112: Some(&p112),
-                pfused: &p,
-                w20: &w,
+                pfused: &blur_probability,
+                w20: &blur_weights,
             },
         )
         .unwrap();
         log::debug!("Finished dumping debug heatmaps in {:?}", start.elapsed());
     }
 
-    let blur_global = p.sum() / 400.0;
-    (w, p, t224, blur_global)
+    // Return in old format: (weights, probability, tenengrad_224, global_blur)
+    (blur_weights, blur_probability, raw.t224, global_blur_score)
 }
 
 /// Bilinear sample of a 20x20 field at (u,v) in "cell" coordinates, where 0..20 maps across the image.
@@ -682,30 +742,22 @@ fn core_ring_ratio_native(img: &RgbImage, bbox: BBoxF) -> (f32, f32, f32) {
     (ratio, t_core, t_ring)
 }
 
+use crate::quality_types::TriageParams;
+
 /// 3-valued triage with **bad** and **good** margins to tune coverage.
 /// Returns (decision, rationale). Decision ∈ {"bad","good","unknown"}.
 pub fn triage_decision(
     core_ring_sharpness_ratio: f32,
     grid_cells_covered: f32,
+    params: &TriageParams,
 ) -> (String, String) {
-    // Base HP thresholds (your tree):
-    const CORE_RING_SHARPNESS_RATIO_BAD: f32 = 1.19;
-    const GRID_CELLS_COVERED_BAD: f32 = 6.15;
-
-    // Tighten BAD (shrinks bad region → fewer false negatives of GT-good):
-    // Only call BAD if clearly below/inside HP-bad.
-    const DELTA_BAD_CORE_RING_SHARPNESS_RATIO: f32 = 0.4; // BAD if core_ring_sharpness_ratio ≤ 1.19 - 0.05 = 1.14
-    const DELTA_BAD_GRID_CELLS_COVERED: f32 = 1.5; // BAD if (core_ring_sharpness_ratio > 1.19) AND grid_cells_covered ≤ 6.15 - 0.75 = 5.40
-
-    // Loosen GOOD slightly? (admits a few more goods, keep precision reasonable):
-    const DELTA_GOOD_CORE_RING_SHARPNESS_RATIO: f32 = 0.0;
-    const DELTA_GOOD_GRID_CELLS_COVERED: f32 = 0.0;
-
-    // Precompute cutoffs
-    let bad_r_cut = CORE_RING_SHARPNESS_RATIO_BAD - DELTA_BAD_CORE_RING_SHARPNESS_RATIO;
-    let bad_g_cut = GRID_CELLS_COVERED_BAD - DELTA_BAD_GRID_CELLS_COVERED;
-    let good_r_cut = CORE_RING_SHARPNESS_RATIO_BAD + DELTA_GOOD_CORE_RING_SHARPNESS_RATIO;
-    let good_g_cut = GRID_CELLS_COVERED_BAD + DELTA_GOOD_GRID_CELLS_COVERED;
+    // Precompute cutoffs from parameters
+    let bad_r_cut =
+        params.core_ring_sharpness_ratio_bad - params.delta_bad_core_ring_sharpness_ratio;
+    let bad_g_cut = params.grid_cells_covered_bad - params.delta_bad_grid_cells_covered;
+    let good_r_cut =
+        params.core_ring_sharpness_ratio_bad + params.delta_good_core_ring_sharpness_ratio;
+    let good_g_cut = params.grid_cells_covered_bad + params.delta_good_grid_cells_covered;
 
     // ----- BAD: only when comfortably inside HP-bad
     if core_ring_sharpness_ratio <= bad_r_cut {
@@ -717,13 +769,15 @@ pub fn triage_decision(
             ),
         );
     }
-    if core_ring_sharpness_ratio > CORE_RING_SHARPNESS_RATIO_BAD && grid_cells_covered <= bad_g_cut
+    if core_ring_sharpness_ratio > params.core_ring_sharpness_ratio_bad
+        && grid_cells_covered <= bad_g_cut
     {
         return (
             "bad".to_string(),
             format!(
-                "bad: core_ring_sharpness_ratio={core_ring_sharpness_ratio:.2} > {CORE_RING_SHARPNESS_RATIO_BAD:.2} BUT grid_cells_covered={grid_cells_covered:.2} ≤ {bad_g_cut:.2} \
-(sharpness looks sufficient, BUT coverage is small—detection over a small region of the image)"
+                "bad: core_ring_sharpness_ratio={core_ring_sharpness_ratio:.2} > {:.2} BUT grid_cells_covered={grid_cells_covered:.2} ≤ {bad_g_cut:.2} \
+(sharpness looks sufficient, BUT coverage is small—detection over a small region of the image)",
+                params.core_ring_sharpness_ratio_bad
             ),
         );
     }
@@ -740,23 +794,28 @@ pub fn triage_decision(
     }
 
     // ----- UNKNOWN: everything in the buffer zones
-    let rationale = if core_ring_sharpness_ratio <= CORE_RING_SHARPNESS_RATIO_BAD {
+    let rationale = if core_ring_sharpness_ratio <= params.core_ring_sharpness_ratio_bad {
         // near the softness threshold but not clearly bad
         format!(
-            "unknown: core_ring_sharpness_ratio={core_ring_sharpness_ratio:.2} in ({bad_r_cut:.2}, {CORE_RING_SHARPNESS_RATIO_BAD:.2}] \
-(borderline sharpness region held out)"
+            "unknown: core_ring_sharpness_ratio={core_ring_sharpness_ratio:.2} in ({bad_r_cut:.2}, {:.2}] \
+(borderline sharpness region held out)",
+            params.core_ring_sharpness_ratio_bad
         )
-    } else if grid_cells_covered <= GRID_CELLS_COVERED_BAD {
+    } else if grid_cells_covered <= params.grid_cells_covered_bad {
         // near the small-coverage threshold but not clearly bad
         format!(
-            "unknown: grid_cells_covered={grid_cells_covered:.2} in ({bad_g_cut:.2}, {GRID_CELLS_COVERED_BAD:.2}] with core_ring_sharpness_ratio={core_ring_sharpness_ratio:.2} > {CORE_RING_SHARPNESS_RATIO_BAD:.2} \
-(borderline small-coverage region held out)"
+            "unknown: grid_cells_covered={grid_cells_covered:.2} in ({bad_g_cut:.2}, {:.2}] with core_ring_sharpness_ratio={core_ring_sharpness_ratio:.2} > {:.2} \
+(borderline small-coverage region held out)",
+            params.grid_cells_covered_bad,
+            params.core_ring_sharpness_ratio_bad
         )
     } else {
         // inside base good but not past good margins
         format!(
-            "unknown: inside base good region (core_ring_sharpness_ratio={core_ring_sharpness_ratio:.2} > {CORE_RING_SHARPNESS_RATIO_BAD:.2}, grid_cells_covered={grid_cells_covered:.2} > {GRID_CELLS_COVERED_BAD:.2}) \
-BUT not past safety margins (need core_ring_sharpness_ratio>{good_r_cut:.2}, grid_cells_covered>{good_g_cut:.2})"
+            "unknown: inside base good region (core_ring_sharpness_ratio={core_ring_sharpness_ratio:.2} > {:.2}, grid_cells_covered={grid_cells_covered:.2} > {:.2}) \
+BUT not past safety margins (need core_ring_sharpness_ratio>{good_r_cut:.2}, grid_cells_covered>{good_g_cut:.2})",
+            params.core_ring_sharpness_ratio_bad,
+            params.grid_cells_covered_bad
         )
     };
     ("unknown".to_string(), rationale)
@@ -765,24 +824,21 @@ BUT not past safety margins (need core_ring_sharpness_ratio>{good_r_cut:.2}, gri
 /// Compute per-detection quality with ROI-aware pooling + native detail + priors + triage.
 /// Now requires both the blur weights `w20` and the fused blur probability map `p20`.
 pub fn detection_quality(
-    q20: &Array2<f32>, // PaQ 20x20 local map (e.g., 0..100)
-    w20: &Array2<f32>, // blur weights 20x20 (1 - ALPHA * P)
-    p20: &Array2<f32>, // fused blur probability 20x20 (0..1)
-    _global_blur_score: f32,
-    _global_paq2piq_score: f32,
-    bbox: BBoxF,         // in native image pixels
-    orig_img: &RgbImage, // native frame
+    quality_maps: &crate::quality_types::QualityMaps,
+    bbox: BBoxF,                  // in native image pixels
+    orig_img: &RgbImage,          // native frame
+    triage_params: &TriageParams, // Triage decision parameters
 ) -> DetectionQuality {
-    assert_eq!(q20.shape(), &[20, 20]);
-    assert_eq!(w20.shape(), &[20, 20]);
-    assert_eq!(p20.shape(), &[20, 20]);
+    assert_eq!(quality_maps.q20.shape(), &[20, 20]);
+    assert_eq!(quality_maps.w20.shape(), &[20, 20]);
+    assert_eq!(quality_maps.p20.shape(), &[20, 20]);
 
     let (img_w, img_h) = (orig_img.width(), orig_img.height());
 
     // ROI pooled means from the 20x20 maps
-    let q_roi = roi_align_mean_20(q20, bbox, img_w, img_h);
-    let w_roi = roi_align_mean_20(w20, bbox, img_w, img_h);
-    let p_roi = roi_align_mean_20(p20, bbox, img_w, img_h);
+    let q_roi = roi_align_mean_20(quality_maps.q20, bbox, img_w, img_h);
+    let w_roi = roi_align_mean_20(quality_maps.w20, bbox, img_w, img_h);
+    let p_roi = roi_align_mean_20(quality_maps.p20, bbox, img_w, img_h);
 
     // Native-resolution detail
     let (detail, x0, y0, x1, y1) = native_detail_probability(orig_img, bbox);
@@ -800,7 +856,7 @@ pub fn detection_quality(
     // Triage decision
     // Currently this is only optimized for "head" detections from high-rez images
     // maybe we should drop it for other classes?
-    let (triage, rationale) = triage_decision(r_core_ring, cov_cells);
+    let (triage, rationale) = triage_decision(r_core_ring, cov_cells, triage_params);
 
     // let triage = triage_decision(quality, detail, p_roi, cov_cells, size_prior, r_core_ring);
     DetectionQuality {
@@ -817,10 +873,4 @@ pub fn detection_quality(
         tenengrad_core_mean: t_core,
         tenengrad_ring_mean: t_ring,
     }
-}
-
-/// Convenience: fuse a full-frame PaQ scalar with full-frame blur_global (if you want a single image score).
-pub fn image_overall_from_paq_and_blur(paq_global: f32, blur_global: f32) -> f32 {
-    let w_mean = clampf(1.0 - ALPHA * blur_global, MIN_WEIGHT, 1.0);
-    paq_global * w_mean
 }

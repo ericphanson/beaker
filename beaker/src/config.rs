@@ -111,6 +111,21 @@ pub fn parse_probability(s: &str) -> Result<f32, String> {
     Ok(val)
 }
 
+/// Parse colormap name from string
+pub fn parse_colormap(s: &str) -> Result<crate::quality_types::ColorMap, String> {
+    use crate::quality_types::ColorMap;
+    match s.to_lowercase().as_str() {
+        "viridis" => Ok(ColorMap::Viridis),
+        "plasma" => Ok(ColorMap::Plasma),
+        "inferno" => Ok(ColorMap::Inferno),
+        "turbo" => Ok(ColorMap::Turbo),
+        "grayscale" => Ok(ColorMap::Grayscale),
+        _ => Err(format!(
+            "Unknown colormap: '{s}'. Valid options: viridis, plasma, inferno, turbo, grayscale"
+        )),
+    }
+}
+
 /// Global CLI arguments that apply to all beaker commands
 #[derive(Parser, Debug, Clone)]
 pub struct GlobalArgs {
@@ -214,6 +229,9 @@ pub struct DetectionConfig {
     // Stores local quality grid results
     #[serde(skip)]
     pub quality_results: Option<HashMap<String, QualityResult>>,
+    /// Triage decision parameters
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub triage_params: Option<crate::quality_types::TriageParams>,
 }
 
 /// CLI command for cutout processing (only command-specific arguments)
@@ -286,6 +304,54 @@ pub struct QualityCommand {
     /// Dump debug heatmap and overlay images for blur analysis
     #[arg(long)]
     pub debug_dump_images: bool,
+
+    /// Save blur probability heatmap to file
+    #[arg(long, value_name = "PATH")]
+    pub save_heatmap: Option<String>,
+
+    /// Colormap for heatmap rendering (viridis, plasma, inferno, turbo, grayscale)
+    #[arg(long, default_value = "viridis")]
+    pub colormap: String,
+
+    /// Render heatmap as overlay on original image (requires --save-heatmap)
+    #[arg(long)]
+    pub overlay: bool,
+
+    /// Override alpha parameter (weight coefficient)
+    #[arg(long)]
+    pub alpha: Option<f32>,
+
+    /// Override beta parameter (blur probability exponent)
+    #[arg(long)]
+    pub beta: Option<f32>,
+
+    /// Override tau parameter (Tenengrad threshold)
+    #[arg(long)]
+    pub tau: Option<f32>,
+
+    /// Override core/ring sharpness ratio BAD threshold (default: 1.19)
+    #[arg(long)]
+    pub triage_ratio_bad: Option<f32>,
+
+    /// Override grid cells covered BAD threshold (default: 6.15)
+    #[arg(long)]
+    pub triage_cells_bad: Option<f32>,
+
+    /// Override delta for BAD core/ring sharpness ratio (default: 0.4)
+    #[arg(long)]
+    pub triage_delta_bad_ratio: Option<f32>,
+
+    /// Override delta for BAD grid cells covered (default: 1.5)
+    #[arg(long)]
+    pub triage_delta_bad_cells: Option<f32>,
+
+    /// Override delta for GOOD core/ring sharpness ratio (default: 0.0)
+    #[arg(long)]
+    pub triage_delta_good_ratio: Option<f32>,
+
+    /// Override delta for GOOD grid cells covered (default: 0.0)
+    #[arg(long)]
+    pub triage_delta_good_cells: Option<f32>,
 }
 
 /// Internal configuration for cutout processing
@@ -328,6 +394,20 @@ pub struct QualityConfig {
     pub model_checksum: Option<String>,
     /// Whether to dump debug heatmap and overlay images
     pub debug_dump_images: bool,
+    /// Tunable quality parameters (alpha, beta, tau, etc.)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub params: Option<crate::quality_types::QualityParams>,
+    /// Triage decision parameters
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub triage_params: Option<crate::quality_types::TriageParams>,
+    /// Path to save heatmap output
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heatmap_output: Option<String>,
+    /// Colormap for heatmap rendering
+    #[serde(skip)]
+    pub colormap: crate::quality_types::ColorMap,
+    /// Whether to render heatmap as overlay on original image
+    pub overlay: bool,
 }
 
 impl QualityConfig {
@@ -339,6 +419,11 @@ impl QualityConfig {
             model_url: None,
             model_path: None,
             debug_dump_images: false,
+            params: None,
+            triage_params: None,
+            heatmap_output: None,
+            colormap: crate::quality_types::ColorMap::Viridis,
+            overlay: false,
         }
     }
 }
@@ -378,6 +463,7 @@ impl DetectionConfig {
             model_url: cmd.model_url,
             model_checksum: cmd.model_checksum,
             quality_results: None,
+            triage_params: None, // Use defaults
         })
     }
 }
@@ -414,8 +500,67 @@ impl CutoutConfig {
 impl QualityConfig {
     /// Create configuration from global args and command-specific args
     pub fn from_args(global: GlobalArgs, cmd: QualityCommand) -> Result<Self, String> {
+        // Validate overlay flag requires save_heatmap
+        if cmd.overlay && cmd.save_heatmap.is_none() {
+            return Err(
+                "Cannot use --overlay without --save-heatmap. Please specify a heatmap output path.".to_string(),
+            );
+        }
+
         let mut base: BaseModelConfig = global.into();
         base.sources = cmd.sources; // Add sources from command
+
+        // Build params from CLI overrides if any are provided
+        let params = if cmd.alpha.is_some() || cmd.beta.is_some() || cmd.tau.is_some() {
+            let mut p = crate::quality_types::QualityParams::default();
+            if let Some(alpha) = cmd.alpha {
+                p.alpha = alpha;
+            }
+            if let Some(beta) = cmd.beta {
+                p.beta = beta;
+            }
+            if let Some(tau) = cmd.tau {
+                p.tau_ten_224 = tau;
+            }
+            Some(p)
+        } else {
+            None
+        };
+
+        // Build triage params from CLI overrides if any are provided
+        let triage_params = if cmd.triage_ratio_bad.is_some()
+            || cmd.triage_cells_bad.is_some()
+            || cmd.triage_delta_bad_ratio.is_some()
+            || cmd.triage_delta_bad_cells.is_some()
+            || cmd.triage_delta_good_ratio.is_some()
+            || cmd.triage_delta_good_cells.is_some()
+        {
+            let mut tp = crate::quality_types::TriageParams::default();
+            if let Some(val) = cmd.triage_ratio_bad {
+                tp.core_ring_sharpness_ratio_bad = val;
+            }
+            if let Some(val) = cmd.triage_cells_bad {
+                tp.grid_cells_covered_bad = val;
+            }
+            if let Some(val) = cmd.triage_delta_bad_ratio {
+                tp.delta_bad_core_ring_sharpness_ratio = val;
+            }
+            if let Some(val) = cmd.triage_delta_bad_cells {
+                tp.delta_bad_grid_cells_covered = val;
+            }
+            if let Some(val) = cmd.triage_delta_good_ratio {
+                tp.delta_good_core_ring_sharpness_ratio = val;
+            }
+            if let Some(val) = cmd.triage_delta_good_cells {
+                tp.delta_good_grid_cells_covered = val;
+            }
+            Some(tp)
+        } else {
+            None
+        };
+
+        // Parse colormap
+        let colormap = parse_colormap(&cmd.colormap)?;
 
         Ok(Self {
             base,
@@ -423,6 +568,11 @@ impl QualityConfig {
             model_url: cmd.model_url,
             model_checksum: cmd.model_checksum,
             debug_dump_images: cmd.debug_dump_images,
+            params,
+            triage_params,
+            heatmap_output: cmd.save_heatmap,
+            colormap,
+            overlay: cmd.overlay,
         })
     }
 }
@@ -583,6 +733,7 @@ mod tests {
             model_url: None,
             model_checksum: None,
             quality_results: None,
+            triage_params: None,
         };
 
         // Test field access through base config
@@ -612,6 +763,18 @@ mod tests {
             model_url: None,
             model_checksum: None,
             debug_dump_images: true,
+            save_heatmap: None,
+            colormap: "viridis".to_string(),
+            overlay: false,
+            alpha: None,
+            beta: None,
+            tau: None,
+            triage_ratio_bad: None,
+            triage_cells_bad: None,
+            triage_delta_bad_ratio: None,
+            triage_delta_bad_cells: None,
+            triage_delta_good_ratio: None,
+            triage_delta_good_cells: None,
         };
 
         let config = QualityConfig::from_args(global_args, quality_cmd).unwrap();
@@ -626,6 +789,7 @@ mod tests {
         assert_eq!(config.model_url, None);
         assert_eq!(config.model_checksum, None);
         assert!(config.debug_dump_images);
+        assert!(config.params.is_none()); // No params specified
     }
 
     #[test]
