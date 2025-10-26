@@ -1,4 +1,5 @@
 mod app;
+mod recent_files;
 mod style;
 mod views;
 

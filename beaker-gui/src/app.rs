@@ -1,6 +1,9 @@
-use crate::views::DetectionView;
+use crate::recent_files::{RecentFiles, RecentItemType};
+use crate::views::{DetectionView, WelcomeAction, WelcomeView};
+use std::path::PathBuf;
 
 pub trait View {
+    #[allow(dead_code)]
     fn show(&mut self, ctx: &egui::Context, ui: &mut egui::Ui);
     #[allow(dead_code)]
     fn name(&self) -> &str;
@@ -16,8 +19,14 @@ impl View for DetectionView {
     }
 }
 
+enum AppState {
+    Welcome(WelcomeView),
+    Detection(DetectionView),
+}
+
 pub struct BeakerApp {
-    current_view: Option<Box<dyn View>>,
+    state: AppState,
+    recent_files: RecentFiles,
     use_native_menu: bool,
     #[cfg(target_os = "macos")]
     menu: Option<muda::Menu>,
@@ -27,20 +36,27 @@ pub struct BeakerApp {
 
 impl BeakerApp {
     pub fn new(use_native_menu: bool, image_path: Option<String>) -> Self {
-        let current_view: Option<Box<dyn View>> = if let Some(path) = image_path {
+        let mut recent_files = RecentFiles::default();
+
+        let state = if let Some(path) = image_path {
             match DetectionView::new(&path) {
-                Ok(view) => Some(Box::new(view)),
+                Ok(view) => {
+                    // Add to recent files
+                    let _ = recent_files.add(PathBuf::from(&path), RecentItemType::Image);
+                    AppState::Detection(view)
+                }
                 Err(e) => {
                     eprintln!("Failed to load image: {}", e);
-                    None
+                    AppState::Welcome(WelcomeView::new())
                 }
             }
         } else {
-            None
+            AppState::Welcome(WelcomeView::new())
         };
 
         Self {
-            current_view,
+            state,
+            recent_files,
             use_native_menu,
             #[cfg(target_os = "macos")]
             menu: None,
@@ -70,6 +86,28 @@ impl BeakerApp {
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("File", |ui| {
+                    if ui.button("Open...").clicked() {
+                        eprintln!("[BeakerApp] Menu: Open... clicked");
+                        if let Some(path) = Self::open_file_dialog() {
+                            self.open_image(path);
+                        }
+                        ui.close_menu();
+                    }
+                    if ui.button("Open Image...").clicked() {
+                        eprintln!("[BeakerApp] Menu: Open Image... clicked");
+                        if let Some(path) = Self::open_file_dialog() {
+                            self.open_image(path);
+                        }
+                        ui.close_menu();
+                    }
+                    if ui.button("Open Folder...").clicked() {
+                        eprintln!("[BeakerApp] Menu: Open Folder... clicked");
+                        if let Some(path) = Self::open_folder_dialog() {
+                            self.open_folder(path);
+                        }
+                        ui.close_menu();
+                    }
+                    ui.separator();
                     if ui.button("Quit").clicked() {
                         std::process::exit(0);
                     }
@@ -87,6 +125,48 @@ impl BeakerApp {
             });
         });
     }
+
+    fn open_file_dialog() -> Option<PathBuf> {
+        eprintln!("[BeakerApp] Opening file dialog from menu...");
+        // Use async dialogs for consistency across all platforms
+        let future = rfd::AsyncFileDialog::new()
+            .add_filter("Images", &["jpg", "jpeg", "png"])
+            .add_filter("Beaker metadata", &["toml"])
+            .pick_file();
+        let result = pollster::block_on(future).map(|f| f.path().to_path_buf());
+        eprintln!("[BeakerApp] Menu file dialog result: {:?}", result);
+        result
+    }
+
+    fn open_folder_dialog() -> Option<PathBuf> {
+        eprintln!("[BeakerApp] Opening folder dialog from menu...");
+        // Use async dialogs for consistency across all platforms
+        let future = rfd::AsyncFileDialog::new().pick_folder();
+        let result = pollster::block_on(future).map(|f| f.path().to_path_buf());
+        eprintln!("[BeakerApp] Menu folder dialog result: {:?}", result);
+        result
+    }
+
+    fn open_image(&mut self, path: PathBuf) {
+        eprintln!("[BeakerApp] Opening image: {:?}", path);
+        match DetectionView::new(path.to_str().unwrap()) {
+            Ok(view) => {
+                eprintln!("[BeakerApp] Image loaded successfully, switching to Detection view");
+                let _ = self.recent_files.add(path.clone(), RecentItemType::Image);
+                self.state = AppState::Detection(view);
+            }
+            Err(e) => {
+                eprintln!("[BeakerApp] ERROR: Failed to load image: {}", e);
+            }
+        }
+    }
+
+    fn open_folder(&mut self, path: PathBuf) {
+        eprintln!("[BeakerApp] Opening folder: {:?}", path);
+        // TODO: Implement folder/bulk mode in future (Proposal A)
+        let _ = self.recent_files.add(path.clone(), RecentItemType::Folder);
+        eprintln!("[BeakerApp] WARNING: Folder mode not yet implemented");
+    }
 }
 
 impl eframe::App for BeakerApp {
@@ -100,15 +180,23 @@ impl eframe::App for BeakerApp {
             self.show_menu_bar(ctx);
         }
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            if let Some(view) = &mut self.current_view {
-                view.show(ctx, ui);
-            } else {
-                ui.centered_and_justified(|ui| {
-                    ui.heading("Beaker - Bird Image Analysis");
-                    ui.add_space(20.0);
-                    ui.label("Load an image using: beaker-gui --image path/to/image.jpg");
-                });
+        egui::CentralPanel::default().show(ctx, |ui| match &mut self.state {
+            AppState::Welcome(welcome_view) => {
+                let action = welcome_view.show(ctx, ui);
+                match action {
+                    WelcomeAction::OpenImage(path) => {
+                        eprintln!("[BeakerApp] Received action: OpenImage({:?})", path);
+                        self.open_image(path);
+                    }
+                    WelcomeAction::OpenFolder(path) => {
+                        eprintln!("[BeakerApp] Received action: OpenFolder({:?})", path);
+                        self.open_folder(path);
+                    }
+                    WelcomeAction::None => {}
+                }
+            }
+            AppState::Detection(detection_view) => {
+                detection_view.show(ctx, ui);
             }
         });
     }
