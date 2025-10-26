@@ -249,39 +249,18 @@ impl WelcomeView {
     }
 
     fn open_file_dialog() -> Option<PathBuf> {
-        // On macOS, use async dialogs which work properly with the event loop
-        #[cfg(target_os = "macos")]
-        {
-            let future = rfd::AsyncFileDialog::new()
-                .add_filter("Images", &["jpg", "jpeg", "png"])
-                .add_filter("Beaker metadata", &["toml"])
-                .pick_file();
-            pollster::block_on(future).map(|f| f.path().to_path_buf())
-        }
-
-        // On other platforms, use synchronous dialogs
-        #[cfg(not(target_os = "macos"))]
-        {
-            rfd::FileDialog::new()
-                .add_filter("Images", &["jpg", "jpeg", "png"])
-                .add_filter("Beaker metadata", &["toml"])
-                .pick_file()
-        }
+        // Use async dialogs for consistency across all platforms
+        let future = rfd::AsyncFileDialog::new()
+            .add_filter("Images", &["jpg", "jpeg", "png"])
+            .add_filter("Beaker metadata", &["toml"])
+            .pick_file();
+        pollster::block_on(future).map(|f| f.path().to_path_buf())
     }
 
     fn open_folder_dialog() -> Option<PathBuf> {
-        // On macOS, use async dialogs which work properly with the event loop
-        #[cfg(target_os = "macos")]
-        {
-            let future = rfd::AsyncFileDialog::new().pick_folder();
-            pollster::block_on(future).map(|f| f.path().to_path_buf())
-        }
-
-        // On other platforms, use synchronous dialogs
-        #[cfg(not(target_os = "macos"))]
-        {
-            rfd::FileDialog::new().pick_folder()
-        }
+        // Use async dialogs for consistency across all platforms
+        let future = rfd::AsyncFileDialog::new().pick_folder();
+        pollster::block_on(future).map(|f| f.path().to_path_buf())
     }
 
     /// Add a file to recent files list
