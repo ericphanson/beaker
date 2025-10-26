@@ -14,6 +14,8 @@ pub struct WelcomeView {
     drag_hover: bool,
     /// Pending file dialog result (None = no dialog, Some(paths) = selected files)
     pending_file_dialog: Arc<Mutex<Option<Vec<PathBuf>>>>,
+    /// Pending folder dialog result (None = no dialog, Some(paths) = selected folder)
+    pending_folder_dialog: Arc<Mutex<Option<Vec<PathBuf>>>>,
 }
 
 impl WelcomeView {
@@ -22,6 +24,7 @@ impl WelcomeView {
             recent_files: RecentFiles::default(),
             drag_hover: false,
             pending_file_dialog: Arc::new(Mutex::new(None)),
+            pending_folder_dialog: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -40,6 +43,21 @@ impl WelcomeView {
                     action = WelcomeAction::OpenPaths(paths);
                 } else {
                     eprintln!("[WelcomeView] File dialog cancelled");
+                }
+            }
+        }
+
+        // Check for completed folder dialogs (non-blocking)
+        if let Ok(mut result) = self.pending_folder_dialog.try_lock() {
+            if let Some(paths) = result.take() {
+                if !paths.is_empty() {
+                    eprintln!(
+                        "[WelcomeView] Folder dialog completed with {} path(s)",
+                        paths.len()
+                    );
+                    action = WelcomeAction::OpenPaths(paths);
+                } else {
+                    eprintln!("[WelcomeView] Folder dialog cancelled");
                 }
             }
         }
@@ -149,19 +167,32 @@ impl WelcomeView {
 
             ui.add_space(drop_zone_height + 20.0);
 
-            // Open button
+            // Open buttons (files and folder)
             ui.horizontal(|ui| {
-                ui.add_space((ui.available_width() - 200.0) / 2.0);
+                ui.add_space((ui.available_width() - 420.0) / 2.0);
 
                 if ui
                     .add_sized(
                         [200.0, 50.0],
-                        egui::Button::new(egui::RichText::new("Open...").size(18.0)),
+                        egui::Button::new(egui::RichText::new("Open Files...").size(18.0)),
                     )
                     .clicked()
                 {
-                    eprintln!("[WelcomeView] 'Open...' button clicked");
+                    eprintln!("[WelcomeView] 'Open Files...' button clicked");
                     self.spawn_file_dialog();
+                }
+
+                ui.add_space(20.0);
+
+                if ui
+                    .add_sized(
+                        [200.0, 50.0],
+                        egui::Button::new(egui::RichText::new("Open Folder...").size(18.0)),
+                    )
+                    .clicked()
+                {
+                    eprintln!("[WelcomeView] 'Open Folder...' button clicked");
+                    self.spawn_folder_dialog();
                 }
             });
 
@@ -270,7 +301,7 @@ impl WelcomeView {
     }
 
     /// Spawn a file dialog in a separate thread to avoid blocking the UI
-    /// Supports multi-select for both files and folders
+    /// Supports multi-select for files
     fn spawn_file_dialog(&self) {
         let dialog_result = Arc::clone(&self.pending_file_dialog);
         std::thread::spawn(move || {
@@ -284,6 +315,27 @@ impl WelcomeView {
 
             eprintln!(
                 "[WelcomeView] File dialog result: {} file(s) selected",
+                paths_vec.len()
+            );
+            *dialog_result.lock().unwrap() = Some(paths_vec);
+        });
+    }
+
+    /// Spawn a folder dialog in a separate thread to avoid blocking the UI
+    fn spawn_folder_dialog(&self) {
+        let dialog_result = Arc::clone(&self.pending_folder_dialog);
+        std::thread::spawn(move || {
+            eprintln!("[WelcomeView] Folder dialog thread started");
+            let folder = rfd::FileDialog::new().pick_folder();
+
+            let paths_vec: Vec<PathBuf> = if let Some(folder_path) = folder {
+                vec![folder_path]
+            } else {
+                Vec::new()
+            };
+
+            eprintln!(
+                "[WelcomeView] Folder dialog result: {} folder(s) selected",
                 paths_vec.len()
             );
             *dialog_result.lock().unwrap() = Some(paths_vec);
