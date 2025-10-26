@@ -335,10 +335,36 @@ Using subagent-driven development to implement the bulk/directory mode feature f
 
 ---
 
+## Task 15: Add Navigation Controls ✅
+
+**Status:** COMPLETED
+**Commit:** 03053af0e4d6637a6012bf0fc1e2471593a68ca5
+**Pushed:** Pending
+
+### Implementation
+- Modified `beaker-gui/src/views/directory.rs`:
+  - Added `navigate_next_image()` with wraparound
+  - Added `navigate_previous_image()` with wraparound
+  - Added `jump_to_image()` helper
+  - Added Previous/Next buttons in UI
+  - Added arrow key shortcuts (←/→)
+  - Display current position (e.g., 2 / 47)
+
+### Tests
+- Added `test_navigate_next_image` - PASSED
+- Added `test_navigate_previous_image` - PASSED
+- All 26 GUI tests passed
+
+### Notes
+- Resolved borrow checker issue by restructuring method
+- Navigation works with wraparound behavior
+- Both button clicks and keyboard shortcuts supported
+
+---
+
 ## Next Tasks
 
-- [ ] Task 15: Add Navigation Controls
-- [ ] Task 15: Add Navigation Controls
+- [ ] Task 16: Display Aggregate Detection List Sidebar
 - [ ] Task 16: Display Aggregate Detection List Sidebar
 - [ ] Task 17: Add Detection Navigation
 - [ ] Task 18: Run Full CI and Fix Any Issues
