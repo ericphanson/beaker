@@ -155,6 +155,43 @@ impl DirectoryView {
         });
     }
 
+    /// Update state based on progress event from background thread
+    pub fn update_from_event(&mut self, event: beaker::ProcessingEvent) {
+        match event {
+            beaker::ProcessingEvent::ImageStart { index, .. } => {
+                if index < self.images.len() {
+                    self.images[index].status = ProcessingStatus::Processing;
+                    eprintln!("[DirectoryView] Image {} started processing", index);
+                }
+            }
+            beaker::ProcessingEvent::ImageSuccess { index, .. } => {
+                if index < self.images.len() {
+                    // For now, use placeholder values
+                    // We'll load actual detection data from TOML in next task
+                    self.images[index].status = ProcessingStatus::Success {
+                        detections_count: 0,
+                        good_count: 0,
+                        unknown_count: 0,
+                        bad_count: 0,
+                        processing_time_ms: 0.0,
+                    };
+                    eprintln!("[DirectoryView] Image {} completed successfully", index);
+                }
+            }
+            beaker::ProcessingEvent::ImageError { index, error, .. } => {
+                if index < self.images.len() {
+                    self.images[index].status = ProcessingStatus::Error {
+                        message: error.clone(),
+                    };
+                    eprintln!("[DirectoryView] Image {} failed: {}", index, error);
+                }
+            }
+            beaker::ProcessingEvent::StageChange { stage, .. } => {
+                eprintln!("[DirectoryView] Stage changed to {:?}", stage);
+            }
+        }
+    }
+
     pub fn show(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui) {
         ui.label("Directory view - under construction");
     }
@@ -195,5 +232,65 @@ mod tests {
 
         // Should have receiver set up
         assert!(view.progress_receiver.is_some());
+    }
+
+    #[test]
+    fn test_update_from_progress_event_image_start() {
+        let dir_path = PathBuf::from("/tmp/test");
+        let img1 = PathBuf::from("/tmp/test/img1.jpg");
+        let mut view = DirectoryView::new(dir_path, vec![img1.clone()]);
+
+        let event = beaker::ProcessingEvent::ImageStart {
+            path: img1,
+            index: 0,
+            total: 1,
+            stage: beaker::ProcessingStage::Detection,
+        };
+
+        view.update_from_event(event);
+
+        assert!(matches!(view.images[0].status, ProcessingStatus::Processing));
+    }
+
+    #[test]
+    fn test_update_from_progress_event_image_success() {
+        let dir_path = PathBuf::from("/tmp/test");
+        let img1 = PathBuf::from("/tmp/test/img1.jpg");
+        let mut view = DirectoryView::new(dir_path, vec![img1.clone()]);
+
+        let event = beaker::ProcessingEvent::ImageSuccess {
+            path: img1,
+            index: 0,
+        };
+
+        view.update_from_event(event);
+
+        // Status should be Success (with placeholder counts)
+        match &view.images[0].status {
+            ProcessingStatus::Success { .. } => {}
+            _ => panic!("Expected Success status"),
+        }
+    }
+
+    #[test]
+    fn test_update_from_progress_event_image_error() {
+        let dir_path = PathBuf::from("/tmp/test");
+        let img1 = PathBuf::from("/tmp/test/img1.jpg");
+        let mut view = DirectoryView::new(dir_path, vec![img1.clone()]);
+
+        let event = beaker::ProcessingEvent::ImageError {
+            path: img1,
+            index: 0,
+            error: "Test error".to_string(),
+        };
+
+        view.update_from_event(event);
+
+        match &view.images[0].status {
+            ProcessingStatus::Error { message } => {
+                assert_eq!(message, "Test error");
+            }
+            _ => panic!("Expected Error status"),
+        }
     }
 }
