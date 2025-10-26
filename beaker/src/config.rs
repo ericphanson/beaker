@@ -388,7 +388,7 @@ impl CutoutConfig {
         // Validate conflicting flags (UX-02)
         if cmd.alpha_matting && cmd.background_color.is_some() {
             return Err(
-                "Cannot use both --alpha-matting and --background-color. Choose one.".to_string()
+                "Cannot use both --alpha-matting and --background-color. Choose one.".to_string(),
             );
         }
 
