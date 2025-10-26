@@ -495,46 +495,27 @@ fn tenengrad_mean_grid_20(gray: &GrayF32) -> Array2<f32> {
 // ---------------- multi-scale blur weights (224 + 112, fused) ----------------
 
 /// Returns: (weights_20x20, fused_blur_prob_20x20, t224_20x20, blur_global)
+///
+/// This is a backward-compatible wrapper that internally uses the new layered functions.
 pub fn blur_weights_from_nchw(
     x: &Array4<f32>,
     out_dir: Option<PathBuf>,
 ) -> (Array2<f32>, Array2<f32>, Array2<f32>, f32) {
-    // 224 path
-    let gray224 = nchw_to_gray_224(x);
-    let t224 = tenengrad_mean_grid_20(&gray224);
+    // Use new layered functions internally
+    let raw = compute_raw_tenengrad(x)
+        .expect("Failed to compute raw Tenengrad");
 
-    let p224 = t224.mapv(|t| {
-        let tau = TAU_TEN_224.max(EPS_T);
-        let p = (tau / (t + tau)).powf(BETA);
-        (p + P_FLOOR).min(1.0)
-    });
+    // Use default parameters (matches old hardcoded constants)
+    let params = QualityParams::default();
 
-    // 112 path (2× downsample with antialias), calibrated tau per image
-    let gray112 = downsample_2x_gray_f32(&gray224);
-    let t112 = tenengrad_mean_grid_20(&gray112);
-
-    // medians (robust)
-    let mut v224: Vec<f32> = t224.iter().copied().collect();
-    let mut v112: Vec<f32> = t112.iter().copied().collect();
-    v224.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    v112.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    let med224 = v224[v224.len() / 2].max(1e-12);
-    let med112 = v112[v112.len() / 2];
-
-    // per-image scale ratio
-    let r = if med224 > 0.0 {
-        (med112 / med224).clamp(0.05, 0.80)
-    } else {
-        0.25
-    };
-    const BIAS112: f32 = 1.25; // try 1.2–1.4
-    let tau112 = TAU_TEN_224 * r * BIAS112;
-
-    let p112 = t112.mapv(|t| {
-        let tau = tau112.max(EPS_T);
-        let p = (tau / (t + tau)).powf(BETA);
-        (p + P_FLOOR).min(1.0)
-    });
+    // Apply parameters
+    let (p224, p112) = apply_tenengrad_params(
+        &raw.t224,
+        &raw.t112,
+        raw.median_224,
+        raw.scale_ratio,
+        &params,
+    );
 
     if log::log_enabled!(log::Level::Debug) {
         let _ = stats("p224", &p224);
@@ -542,32 +523,24 @@ pub fn blur_weights_from_nchw(
         msanity(&p224, &p112);
     }
 
-    // Fuse probabilities (probabilistic OR)
-    let mut p = Array2::<f32>::zeros((20, 20));
-    ndarray::Zip::from(&mut p)
-        .and(&p224)
-        .and(&p112)
-        .for_each(|p_elem, &a, &b| {
-            *p_elem = 1.0 - (1.0 - a) * (1.0 - b);
-        });
+    // Fuse probabilities
+    let blur_probability = fuse_probabilities(&p224, &p112);
 
     let mean = |a: &Array2<f32>| a.sum() / (a.len() as f32);
     log::debug!(
         "mean p224={:.4}, mean p112={:.4}, mean pfused={:.4}",
         mean(&p224),
         mean(&p112),
-        mean(&p)
+        mean(&blur_probability)
     );
 
-    // Weights from fused blur prob
-    let mut w = Array2::<f32>::zeros((20, 20));
-    for i in 0..20 {
-        for j in 0..20 {
-            let val = 1.0 - ALPHA * p[[i, j]];
-            w[[i, j]] = val.clamp(MIN_WEIGHT, 1.0);
-        }
-    }
+    // Compute weights
+    let blur_weights = compute_weights(&blur_probability, &params);
 
+    // Global blur score
+    let global_blur_score = blur_probability.sum() / 400.0;
+
+    // Optional debug output (if out_dir provided)
     if let Some(out) = out_dir {
         // Dump debug heatmaps when requested via --debug-dump-images flag
         let start = Instant::now();
@@ -575,20 +548,20 @@ pub fn blur_weights_from_nchw(
             &out,
             DebugMaps {
                 x224: x,
-                t224: &t224,
-                t112: Some(&t112),
+                t224: &raw.t224,
+                t112: Some(&raw.t112),
                 p224: &p224,
                 p112: Some(&p112),
-                pfused: &p,
-                w20: &w,
+                pfused: &blur_probability,
+                w20: &blur_weights,
             },
         )
         .unwrap();
         log::debug!("Finished dumping debug heatmaps in {:?}", start.elapsed());
     }
 
-    let blur_global = p.sum() / 400.0;
-    (w, p, t224, blur_global)
+    // Return in old format: (weights, probability, tenengrad_224, global_blur)
+    (blur_weights, blur_probability, raw.t224, global_blur_score)
 }
 
 /// Bilinear sample of a 20x20 field at (u,v) in "cell" coordinates, where 0..20 maps across the image.
