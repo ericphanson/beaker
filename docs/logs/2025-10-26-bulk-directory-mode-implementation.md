@@ -162,10 +162,35 @@ Using subagent-driven development to implement the bulk/directory mode feature f
 
 ---
 
+## Task 8: Handle Progress Events in DirectoryView ✅
+
+**Status:** COMPLETED
+**Commit:** d84586d23bb8410ea9c643baee5928ddd561ef8b
+**Pushed:** Pending
+
+### Implementation
+- Modified `beaker-gui/src/views/directory.rs`:
+  - Added `update_from_event()` method to handle progress events
+  - Handles ImageStart → sets status to Processing
+  - Handles ImageSuccess → sets status to Success (placeholder counts)
+  - Handles ImageError → sets status to Error with message
+  - Handles StageChange → logs stage changes
+
+### Tests
+- Added `test_update_from_progress_event_image_start` - PASSED
+- Added `test_update_from_progress_event_image_success` - PASSED
+- Added `test_update_from_progress_event_image_error` - PASSED
+- All 19 GUI tests passed
+
+### Notes
+- Followed TDD: wrote all 3 tests first, verified they failed, then implemented
+- Success status uses placeholder counts (0) - will be populated from TOML in Task 11/12
+
+---
+
 ## Next Tasks
 
-- [ ] Task 8: Handle Progress Events in DirectoryView
-- [ ] Task 8: Handle Progress Events in DirectoryView
+- [ ] Task 9: Poll Progress Events in DirectoryView show() Method
 - [ ] Task 9: Poll Progress Events in DirectoryView show() Method
 - [ ] Task 10: Display Processing Progress UI
 - [ ] Task 11: Load Detection Data from TOML After Processing
