@@ -114,14 +114,13 @@ pub fn run_detection_with_options(
 
     log::info!("   Analyzing image quality");
     let quality_config = crate::config::QualityConfig::from_detection_config(&config);
-    let quality_results = crate::model_processing::run_model_processing_with_quality_outputs::<
-        QualityProcessor,
-    >(
-        quality_config,
-        progress_tx.clone(),
-        cancel_flag.clone(),
-        Some(ProcessingStage::Quality),
-    );
+    let quality_results =
+        crate::model_processing::run_model_processing_with_quality_outputs::<QualityProcessor>(
+            quality_config,
+            progress_tx.clone(),
+            cancel_flag.clone(),
+            Some(ProcessingStage::Quality),
+        );
 
     let config = match quality_results {
         Ok((_count, results)) => DetectionConfig {

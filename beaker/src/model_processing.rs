@@ -37,10 +37,7 @@ pub enum ProcessingEvent {
     },
 
     /// Image processing completed successfully
-    ImageSuccess {
-        path: PathBuf,
-        index: usize,
-    },
+    ImageSuccess { path: PathBuf, index: usize },
 
     /// Image processing failed
     ImageError {
@@ -61,7 +58,6 @@ pub enum ProcessingStage {
     Quality,
     Detection,
 }
-
 
 /// Configuration trait for models that can be processed generically
 pub trait ModelConfig: std::any::Any {
@@ -551,7 +547,12 @@ mod tests {
         };
 
         match event {
-            ProcessingEvent::ImageStart { path, index, total, stage } => {
+            ProcessingEvent::ImageStart {
+                path,
+                index,
+                total,
+                stage,
+            } => {
                 assert_eq!(path, PathBuf::from("test.jpg"));
                 assert_eq!(index, 0);
                 assert_eq!(total, 10);
@@ -649,12 +650,14 @@ mod tests {
         };
 
         match event {
-            ProcessingEvent::StageChange { stage, images_total } => {
+            ProcessingEvent::StageChange {
+                stage,
+                images_total,
+            } => {
                 assert_eq!(stage, ProcessingStage::Detection);
                 assert_eq!(images_total, 42);
             }
             _ => panic!("Wrong event type"),
         }
     }
-
 }
