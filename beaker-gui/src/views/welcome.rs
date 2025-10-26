@@ -6,17 +6,14 @@ use std::sync::{Arc, Mutex};
 #[derive(Debug, Clone)]
 pub enum WelcomeAction {
     None,
-    OpenImage(PathBuf),
-    OpenFolder(PathBuf),
+    OpenPaths(Vec<PathBuf>),
 }
 
 pub struct WelcomeView {
     recent_files: RecentFiles,
     drag_hover: bool,
-    /// Pending file dialog result (None = no dialog, Some(None) = cancelled, Some(Some(path)) = selected)
-    pending_file_dialog: Arc<Mutex<Option<Option<PathBuf>>>>,
-    /// Pending folder dialog result
-    pending_folder_dialog: Arc<Mutex<Option<Option<PathBuf>>>>,
+    /// Pending file dialog result (None = no dialog, Some(paths) = selected files)
+    pending_file_dialog: Arc<Mutex<Option<Vec<PathBuf>>>>,
 }
 
 impl WelcomeView {
@@ -25,7 +22,6 @@ impl WelcomeView {
             recent_files: RecentFiles::default(),
             drag_hover: false,
             pending_file_dialog: Arc::new(Mutex::new(None)),
-            pending_folder_dialog: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -35,45 +31,32 @@ impl WelcomeView {
 
         // Check for completed file dialogs (non-blocking)
         if let Ok(mut result) = self.pending_file_dialog.try_lock() {
-            if let Some(path_option) = result.take() {
-                if let Some(path) = path_option {
-                    eprintln!("[WelcomeView] File dialog completed with path: {:?}", path);
-                    action = WelcomeAction::OpenImage(path);
+            if let Some(paths) = result.take() {
+                if !paths.is_empty() {
+                    eprintln!(
+                        "[WelcomeView] File dialog completed with {} path(s)",
+                        paths.len()
+                    );
+                    action = WelcomeAction::OpenPaths(paths);
                 } else {
                     eprintln!("[WelcomeView] File dialog cancelled");
                 }
             }
         }
 
-        // Check for completed folder dialogs (non-blocking)
-        if let Ok(mut result) = self.pending_folder_dialog.try_lock() {
-            if let Some(path_option) = result.take() {
-                if let Some(path) = path_option {
-                    eprintln!(
-                        "[WelcomeView] Folder dialog completed with path: {:?}",
-                        path
-                    );
-                    action = WelcomeAction::OpenFolder(path);
-                } else {
-                    eprintln!("[WelcomeView] Folder dialog cancelled");
-                }
-            }
-        }
-
-        // Check for dropped files
+        // Check for dropped files (support multiple)
         ctx.input(|i| {
             if !i.raw.dropped_files.is_empty() {
-                if let Some(dropped_file) = i.raw.dropped_files.first() {
+                let mut paths = Vec::new();
+                for dropped_file in &i.raw.dropped_files {
                     if let Some(path) = &dropped_file.path {
                         eprintln!("[WelcomeView] File dropped: {:?}", path);
-                        if path.is_file() {
-                            eprintln!("[WelcomeView] Dropped file is an image, opening...");
-                            action = WelcomeAction::OpenImage(path.clone());
-                        } else if path.is_dir() {
-                            eprintln!("[WelcomeView] Dropped file is a folder, opening...");
-                            action = WelcomeAction::OpenFolder(path.clone());
-                        }
+                        paths.push(path.clone());
                     }
+                }
+                if !paths.is_empty() {
+                    eprintln!("[WelcomeView] Opening {} dropped item(s)", paths.len());
+                    action = WelcomeAction::OpenPaths(paths);
                 }
             }
 
@@ -166,32 +149,19 @@ impl WelcomeView {
 
             ui.add_space(drop_zone_height + 20.0);
 
-            // Buttons
+            // Open button
             ui.horizontal(|ui| {
-                ui.add_space((ui.available_width() - 400.0) / 2.0);
+                ui.add_space((ui.available_width() - 200.0) / 2.0);
 
                 if ui
                     .add_sized(
-                        [190.0, 50.0],
-                        egui::Button::new(egui::RichText::new("Open Image").size(18.0)),
+                        [200.0, 50.0],
+                        egui::Button::new(egui::RichText::new("Open...").size(18.0)),
                     )
                     .clicked()
                 {
-                    eprintln!("[WelcomeView] 'Open Image' button clicked");
+                    eprintln!("[WelcomeView] 'Open...' button clicked");
                     self.spawn_file_dialog();
-                }
-
-                ui.add_space(20.0);
-
-                if ui
-                    .add_sized(
-                        [190.0, 50.0],
-                        egui::Button::new(egui::RichText::new("Open Folder").size(18.0)),
-                    )
-                    .clicked()
-                {
-                    eprintln!("[WelcomeView] 'Open Folder' button clicked");
-                    self.spawn_folder_dialog();
                 }
             });
 
@@ -254,16 +224,7 @@ impl WelcomeView {
                     .clicked()
                 {
                     eprintln!("[WelcomeView] Recent item clicked: {:?}", item.path);
-                    match item.item_type {
-                        RecentItemType::Image => {
-                            eprintln!("[WelcomeView] Opening recent image");
-                            *action = WelcomeAction::OpenImage(item.path.clone());
-                        }
-                        RecentItemType::Folder => {
-                            eprintln!("[WelcomeView] Opening recent folder");
-                            *action = WelcomeAction::OpenFolder(item.path.clone());
-                        }
-                    }
+                    *action = WelcomeAction::OpenPaths(vec![item.path.clone()]);
                 }
 
                 ui.label(
@@ -309,27 +270,23 @@ impl WelcomeView {
     }
 
     /// Spawn a file dialog in a separate thread to avoid blocking the UI
+    /// Supports multi-select for both files and folders
     fn spawn_file_dialog(&self) {
         let dialog_result = Arc::clone(&self.pending_file_dialog);
         std::thread::spawn(move || {
-            eprintln!("[WelcomeView] File dialog thread started");
-            let path = rfd::FileDialog::new()
+            eprintln!("[WelcomeView] File dialog thread started (multi-select)");
+            let paths = rfd::FileDialog::new()
                 .add_filter("Images", &["jpg", "jpeg", "png"])
                 .add_filter("Beaker metadata", &["toml"])
-                .pick_file();
-            eprintln!("[WelcomeView] File dialog result: {:?}", path);
-            *dialog_result.lock().unwrap() = Some(path);
-        });
-    }
+                .pick_files();
 
-    /// Spawn a folder dialog in a separate thread to avoid blocking the UI
-    fn spawn_folder_dialog(&self) {
-        let dialog_result = Arc::clone(&self.pending_folder_dialog);
-        std::thread::spawn(move || {
-            eprintln!("[WelcomeView] Folder dialog thread started");
-            let path = rfd::FileDialog::new().pick_folder();
-            eprintln!("[WelcomeView] Folder dialog result: {:?}", path);
-            *dialog_result.lock().unwrap() = Some(path);
+            let paths_vec: Vec<PathBuf> = paths.unwrap_or_default();
+
+            eprintln!(
+                "[WelcomeView] File dialog result: {} file(s) selected",
+                paths_vec.len()
+            );
+            *dialog_result.lock().unwrap() = Some(paths_vec);
         });
     }
 
