@@ -192,7 +192,38 @@ impl DirectoryView {
         }
     }
 
-    pub fn show(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui) {
+    /// Poll for progress events from background thread
+    fn poll_events(&mut self) {
+        // Collect events first to avoid borrow checker issues
+        let mut events = Vec::new();
+        if let Some(ref rx) = self.progress_receiver {
+            // Drain all available events (non-blocking)
+            while let Ok(event) = rx.try_recv() {
+                events.push(event);
+            }
+        }
+
+        // Process collected events
+        for event in events {
+            self.update_from_event(event);
+        }
+    }
+
+    pub fn show(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+        // Poll progress events
+        self.poll_events();
+
+        // Request repaint if processing is active
+        let is_processing = self.images.iter().any(|img| {
+            matches!(
+                img.status,
+                ProcessingStatus::Waiting | ProcessingStatus::Processing
+            )
+        });
+        if is_processing {
+            ctx.request_repaint();
+        }
+
         ui.label("Directory view - under construction");
     }
 }
@@ -292,5 +323,32 @@ mod tests {
             }
             _ => panic!("Expected Error status"),
         }
+    }
+
+    #[test]
+    fn test_show_polls_progress_events() {
+        use std::sync::mpsc::channel;
+
+        let dir_path = PathBuf::from("/tmp/test");
+        let img1 = PathBuf::from("/tmp/test/img1.jpg");
+        let mut view = DirectoryView::new(dir_path, vec![img1.clone()]);
+
+        // Manually set up receiver and send event
+        let (tx, rx) = channel();
+        view.progress_receiver = Some(rx);
+
+        let event = beaker::ProcessingEvent::ImageStart {
+            path: img1,
+            index: 0,
+            total: 1,
+            stage: beaker::ProcessingStage::Detection,
+        };
+        tx.send(event).unwrap();
+
+        // Call poll_events (extracted helper method)
+        view.poll_events();
+
+        // Event should have been processed
+        assert!(matches!(view.images[0].status, ProcessingStatus::Processing));
     }
 }
