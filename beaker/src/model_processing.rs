@@ -36,24 +36,23 @@ pub enum ProcessingEvent {
         stage: ProcessingStage,
     },
 
-    /// Image processing completed (success or failure)
-    ImageComplete {
+    /// Image processing completed successfully
+    ImageSuccess {
         path: PathBuf,
         index: usize,
-        result: ProcessingResultInfo,
+    },
+
+    /// Image processing failed
+    ImageError {
+        path: PathBuf,
+        index: usize,
+        error: String,
     },
 
     /// Stage transition (quality → detection)
     StageChange {
         stage: ProcessingStage,
         images_total: usize,
-    },
-
-    /// Overall progress update
-    Progress {
-        completed: usize,
-        total: usize,
-        stage: ProcessingStage,
     },
 }
 
@@ -63,20 +62,6 @@ pub enum ProcessingStage {
     Detection,
 }
 
-#[derive(Debug, Clone)]
-#[allow(dead_code)] // Public API for GUI consumption
-pub enum ProcessingResultInfo {
-    Success {
-        detections_count: usize,
-        good_count: usize,
-        bad_count: usize,
-        unknown_count: usize,
-        processing_time_ms: f64,
-    },
-    Error {
-        error_message: String,
-    },
-}
 
 /// Configuration trait for models that can be processed generically
 pub trait ModelConfig: std::any::Any {
@@ -370,18 +355,11 @@ pub fn run_model_processing_with_quality_outputs<P: ModelProcessor>(
                     quality_results.insert(image_path.to_string_lossy().to_string(), quality);
                 };
 
-                // Emit ImageComplete success event
+                // Emit ImageSuccess event
                 if let Some(ref tx) = progress_tx {
-                    let _ = tx.send(ProcessingEvent::ImageComplete {
+                    let _ = tx.send(ProcessingEvent::ImageSuccess {
                         path: image_path.clone(),
                         index,
-                        result: ProcessingResultInfo::Success {
-                            detections_count: 0, // Will be populated by detection stage
-                            good_count: 0,
-                            bad_count: 0,
-                            unknown_count: 0,
-                            processing_time_ms: result.processing_time_ms(),
-                        },
                     });
                 }
 
@@ -416,14 +394,12 @@ pub fn run_model_processing_with_quality_outputs<P: ModelProcessor>(
 
                 failed_images.push(image_path.to_str().unwrap_or_default().to_string());
 
-                // Emit ImageComplete error event
+                // Emit ImageError event
                 if let Some(ref tx) = progress_tx {
-                    let _ = tx.send(ProcessingEvent::ImageComplete {
+                    let _ = tx.send(ProcessingEvent::ImageError {
                         path: image_path.clone(),
                         index,
-                        result: ProcessingResultInfo::Error {
-                            error_message: e.to_string(),
-                        },
+                        error: e.to_string(),
                     });
                 }
 
@@ -593,44 +569,36 @@ mod tests {
     }
 
     #[test]
-    fn test_processing_result_success() {
-        let result = ProcessingResultInfo::Success {
-            detections_count: 5,
-            good_count: 3,
-            bad_count: 1,
-            unknown_count: 1,
-            processing_time_ms: 123.45,
+    fn test_image_success_event() {
+        let event = ProcessingEvent::ImageSuccess {
+            path: PathBuf::from("test.jpg"),
+            index: 0,
         };
 
-        match result {
-            ProcessingResultInfo::Success {
-                detections_count,
-                good_count,
-                bad_count,
-                unknown_count,
-                processing_time_ms
-            } => {
-                assert_eq!(detections_count, 5);
-                assert_eq!(good_count, 3);
-                assert_eq!(bad_count, 1);
-                assert_eq!(unknown_count, 1);
-                assert_eq!(processing_time_ms, 123.45);
+        match event {
+            ProcessingEvent::ImageSuccess { path, index } => {
+                assert_eq!(path, PathBuf::from("test.jpg"));
+                assert_eq!(index, 0);
             }
-            _ => panic!("Wrong result type"),
+            _ => panic!("Wrong event type"),
         }
     }
 
     #[test]
-    fn test_processing_result_error() {
-        let result = ProcessingResultInfo::Error {
-            error_message: "Test error".to_string(),
+    fn test_image_error_event() {
+        let event = ProcessingEvent::ImageError {
+            path: PathBuf::from("test.jpg"),
+            index: 0,
+            error: "Test error".to_string(),
         };
 
-        match result {
-            ProcessingResultInfo::Error { error_message } => {
-                assert_eq!(error_message, "Test error");
+        match event {
+            ProcessingEvent::ImageError { path, index, error } => {
+                assert_eq!(path, PathBuf::from("test.jpg"));
+                assert_eq!(index, 0);
+                assert_eq!(error, "Test error");
             }
-            _ => panic!("Wrong result type"),
+            _ => panic!("Wrong event type"),
         }
     }
 
@@ -689,21 +657,4 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_progress_event() {
-        let event = ProcessingEvent::Progress {
-            completed: 5,
-            total: 10,
-            stage: ProcessingStage::Quality,
-        };
-
-        match event {
-            ProcessingEvent::Progress { completed, total, stage } => {
-                assert_eq!(completed, 5);
-                assert_eq!(total, 10);
-                assert_eq!(stage, ProcessingStage::Quality);
-            }
-            _ => panic!("Wrong event type"),
-        }
-    }
 }
