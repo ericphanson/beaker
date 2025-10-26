@@ -1,5 +1,4 @@
 use beaker::quality_types::{QualityParams, QualityRawData, QualityScores};
-use std::time::SystemTime;
 
 #[test]
 fn test_quality_params_default_values() {
@@ -40,7 +39,6 @@ fn test_quality_raw_data_creation() {
         median_tenengrad_224: 0.08,
         scale_ratio: 0.5,
         model_version: "quality-model-v1".to_string(),
-        computed_at: SystemTime::now(),
     };
 
     assert_eq!(raw.input_width, 640);
@@ -49,23 +47,6 @@ fn test_quality_raw_data_creation() {
     assert_eq!(raw.model_version, "quality-model-v1");
 }
 
-#[test]
-fn test_quality_scores_creation() {
-    let params = QualityParams::default();
-    let scores = QualityScores {
-        final_score: 65.0,
-        paq2piq_score: 75.0,
-        blur_score: 0.3,
-        blur_probability: [[0.3f32; 20]; 20],
-        blur_weights: [[0.79f32; 20]; 20],
-        params: params.clone(),
-    };
-
-    assert_eq!(scores.final_score, 65.0);
-    assert_eq!(scores.paq2piq_score, 75.0);
-    assert_eq!(scores.blur_score, 0.3);
-    assert_eq!(scores.params.alpha, 0.7);
-}
 
 #[test]
 fn test_quality_scores_compute_from_raw() {
@@ -79,7 +60,6 @@ fn test_quality_scores_compute_from_raw() {
         median_tenengrad_224: 0.04,
         scale_ratio: 0.5,
         model_version: "quality-model-v1".to_string(),
-        computed_at: SystemTime::now(),
     };
 
     let params = QualityParams::default();
@@ -96,9 +76,6 @@ fn test_quality_scores_compute_from_raw() {
     // Verify grids have correct shape
     assert_eq!(scores.blur_probability.len(), 20);
     assert_eq!(scores.blur_weights.len(), 20);
-
-    // Verify params are stored
-    assert_eq!(scores.params.alpha, 0.7);
 }
 
 #[test]
@@ -114,7 +91,6 @@ fn test_quality_scores_compute_no_blur() {
         median_tenengrad_224: 0.8,
         scale_ratio: 0.5,
         model_version: "quality-model-v1".to_string(),
-        computed_at: SystemTime::now(),
     };
 
     let params = QualityParams::default();

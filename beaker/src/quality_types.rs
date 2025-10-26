@@ -2,7 +2,6 @@
 
 use image::RgbaImage;
 use serde::Serialize;
-use std::time::SystemTime;
 
 /// Tunable parameters for quality heuristics
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -66,8 +65,6 @@ pub struct QualityRawData {
 
     /// Provenance
     pub model_version: String,
-    #[allow(dead_code)]
-    pub computed_at: SystemTime,
 }
 
 /// Parameter-dependent quality scores (cheap to compute, <0.1ms)
@@ -83,10 +80,6 @@ pub struct QualityScores {
     /// Intermediate results (20x20 grids)
     pub blur_probability: [[f32; 20]; 20], // Fused blur probability
     pub blur_weights: [[f32; 20]; 20], // Weights (1 - alpha*P)
-
-    /// Parameters used to compute these scores
-    #[allow(dead_code)]
-    pub params: QualityParams,
 }
 
 use crate::blur_detection::{apply_tenengrad_params, compute_weights, fuse_probabilities};
@@ -149,13 +142,12 @@ impl QualityScores {
             blur_score,
             blur_probability,
             blur_weights,
-            params: params.clone(),
         }
     }
 }
 
 /// Heatmap rendering options
-#[allow(dead_code)]
+#[allow(dead_code)] // Public API used in integration tests and future GUI
 #[derive(Clone, Debug)]
 pub struct HeatmapStyle {
     /// Colormap for heatmap rendering
@@ -179,7 +171,7 @@ impl Default for HeatmapStyle {
 }
 
 /// Available colormaps for heatmap rendering
-#[allow(dead_code)]
+#[allow(dead_code)] // Public API used in integration tests and future GUI
 #[derive(Clone, Copy, Debug)]
 pub enum ColorMap {
     Viridis,
@@ -190,7 +182,7 @@ pub enum ColorMap {
 }
 
 /// Visualization layer (parameter-dependent, rendered on-demand)
-#[allow(dead_code)]
+#[allow(dead_code)] // Public API used in integration tests and future GUI
 #[derive(Clone)]
 pub struct QualityVisualization {
     /// Rendered heatmap images (in-memory buffers)

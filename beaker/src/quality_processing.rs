@@ -11,7 +11,7 @@ use log::debug;
 use ort::{session::Session, value::Value};
 use serde::Serialize;
 use std::path::Path;
-use std::time::{Instant, SystemTime};
+use std::time::Instant;
 
 /// Quality model default model information
 pub fn get_default_quality_model_info() -> ModelInfo {
@@ -218,22 +218,6 @@ fn preprocess_image_for_quality(img: &image::DynamicImage) -> Result<ndarray::Ar
     Ok(array)
 }
 
-/// Load ONNX session with default model path
-#[allow(dead_code)]
-pub fn load_onnx_session_default() -> Result<Session> {
-    let model_dir = std::env::var("ONNX_MODEL_CACHE_DIR").unwrap_or_else(|_| "models".to_string());
-    let model_path = Path::new(&model_dir).join("quality_model.onnx");
-
-    // Read model bytes
-    let bytes = std::fs::read(&model_path)
-        .with_context(|| format!("Failed to read model file: {}", model_path.display()))?;
-
-    // Create session from bytes
-    Session::builder()
-        .map_err(|e| anyhow::anyhow!("Failed to create session builder: {}", e))?
-        .commit_from_memory(&bytes)
-        .map_err(|e| anyhow::anyhow!("Failed to load ONNX model: {}", e))
-}
 
 /// Compute parameter-independent quality data (expensive: ~60ms, cached)
 #[cached(
@@ -309,7 +293,6 @@ pub fn compute_quality_raw(
         median_tenengrad_224: raw_tenengrad.median_224,
         scale_ratio: raw_tenengrad.scale_ratio,
         model_version: "quality-model-v1".to_string(),
-        computed_at: SystemTime::now(),
     })
 }
 

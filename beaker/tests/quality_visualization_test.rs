@@ -6,7 +6,6 @@ use beaker::quality_visualization::{
 };
 use image::{DynamicImage, Rgba, RgbaImage};
 use ndarray::Array2;
-use std::time::SystemTime;
 
 #[test]
 fn test_bilinear_sample_corners() {
@@ -270,7 +269,6 @@ fn test_quality_visualization_render() {
         median_tenengrad_224: 0.04,
         scale_ratio: 0.5,
         model_version: "quality-model-v1".to_string(),
-        computed_at: SystemTime::now(),
     };
 
     let params = QualityParams::default();
@@ -306,7 +304,6 @@ fn test_quality_visualization_render_blur_only() {
         median_tenengrad_224: 0.04,
         scale_ratio: 0.5,
         model_version: "quality-model-v1".to_string(),
-        computed_at: SystemTime::now(),
     };
 
     let params = QualityParams::default();
@@ -333,7 +330,6 @@ fn test_quality_visualization_render_overlay() {
         median_tenengrad_224: 0.04,
         scale_ratio: 0.5,
         model_version: "quality-model-v1".to_string(),
-        computed_at: SystemTime::now(),
     };
 
     let params = QualityParams::default();

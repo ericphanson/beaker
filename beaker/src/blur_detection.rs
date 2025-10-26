@@ -4,14 +4,7 @@ use ndarray::{Array2, Array4, Axis};
 use serde::Serialize;
 
 /// ------------------------- tunables -------------------------
-/// Blur weighting (from fused blur probability P via W = 1 - ALPHA*P)
-#[allow(dead_code)]
-const ALPHA: f32 = 0.7;
-#[allow(dead_code)]
-const MIN_WEIGHT: f32 = 0.2;
-
 /// Tenengrad mapping + multi-scale
-#[allow(dead_code)]
 const TAU_TEN_224: f32 = 0.02; // threshold for 224x224 in [0,1]
 const EPS_T: f32 = 1e-12; // safety epsilon for divisions
 
@@ -886,9 +879,3 @@ pub fn detection_quality(
     }
 }
 
-/// Convenience: fuse a full-frame PaQ scalar with full-frame blur_global (if you want a single image score).
-#[allow(dead_code)]
-pub fn image_overall_from_paq_and_blur(paq_global: f32, blur_global: f32) -> f32 {
-    let w_mean = clampf(1.0 - ALPHA * blur_global, MIN_WEIGHT, 1.0);
-    paq_global * w_mean
-}
