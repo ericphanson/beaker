@@ -414,11 +414,20 @@ impl DirectoryView {
     fn show_gallery_ui(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
         // Handle keyboard shortcuts
         ctx.input(|i| {
+            // Image navigation
             if i.key_pressed(egui::Key::ArrowRight) {
                 self.navigate_next_image();
             }
             if i.key_pressed(egui::Key::ArrowLeft) {
                 self.navigate_previous_image();
+            }
+
+            // Detection navigation (J/K like vim)
+            if i.key_pressed(egui::Key::J) {
+                self.navigate_next_detection();
+            }
+            if i.key_pressed(egui::Key::K) {
+                self.navigate_previous_detection();
             }
         });
 
@@ -463,7 +472,27 @@ impl DirectoryView {
     }
 
     fn show_aggregate_detection_list(&mut self, ui: &mut egui::Ui) {
-        ui.heading(format!("All Detections ({})", self.all_detections.len()));
+        ui.horizontal(|ui| {
+            ui.heading(format!("All Detections ({})", self.all_detections.len()));
+        });
+
+        // Navigation controls for detections
+        if !self.all_detections.is_empty() {
+            ui.horizontal(|ui| {
+                if ui.button("← Prev Detection").clicked() {
+                    self.navigate_previous_detection();
+                }
+
+                if let Some(idx) = self.selected_detection_idx {
+                    ui.label(format!("{} / {}", idx + 1, self.all_detections.len()));
+                }
+
+                if ui.button("Next Detection →").clicked() {
+                    self.navigate_next_detection();
+                }
+            });
+        }
+
         ui.add_space(10.0);
 
         if self.all_detections.is_empty() {
@@ -720,6 +749,40 @@ impl DirectoryView {
         if idx < self.images.len() {
             self.current_image_idx = idx;
         }
+    }
+
+    /// Navigate to next detection (wraps around)
+    fn navigate_next_detection(&mut self) {
+        if self.all_detections.is_empty() {
+            return;
+        }
+
+        let current_idx = self.selected_detection_idx.unwrap_or(0);
+        let next_idx = (current_idx + 1) % self.all_detections.len();
+
+        self.selected_detection_idx = Some(next_idx);
+
+        // Jump to the image containing this detection
+        self.current_image_idx = self.all_detections[next_idx].image_idx;
+    }
+
+    /// Navigate to previous detection (wraps around)
+    fn navigate_previous_detection(&mut self) {
+        if self.all_detections.is_empty() {
+            return;
+        }
+
+        let current_idx = self.selected_detection_idx.unwrap_or(0);
+        let prev_idx = if current_idx == 0 {
+            self.all_detections.len() - 1
+        } else {
+            current_idx - 1
+        };
+
+        self.selected_detection_idx = Some(prev_idx);
+
+        // Jump to the image containing this detection
+        self.current_image_idx = self.all_detections[prev_idx].image_idx;
     }
 }
 
@@ -1029,5 +1092,95 @@ detections = [
 
         view.navigate_previous_image();
         assert_eq!(view.current_image_idx, 1);
+    }
+
+    #[test]
+    fn test_navigate_next_detection() {
+        let dir_path = PathBuf::from("/tmp/test");
+        let img1 = PathBuf::from("/tmp/test/img1.jpg");
+        let img2 = PathBuf::from("/tmp/test/img2.jpg");
+
+        let mut view = DirectoryView::new(dir_path, vec![img1.clone(), img2.clone()]);
+
+        // Add detections
+        view.images[0].detections = vec![
+            crate::views::detection::Detection {
+                class_name: "head".to_string(),
+                confidence: 0.95,
+                blur_score: None,
+                x1: 0.0, y1: 0.0, x2: 10.0, y2: 10.0,
+            },
+        ];
+
+        view.images[1].detections = vec![
+            crate::views::detection::Detection {
+                class_name: "head".to_string(),
+                confidence: 0.85,
+                blur_score: None,
+                x1: 0.0, y1: 0.0, x2: 10.0, y2: 10.0,
+            },
+            crate::views::detection::Detection {
+                class_name: "head".to_string(),
+                confidence: 0.75,
+                blur_score: None,
+                x1: 0.0, y1: 0.0, x2: 10.0, y2: 10.0,
+            },
+        ];
+
+        view.build_aggregate_detection_list();
+
+        // Start at detection 0
+        view.selected_detection_idx = Some(0);
+
+        view.navigate_next_detection();
+        assert_eq!(view.selected_detection_idx, Some(1));
+        assert_eq!(view.current_image_idx, 1); // Should jump to image 1
+
+        view.navigate_next_detection();
+        assert_eq!(view.selected_detection_idx, Some(2));
+        assert_eq!(view.current_image_idx, 1); // Still on image 1
+
+        // Wrap to beginning
+        view.navigate_next_detection();
+        assert_eq!(view.selected_detection_idx, Some(0));
+        assert_eq!(view.current_image_idx, 0); // Back to image 0
+    }
+
+    #[test]
+    fn test_navigate_previous_detection() {
+        let dir_path = PathBuf::from("/tmp/test");
+        let img1 = PathBuf::from("/tmp/test/img1.jpg");
+        let img2 = PathBuf::from("/tmp/test/img2.jpg");
+
+        let mut view = DirectoryView::new(dir_path, vec![img1.clone(), img2.clone()]);
+
+        // Add detections
+        view.images[0].detections = vec![
+            crate::views::detection::Detection {
+                class_name: "head".to_string(),
+                confidence: 0.95,
+                blur_score: None,
+                x1: 0.0, y1: 0.0, x2: 10.0, y2: 10.0,
+            },
+        ];
+
+        view.images[1].detections = vec![
+            crate::views::detection::Detection {
+                class_name: "head".to_string(),
+                confidence: 0.85,
+                blur_score: None,
+                x1: 0.0, y1: 0.0, x2: 10.0, y2: 10.0,
+            },
+        ];
+
+        view.build_aggregate_detection_list();
+
+        // Start at detection 0
+        view.selected_detection_idx = Some(0);
+
+        // Wrap to last
+        view.navigate_previous_detection();
+        assert_eq!(view.selected_detection_idx, Some(1));
+        assert_eq!(view.current_image_idx, 1); // Should jump to image 1
     }
 }
