@@ -141,10 +141,30 @@ Using subagent-driven development to implement the bulk/directory mode feature f
 
 ---
 
+## Task 7: Call start_processing When DirectoryView Created ✅
+
+**Status:** COMPLETED
+**Commit:** 65bf107296918c56d57942525461cc0134c9e1a1
+**Pushed:** Pending
+
+### Implementation
+- Modified `beaker-gui/src/app.rs`:
+  - Modified `open_folder()` to call `dir_view.start_processing()` after creating DirectoryView
+  - Ensures background processing starts automatically when folder is opened
+
+### Tests
+- Added `test_open_folder_starts_processing` - PASSED
+- All 16 GUI tests passed
+
+### Notes
+- Test checks observable state (non-empty images) rather than internal state
+- Appropriate for public API testing
+
+---
+
 ## Next Tasks
 
-- [ ] Task 7: Call start_processing When DirectoryView Created
-- [ ] Task 7: Call start_processing When DirectoryView Created
+- [ ] Task 8: Handle Progress Events in DirectoryView
 - [ ] Task 8: Handle Progress Events in DirectoryView
 - [ ] Task 9: Poll Progress Events in DirectoryView show() Method
 - [ ] Task 10: Display Processing Progress UI
