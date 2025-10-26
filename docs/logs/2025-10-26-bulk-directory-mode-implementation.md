@@ -388,10 +388,36 @@ Using subagent-driven development to implement the bulk/directory mode feature f
 
 ---
 
+## Task 17: Add Detection Navigation (Next/Previous Detection) ✅
+
+**Status:** COMPLETED
+**Commit:** d48056b68c1dc0cf8126ec35f13408d4f00d90d9
+**Pushed:** Pending
+
+### Implementation
+- Modified `beaker-gui/src/views/directory.rs`:
+  - Added `navigate_next_detection()` with image jumping
+  - Added `navigate_previous_detection()` with wraparound
+  - Added Prev/Next Detection buttons in sidebar
+  - Added J/K keyboard shortcuts for detection navigation
+  - Display detection position (e.g., 5 / 89)
+  - Automatically jump to image containing selected detection
+
+### Tests
+- Added `test_navigate_next_detection` - PASSED
+- Added `test_navigate_previous_detection` - PASSED
+- All 28 GUI tests passed
+
+### Notes
+- Followed TDD: wrote both tests first, verified they failed, then implemented
+- Navigation works across images (detection on different image switches image)
+- J/K keys complement arrow keys for navigation (vim-like)
+
+---
+
 ## Next Tasks
 
-- [ ] Task 17: Add Detection Navigation
-- [ ] Task 17: Add Detection Navigation
+- [ ] Task 18: Run Full CI and Fix Any Issues
 - [ ] Task 18: Run Full CI and Fix Any Issues
 - [ ] Task 19: Manual Integration Test
 - [ ] Task 20: Create Documentation
