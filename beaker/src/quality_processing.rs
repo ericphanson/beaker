@@ -7,7 +7,6 @@ use crate::quality_types::QualityRawData;
 use crate::shared_metadata::IoTiming;
 use anyhow::{Context, Result};
 use cached::proc_macro::cached;
-use image::GenericImageView;
 use log::debug;
 use ort::{session::Session, value::Value};
 use serde::Serialize;
@@ -138,96 +137,52 @@ impl ModelProcessor for QualityProcessor {
 
         debug!("Processing: {}", image_path.display());
 
-        // Load and preprocess the image with timing
-        let img = io_timing.time_image_read(image_path)?;
-        let original_size = img.dimensions();
+        // Record image load time
+        let _img = io_timing.time_image_read(image_path)?;
 
-        // Timing: Preprocessing
-        let preprocess_start = Instant::now();
-        let input_array = preprocess_image_for_quality(&img)?;
-        let preprocess_time_ms = preprocess_start.elapsed().as_secs_f64() * 1000.0;
-        debug!("Timing - Preprocessing: {:.2}ms", preprocess_time_ms);
+        // Level 1: Compute raw data (cached automatically)
+        let raw = compute_quality_raw(image_path, session)?;
 
-        let input_stem = output_manager.input_stem();
-        // Only create debug directory when --debug-dump-images flag is passed
-        let output_dir = if config.debug_dump_images {
-            Some(
-                output_manager
-                    .get_output_dir()?
-                    .join(format!("quality_debug_images_{input_stem}")),
-            )
-        } else {
-            None
-        };
+        // Level 2: Compute scores from raw data with parameters
+        let params = config.params.clone().unwrap_or_default();
+        let scores = crate::quality_types::QualityScores::compute(&raw, &params);
 
-        // Timing: Blur detection
-        let blur_start = Instant::now();
-        let (w20, p20, _, global_blur_score) =
-            crate::blur_detection::blur_weights_from_nchw(&input_array, output_dir);
-        let blur_time_ms = blur_start.elapsed().as_secs_f64() * 1000.0;
-        debug!("Timing - Blur detection: {:.2}ms", blur_time_ms);
+        // Generate debug visualizations if requested
+        if config.debug_dump_images {
+            let input_stem = output_manager.input_stem();
+            let output_dir = output_manager
+                .get_output_dir()?
+                .join(format!("quality_debug_images_{input_stem}"));
 
-        assert_eq!(w20.shape(), [20, 20]);
-        let mut local_blur_weights = [[0.0f32; 20]; 20];
-        for i in 0..20 {
-            for j in 0..20 {
-                local_blur_weights[i][j] = w20[[i, j]];
-            }
+            // Load and preprocess the image for debug visualization
+            let img = image::open(image_path).context("Failed to open image for debug visualization")?;
+            let input_array = preprocess_image_for_quality(&img)?;
+
+            // Generate debug images using blur_weights_from_nchw
+            let _ = crate::blur_detection::blur_weights_from_nchw(&input_array, Some(output_dir));
         }
-        let mut local_fused_probability = [[0.0f32; 20]; 20];
-        for i in 0..20 {
-            for j in 0..20 {
-                local_fused_probability[i][j] = p20[[i, j]];
-            }
-        }
-        // Prepare input for the model
-        let input_name = session.inputs[0].name.clone();
-        let output_name = session.outputs[0].name.clone();
-        debug!("Running inference: {input_name} -> {output_name}");
-        let input_value = Value::from_array(input_array)
-            .map_err(|e| anyhow::anyhow!("Failed to create input value: {}", e))?;
-
-        // Timing: ONNX inference
-        let inference_start = Instant::now();
-        let outputs = session
-            .run(ort::inputs![input_name.as_str() => &input_value])
-            .map_err(|e| anyhow::anyhow!("Failed to run inference: {}", e))?;
-        let inference_time_ms = inference_start.elapsed().as_secs_f64() * 1000.0;
-        debug!("Timing - ONNX inference: {:.2}ms", inference_time_ms);
-
-        // Extract the output tensor using ORT v2 API
-        let output_view = outputs[output_name.as_str()]
-            .try_extract_array::<f32>()
-            .map_err(|e| anyhow::anyhow!("Failed to extract output array: {}", e))?;
-
-        // Timing: Postprocessing
-        let postprocess_start = Instant::now();
-        let (global_quality_score, global_paq2piq_score, local_paq2piq_grid) =
-            postprocess_quality_output(&output_view, global_blur_score)?;
-        let postprocess_time_ms = postprocess_start.elapsed().as_secs_f64() * 1000.0;
-        debug!("Timing - Postprocessing: {:.2}ms", postprocess_time_ms);
 
         let processing_time = start_time.elapsed().as_secs_f64() * 1000.0;
 
         debug!(
             "{} Quality assessment completed: score={:.3}",
             symbols::completed_successfully(),
-            global_paq2piq_score
+            scores.final_score
         );
 
-        // Create result with timing information
+        // Convert QualityScores to QualityResult format for metadata output
         let quality_result = QualityResult {
-            model_version: get_default_quality_model_info().name,
+            model_version: raw.model_version,
             processing_time_ms: processing_time,
-            global_quality_score,
-            global_paq2piq_score,
-            global_blur_score,
-            local_paq2piq_grid,
-            local_blur_weights,
-            local_fused_probability,
+            global_quality_score: scores.final_score,
+            global_paq2piq_score: scores.paq2piq_score,
+            global_blur_score: scores.blur_score,
+            local_paq2piq_grid: raw.paq2piq_local,
+            local_blur_weights: scores.blur_weights,
+            local_fused_probability: scores.blur_probability,
             io_timing,
-            input_img_width: original_size.0,
-            input_img_height: original_size.1,
+            input_img_width: raw.input_width,
+            input_img_height: raw.input_height,
         };
 
         Ok(quality_result)
@@ -260,49 +215,6 @@ fn preprocess_image_for_quality(img: &image::DynamicImage) -> Result<ndarray::Ar
     log::debug!("Converted image to array with shape: {:?}", array.shape());
 
     Ok(array)
-}
-
-/// Placeholder postprocessing function for quality assessment
-fn postprocess_quality_output(
-    output: &ndarray::ArrayView<f32, ndarray::Dim<ndarray::IxDynImpl>>,
-    global_blur_score: f32,
-) -> Result<(f32, f32, [[u8; 20]; 20])> {
-    // Placeholder implementation - extract quality score and confidence
-    // Assumes output is a single value or pair of values
-    log::debug!("Quality model output: {:?}", output.shape());
-    let output_data = output
-        .as_slice()
-        .ok_or_else(|| anyhow::anyhow!("Failed to get output slice"))?;
-
-    if output_data.is_empty() {
-        return Err(anyhow::anyhow!("Empty output data"));
-    }
-
-    // Placeholder logic - replace with actual model output interpretation
-    let global_paq2piq_score = output_data[0];
-    let global_quality_score = crate::blur_detection::image_overall_from_paq_and_blur(
-        global_paq2piq_score,
-        global_blur_score,
-    );
-    debug!("Quality score from model: {global_paq2piq_score}. Blur score: {global_blur_score} (higher = more blur). Overall: {global_quality_score}");
-
-    // the next 400 values are a 20x20 grid of local quality scores
-    let mut local_paq2piq_grid = [[0u8; 20]; 20];
-    if output_data.len() >= 401 {
-        for (i, &value) in output_data[1..].iter().enumerate() {
-            // Values are already between 0 and 100, just round to nearest integer
-            let rounded_value = value.round().clamp(0.0, 100.0) as u8;
-            local_paq2piq_grid[i / 20][i % 20] = rounded_value;
-        }
-    } else {
-        return Err(anyhow::anyhow!("Insufficient output data for 20x20 grid"));
-    }
-
-    Ok((
-        global_quality_score,
-        global_paq2piq_score,
-        local_paq2piq_grid,
-    ))
 }
 
 /// Load ONNX session with default model path
