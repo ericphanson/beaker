@@ -260,10 +260,35 @@ Using subagent-driven development to implement the bulk/directory mode feature f
 
 ---
 
+## Task 12: Load Detections After ImageSuccess Event ✅
+
+**Status:** COMPLETED
+**Commit:** 9506fd5ab6a15eb595df6ff5b2df2dbbd8fa5bb6
+**Pushed:** Pending
+
+### Implementation
+- Modified `beaker-gui/src/views/directory.rs`:
+  - Added `output_dir` field to DirectoryView struct
+  - Updated `new()` to initialize output_dir to None
+  - Updated `start_processing()` to store temp directory path
+  - Modified `update_from_event()` to load detections from TOML on ImageSuccess
+  - Populates ProcessingStatus::Success with actual detection counts
+  - Stores loaded detections in images[index].detections
+
+### Tests
+- Added `test_update_from_event_loads_detections` - PASSED
+- All 23 GUI tests passed
+
+### Notes
+- Successfully integrates TOML loading from Task 11 into event handler
+- Actual detection counts now replace placeholder zeros
+- Proper fallback handling when output_dir not set
+
+---
+
 ## Next Tasks
 
-- [ ] Task 12: Load Detections After ImageSuccess Event
-- [ ] Task 12: Load Detections After ImageSuccess Event
+- [ ] Task 13: Build Aggregate Detection List After Processing
 - [ ] Task 13: Build Aggregate Detection List After Processing
 - [ ] Task 14: Implement Basic Gallery UI
 - [ ] Task 15: Add Navigation Controls
