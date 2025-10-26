@@ -362,10 +362,35 @@ Using subagent-driven development to implement the bulk/directory mode feature f
 
 ---
 
+## Task 16: Display Aggregate Detection List Sidebar ✅
+
+**Status:** COMPLETED
+**Commit:** b5bd1cfb0b21fd4c3a851f173e933af781b8d7f1
+**Pushed:** Pending
+
+### Implementation
+- Modified `beaker-gui/src/views/directory.rs`:
+  - Modified `show_gallery_ui()` for three-panel layout
+  - Implemented `show_aggregate_detection_list()` for right panel
+  - Display all detections from all images
+  - Format: "filename - class #N: confidence"
+  - Clicking detection jumps to that image
+  - Highlight selected detection
+  - Show blur score if available
+
+### Tests
+- All 26 GUI tests passed (no regressions)
+
+### Notes
+- Three-panel layout: thumbnails (250px) | image (600px) | detections
+- Unified view of all detections across directory
+- Visual feedback for selected detection
+
+---
+
 ## Next Tasks
 
-- [ ] Task 16: Display Aggregate Detection List Sidebar
-- [ ] Task 16: Display Aggregate Detection List Sidebar
+- [ ] Task 17: Add Detection Navigation
 - [ ] Task 17: Add Detection Navigation
 - [ ] Task 18: Run Full CI and Fix Any Issues
 - [ ] Task 19: Manual Integration Test
