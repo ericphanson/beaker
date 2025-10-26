@@ -3,7 +3,7 @@ use crate::color_utils::symbols;
 use crate::config::DetectionConfig;
 use crate::detection_obj::Detection;
 use crate::model_access::{ModelAccess, ModelInfo};
-use crate::model_processing::{ModelProcessor, ModelResult};
+use crate::model_processing::{ModelConfig, ModelProcessor, ModelResult};
 use crate::onnx_session::ModelSource;
 use crate::output_manager::OutputManager;
 use crate::quality_processing::QualityProcessor;

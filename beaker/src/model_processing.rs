@@ -26,6 +26,7 @@ use crate::shared_metadata::{InputProcessing, SystemInfo};
 
 /// Progress events emitted during processing
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Public API for GUI consumption
 pub enum ProcessingEvent {
     /// Processing started for an image
     ImageStart {
@@ -63,6 +64,7 @@ pub enum ProcessingStage {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Public API for GUI consumption
 pub enum ProcessingResultInfo {
     Success {
         detections_count: usize,
