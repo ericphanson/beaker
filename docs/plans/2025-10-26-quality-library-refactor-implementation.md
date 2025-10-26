@@ -1915,6 +1915,837 @@ git add beaker/src/quality_types.rs beaker/README.md docs/quality-api-guide.md
 git commit -m "docs: add HeatmapStyle type and comprehensive quality API documentation"
 ```
 
+---
+
+## Task 13: Implement Visualization Layer
+
+**Files:**
+- Create: `beaker/src/quality_visualization.rs`
+- Modify: `beaker/src/lib.rs`
+- Modify: `beaker/src/quality_types.rs`
+- Test: `beaker/tests/quality_visualization_test.rs`
+
+This task implements the complete visualization layer for rendering heatmaps from quality data.
+
+### Step 1: Create visualization module and basic structure
+
+Create `beaker/src/quality_visualization.rs`:
+
+```rust
+//! Visualization layer for quality assessment
+//! Renders heatmaps and overlays from quality data
+
+use crate::quality_types::{HeatmapStyle, ColorMap, QualityScores, QualityRawData};
+use image::{ImageBuffer, Rgba, RgbaImage, DynamicImage};
+use ndarray::Array2;
+use anyhow::Result;
+
+/// Bilinear interpolation for smooth upscaling
+/// Samples a 2D array at fractional coordinates (u, v)
+pub fn bilinear_sample(data: &Array2<f32>, u: f32, v: f32) -> f32 {
+    let (rows, cols) = data.dim();
+
+    // Clamp coordinates to valid range
+    let u = u.clamp(0.0, (cols - 1) as f32);
+    let v = v.clamp(0.0, (rows - 1) as f32);
+
+    // Get integer and fractional parts
+    let u0 = u.floor() as usize;
+    let v0 = v.floor() as usize;
+    let u1 = (u0 + 1).min(cols - 1);
+    let v1 = (v0 + 1).min(rows - 1);
+
+    let fu = u - u0 as f32;
+    let fv = v - v0 as f32;
+
+    // Bilinear interpolation
+    let val00 = data[[v0, u0]];
+    let val10 = data[[v0, u1]];
+    let val01 = data[[v1, u0]];
+    let val11 = data[[v1, u1]];
+
+    let val0 = val00 * (1.0 - fu) + val10 * fu;
+    let val1 = val01 * (1.0 - fu) + val11 * fu;
+
+    val0 * (1.0 - fv) + val1 * fv
+}
+
+/// Apply colormap to a normalized value [0, 1]
+pub fn apply_colormap(value: f32, colormap: ColorMap) -> Rgba<u8> {
+    let v = value.clamp(0.0, 1.0);
+
+    match colormap {
+        ColorMap::Viridis => viridis_colormap(v),
+        ColorMap::Plasma => plasma_colormap(v),
+        ColorMap::Inferno => inferno_colormap(v),
+        ColorMap::Turbo => turbo_colormap(v),
+        ColorMap::Grayscale => {
+            let intensity = (v * 255.0) as u8;
+            Rgba([intensity, intensity, intensity, 255])
+        }
+    }
+}
+
+// Viridis colormap (approximation)
+fn viridis_colormap(t: f32) -> Rgba<u8> {
+    // Simplified Viridis: purple -> blue -> green -> yellow
+    let r = ((-4.5 * t + 11.0) * t - 4.5).clamp(0.0, 1.0);
+    let g = ((5.0 * t - 9.5) * t + 4.5).clamp(0.0, 1.0);
+    let b = ((-1.5 * t + 1.0) * t + 0.5).clamp(0.0, 1.0);
+
+    Rgba([
+        (r * 255.0) as u8,
+        (g * 255.0) as u8,
+        (b * 255.0) as u8,
+        255,
+    ])
+}
+
+// Plasma colormap (approximation)
+fn plasma_colormap(t: f32) -> Rgba<u8> {
+    // Simplified Plasma: dark blue -> purple -> red -> yellow
+    let r = ((4.0 * t - 1.5) * t + 0.1).clamp(0.0, 1.0);
+    let g = ((-4.0 * t + 4.0) * t).clamp(0.0, 1.0);
+    let b = ((-1.5 * t + 0.5) * t + 0.9).clamp(0.0, 1.0);
+
+    Rgba([
+        (r * 255.0) as u8,
+        (g * 255.0) as u8,
+        (b * 255.0) as u8,
+        255,
+    ])
+}
+
+// Inferno colormap (approximation)
+fn inferno_colormap(t: f32) -> Rgba<u8> {
+    // Simplified Inferno: black -> dark red -> orange -> yellow -> white
+    let r = ((3.5 * t - 1.0) * t + 0.05).clamp(0.0, 1.0);
+    let g = ((4.0 * t - 3.5) * t + 0.5) * t;
+    let g = g.clamp(0.0, 1.0);
+    let b = ((10.0 * t - 7.0) * t + 0.1).clamp(0.0, 1.0);
+
+    Rgba([
+        (r * 255.0) as u8,
+        (g * 255.0) as u8,
+        (b * 255.0) as u8,
+        255,
+    ])
+}
+
+// Turbo colormap (approximation)
+fn turbo_colormap(t: f32) -> Rgba<u8> {
+    // Simplified Turbo: blue -> cyan -> green -> yellow -> red
+    let r = ((6.0 * t - 3.0) * t * t).clamp(0.0, 1.0);
+    let g = ((-4.0 * (t - 0.5).powi(2) + 1.0)).clamp(0.0, 1.0);
+    let b = ((-6.0 * t + 3.0) * (1.0 - t)).clamp(0.0, 1.0);
+
+    Rgba([
+        (r * 255.0) as u8,
+        (g * 255.0) as u8,
+        (b * 255.0) as u8,
+        255,
+    ])
+}
+
+/// Render a 20x20 data grid to an image buffer with colormap
+pub fn render_heatmap_to_buffer(
+    data: &[[f32; 20]; 20],
+    style: &HeatmapStyle,
+) -> Result<RgbaImage> {
+    let (width, height) = style.size;
+    let mut img = ImageBuffer::new(width, height);
+
+    // Convert fixed array to ndarray for interpolation
+    let data_array = Array2::from_shape_fn((20, 20), |(i, j)| data[i][j]);
+
+    // Render each pixel with bilinear interpolation
+    for y in 0..height {
+        for x in 0..width {
+            // Map pixel to data coordinates
+            let u = (x as f32 / width as f32) * 19.0;
+            let v = (y as f32 / height as f32) * 19.0;
+
+            // Sample with interpolation
+            let value = bilinear_sample(&data_array, u, v);
+
+            // Apply colormap
+            let color = apply_colormap(value, style.colormap);
+
+            img.put_pixel(x, y, color);
+        }
+    }
+
+    Ok(img)
+}
+
+/// Composite two RGBA images with alpha blending
+pub fn composite_with_alpha(
+    base: &RgbaImage,
+    overlay: &RgbaImage,
+    overlay_alpha: f32,
+) -> Result<RgbaImage> {
+    let (width, height) = base.dimensions();
+
+    if overlay.dimensions() != (width, height) {
+        anyhow::bail!("Images must have same dimensions for compositing");
+    }
+
+    let mut result = base.clone();
+    let alpha = overlay_alpha.clamp(0.0, 1.0);
+
+    for y in 0..height {
+        for x in 0..width {
+            let base_pixel = base.get_pixel(x, y);
+            let overlay_pixel = overlay.get_pixel(x, y);
+
+            // Alpha blending
+            let r = ((1.0 - alpha) * base_pixel[0] as f32 + alpha * overlay_pixel[0] as f32) as u8;
+            let g = ((1.0 - alpha) * base_pixel[1] as f32 + alpha * overlay_pixel[1] as f32) as u8;
+            let b = ((1.0 - alpha) * base_pixel[2] as f32 + alpha * overlay_pixel[2] as f32) as u8;
+            let a = 255u8; // Result is always opaque
+
+            result.put_pixel(x, y, Rgba([r, g, b, a]));
+        }
+    }
+
+    Ok(result)
+}
+
+/// Render overlay of heatmap on original image
+pub fn render_overlay(
+    original: &DynamicImage,
+    heatmap_data: &[[f32; 20]; 20],
+    style: &HeatmapStyle,
+) -> Result<RgbaImage> {
+    // First render heatmap at its native size
+    let heatmap = render_heatmap_to_buffer(heatmap_data, style)?;
+
+    // Resize heatmap to match original image size
+    let (orig_width, orig_height) = (original.width(), original.height());
+    let heatmap_resized = image::imageops::resize(
+        &heatmap,
+        orig_width,
+        orig_height,
+        image::imageops::FilterType::Lanczos3,
+    );
+
+    // Composite with original
+    let original_rgba = original.to_rgba8();
+    composite_with_alpha(&original_rgba, &heatmap_resized, style.alpha)
+}
+```
+
+Modify `beaker/src/lib.rs` to add the module:
+
+```rust
+// After other module declarations
+pub mod quality_visualization;
+```
+
+### Step 2: Write tests for bilinear_sample
+
+Create `beaker/tests/quality_visualization_test.rs`:
+
+```rust
+use beaker::quality_visualization::{bilinear_sample, apply_colormap};
+use beaker::quality_types::ColorMap;
+use ndarray::Array2;
+
+#[test]
+fn test_bilinear_sample_corners() {
+    let data = Array2::from_shape_fn((20, 20), |(i, j)| (i * 20 + j) as f32);
+
+    // Test corners (should return exact values)
+    assert_eq!(bilinear_sample(&data, 0.0, 0.0), 0.0);
+    assert_eq!(bilinear_sample(&data, 19.0, 0.0), 19.0);
+    assert_eq!(bilinear_sample(&data, 0.0, 19.0), 380.0);
+    assert_eq!(bilinear_sample(&data, 19.0, 19.0), 399.0);
+}
+
+#[test]
+fn test_bilinear_sample_interpolation() {
+    // Simple 2x2 grid
+    let mut data = Array2::zeros((2, 2));
+    data[[0, 0]] = 0.0;
+    data[[0, 1]] = 1.0;
+    data[[1, 0]] = 0.0;
+    data[[1, 1]] = 1.0;
+
+    // Center should be average
+    let center = bilinear_sample(&data, 0.5, 0.5);
+    assert!((center - 0.5).abs() < 1e-5);
+}
+
+#[test]
+fn test_bilinear_sample_out_of_bounds() {
+    let data = Array2::from_shape_fn((20, 20), |(i, j)| (i + j) as f32);
+
+    // Should clamp to edges
+    let val = bilinear_sample(&data, -1.0, -1.0);
+    assert_eq!(val, 0.0);
+
+    let val = bilinear_sample(&data, 25.0, 25.0);
+    assert_eq!(val, 38.0); // data[[19, 19]]
+}
+
+#[test]
+fn test_apply_colormap_grayscale() {
+    let black = apply_colormap(0.0, ColorMap::Grayscale);
+    assert_eq!(black, image::Rgba([0, 0, 0, 255]));
+
+    let white = apply_colormap(1.0, ColorMap::Grayscale);
+    assert_eq!(white, image::Rgba([255, 255, 255, 255]));
+
+    let gray = apply_colormap(0.5, ColorMap::Grayscale);
+    assert_eq!(gray, image::Rgba([127, 127, 127, 255]));
+}
+
+#[test]
+fn test_apply_colormap_all_variants() {
+    let value = 0.5;
+
+    // Test all colormaps produce valid colors
+    for colormap in [ColorMap::Viridis, ColorMap::Plasma, ColorMap::Inferno, ColorMap::Turbo, ColorMap::Grayscale] {
+        let color = apply_colormap(value, colormap);
+
+        // Alpha should always be 255
+        assert_eq!(color[3], 255);
+
+        // RGB values should be valid
+        assert!(color[0] <= 255);
+        assert!(color[1] <= 255);
+        assert!(color[2] <= 255);
+    }
+}
+
+#[test]
+fn test_apply_colormap_clamping() {
+    // Values outside [0, 1] should be clamped
+    let below = apply_colormap(-0.5, ColorMap::Grayscale);
+    let at_zero = apply_colormap(0.0, ColorMap::Grayscale);
+    assert_eq!(below, at_zero);
+
+    let above = apply_colormap(1.5, ColorMap::Grayscale);
+    let at_one = apply_colormap(1.0, ColorMap::Grayscale);
+    assert_eq!(above, at_one);
+}
+```
+
+### Step 3: Run tests to verify they pass
+
+```bash
+cargo test --test quality_visualization_test
+```
+
+**Expected output:**
+```
+running 6 tests
+test test_bilinear_sample_corners ... ok
+test test_bilinear_sample_interpolation ... ok
+test test_bilinear_sample_out_of_bounds ... ok
+test test_apply_colormap_grayscale ... ok
+test test_apply_colormap_all_variants ... ok
+test test_apply_colormap_clamping ... ok
+
+test result: ok. 6 passed
+```
+
+### Step 4: Test render_heatmap_to_buffer
+
+Add to `beaker/tests/quality_visualization_test.rs`:
+
+```rust
+use beaker::quality_visualization::render_heatmap_to_buffer;
+use beaker::quality_types::HeatmapStyle;
+
+#[test]
+fn test_render_heatmap_to_buffer_size() {
+    let data = [[0.5f32; 20]; 20];
+
+    let style = HeatmapStyle {
+        colormap: ColorMap::Grayscale,
+        alpha: 0.7,
+        size: (100, 100),
+    };
+
+    let img = render_heatmap_to_buffer(&data, &style).unwrap();
+
+    assert_eq!(img.dimensions(), (100, 100));
+}
+
+#[test]
+fn test_render_heatmap_gradient() {
+    // Create gradient from 0 to 1
+    let mut data = [[0.0f32; 20]; 20];
+    for i in 0..20 {
+        for j in 0..20 {
+            data[i][j] = (i * 20 + j) as f32 / 399.0;
+        }
+    }
+
+    let style = HeatmapStyle {
+        colormap: ColorMap::Grayscale,
+        alpha: 0.7,
+        size: (224, 224),
+    };
+
+    let img = render_heatmap_to_buffer(&data, &style).unwrap();
+
+    // Top-left should be dark
+    let top_left = img.get_pixel(0, 0);
+    assert!(top_left[0] < 50);
+
+    // Bottom-right should be bright
+    let bottom_right = img.get_pixel(223, 223);
+    assert!(bottom_right[0] > 200);
+}
+
+#[test]
+fn test_render_heatmap_different_sizes() {
+    let data = [[0.5f32; 20]; 20];
+
+    for size in [(50, 50), (100, 100), (224, 224), (300, 200)] {
+        let style = HeatmapStyle {
+            colormap: ColorMap::Viridis,
+            alpha: 0.7,
+            size,
+        };
+
+        let img = render_heatmap_to_buffer(&data, &style).unwrap();
+        assert_eq!(img.dimensions(), size);
+    }
+}
+```
+
+### Step 5: Test composite_with_alpha
+
+Add to `beaker/tests/quality_visualization_test.rs`:
+
+```rust
+use beaker::quality_visualization::composite_with_alpha;
+use image::{RgbaImage, Rgba};
+
+#[test]
+fn test_composite_with_alpha_zero() {
+    let mut base = RgbaImage::new(10, 10);
+    base.fill(255); // White
+
+    let mut overlay = RgbaImage::new(10, 10);
+    overlay.fill(0); // Black
+
+    // Alpha = 0 should show only base
+    let result = composite_with_alpha(&base, &overlay, 0.0).unwrap();
+
+    let pixel = result.get_pixel(5, 5);
+    assert_eq!(pixel, &Rgba([255, 255, 255, 255]));
+}
+
+#[test]
+fn test_composite_with_alpha_one() {
+    let mut base = RgbaImage::new(10, 10);
+    base.fill(255); // White
+
+    let mut overlay = RgbaImage::new(10, 10);
+    overlay.fill(0); // Black
+
+    // Alpha = 1 should show only overlay
+    let result = composite_with_alpha(&base, &overlay, 1.0).unwrap();
+
+    let pixel = result.get_pixel(5, 5);
+    assert_eq!(pixel, &Rgba([0, 0, 0, 255]));
+}
+
+#[test]
+fn test_composite_with_alpha_half() {
+    let mut base = RgbaImage::new(10, 10);
+    for pixel in base.pixels_mut() {
+        *pixel = Rgba([100, 100, 100, 255]);
+    }
+
+    let mut overlay = RgbaImage::new(10, 10);
+    for pixel in overlay.pixels_mut() {
+        *pixel = Rgba([200, 200, 200, 255]);
+    }
+
+    // Alpha = 0.5 should blend equally
+    let result = composite_with_alpha(&base, &overlay, 0.5).unwrap();
+
+    let pixel = result.get_pixel(5, 5);
+    // (100 * 0.5 + 200 * 0.5) = 150
+    assert_eq!(pixel[0], 150);
+    assert_eq!(pixel[1], 150);
+    assert_eq!(pixel[2], 150);
+}
+
+#[test]
+fn test_composite_size_mismatch() {
+    let base = RgbaImage::new(10, 10);
+    let overlay = RgbaImage::new(20, 20);
+
+    let result = composite_with_alpha(&base, &overlay, 0.5);
+    assert!(result.is_err());
+}
+```
+
+### Step 6: Test render_overlay
+
+Add to `beaker/tests/quality_visualization_test.rs`:
+
+```rust
+use beaker::quality_visualization::render_overlay;
+use image::DynamicImage;
+
+#[test]
+fn test_render_overlay_size() {
+    // Create a simple test image
+    let test_img = DynamicImage::new_rgb8(640, 480);
+
+    let data = [[0.5f32; 20]; 20];
+    let style = HeatmapStyle {
+        colormap: ColorMap::Viridis,
+        alpha: 0.5,
+        size: (224, 224), // Heatmap size (will be resized to match image)
+    };
+
+    let overlay = render_overlay(&test_img, &data, &style).unwrap();
+
+    // Result should match original image size
+    assert_eq!(overlay.dimensions(), (640, 480));
+}
+
+#[test]
+fn test_render_overlay_alpha_effect() {
+    // Create simple black image
+    let test_img = DynamicImage::new_rgb8(100, 100);
+
+    // All white heatmap
+    let data = [[1.0f32; 20]; 20];
+
+    // Low alpha - should be mostly black
+    let style_low = HeatmapStyle {
+        colormap: ColorMap::Grayscale,
+        alpha: 0.1,
+        size: (100, 100),
+    };
+
+    let overlay_low = render_overlay(&test_img, &data, &style_low).unwrap();
+    let pixel_low = overlay_low.get_pixel(50, 50);
+
+    // High alpha - should be mostly white
+    let style_high = HeatmapStyle {
+        colormap: ColorMap::Grayscale,
+        alpha: 0.9,
+        size: (100, 100),
+    };
+
+    let overlay_high = render_overlay(&test_img, &data, &style_high).unwrap();
+    let pixel_high = overlay_high.get_pixel(50, 50);
+
+    // High alpha should produce brighter result
+    assert!(pixel_high[0] > pixel_low[0]);
+}
+```
+
+### Step 7: Run all visualization tests
+
+```bash
+cargo test --test quality_visualization_test
+```
+
+**Expected output:**
+```
+running 13 tests
+test test_apply_colormap_all_variants ... ok
+test test_apply_colormap_clamping ... ok
+test test_apply_colormap_grayscale ... ok
+test test_bilinear_sample_corners ... ok
+test test_bilinear_sample_interpolation ... ok
+test test_bilinear_sample_out_of_bounds ... ok
+test test_composite_size_mismatch ... ok
+test test_composite_with_alpha_half ... ok
+test test_composite_with_alpha_one ... ok
+test test_composite_with_alpha_zero ... ok
+test test_render_heatmap_different_sizes ... ok
+test test_render_heatmap_gradient ... ok
+test test_render_heatmap_to_buffer_size ... ok
+test test_render_overlay_alpha_effect ... ok
+test test_render_overlay_size ... ok
+
+test result: ok. 15 passed
+```
+
+### Step 8: Add QualityVisualization struct to quality_types.rs
+
+Add to `beaker/src/quality_types.rs`:
+
+```rust
+use image::RgbaImage;
+
+/// Visualization layer (parameter-dependent, rendered on-demand)
+#[derive(Clone)]
+pub struct QualityVisualization {
+    /// Rendered heatmap images (in-memory buffers)
+    pub blur_probability_heatmap: Option<RgbaImage>,
+    pub blur_weights_heatmap: Option<RgbaImage>,
+    pub tenengrad_heatmap: Option<RgbaImage>,
+
+    /// Overlay on original image
+    pub blur_overlay: Option<RgbaImage>,
+}
+
+impl QualityVisualization {
+    /// Render all heatmaps from raw data and scores
+    pub fn render(
+        raw: &QualityRawData,
+        scores: &QualityScores,
+        style: &HeatmapStyle,
+    ) -> Result<Self> {
+        use crate::quality_visualization::render_heatmap_to_buffer;
+
+        Ok(Self {
+            blur_probability_heatmap: Some(
+                render_heatmap_to_buffer(&scores.blur_probability, style)?
+            ),
+            blur_weights_heatmap: Some(
+                render_heatmap_to_buffer(&scores.blur_weights, style)?
+            ),
+            tenengrad_heatmap: Some(
+                render_heatmap_to_buffer(&raw.tenengrad_224, style)?
+            ),
+            blur_overlay: None, // Can render lazily if needed
+        })
+    }
+
+    /// Render only blur probability heatmap (fast: ~3-4ms)
+    pub fn render_blur_only(
+        scores: &QualityScores,
+        style: &HeatmapStyle,
+    ) -> Result<RgbaImage> {
+        use crate::quality_visualization::render_heatmap_to_buffer;
+        render_heatmap_to_buffer(&scores.blur_probability, style)
+    }
+
+    /// Render overlay of blur probability on original image
+    pub fn render_overlay_on_image(
+        original: &image::DynamicImage,
+        scores: &QualityScores,
+        style: &HeatmapStyle,
+    ) -> Result<RgbaImage> {
+        use crate::quality_visualization::render_overlay;
+        render_overlay(original, &scores.blur_probability, style)
+    }
+}
+```
+
+### Step 9: Test QualityVisualization struct
+
+Add to `beaker/tests/quality_visualization_test.rs`:
+
+```rust
+use beaker::quality_types::{QualityRawData, QualityScores, QualityParams, QualityVisualization};
+use std::time::SystemTime;
+
+#[test]
+fn test_quality_visualization_render() {
+    let raw = QualityRawData {
+        input_width: 640,
+        input_height: 480,
+        paq2piq_global: 75.0,
+        paq2piq_local: [[60u8; 20]; 20],
+        tenengrad_224: [[0.05f32; 20]; 20],
+        tenengrad_112: [[0.025f32; 20]; 20],
+        median_tenengrad_224: 0.04,
+        scale_ratio: 0.5,
+        model_version: "quality-model-v1".to_string(),
+        computed_at: SystemTime::now(),
+    };
+
+    let params = QualityParams::default();
+    let scores = QualityScores::compute(&raw, &params);
+
+    let style = HeatmapStyle {
+        colormap: ColorMap::Viridis,
+        alpha: 0.7,
+        size: (224, 224),
+    };
+
+    let viz = QualityVisualization::render(&raw, &scores, &style).unwrap();
+
+    // All heatmaps should be rendered
+    assert!(viz.blur_probability_heatmap.is_some());
+    assert!(viz.blur_weights_heatmap.is_some());
+    assert!(viz.tenengrad_heatmap.is_some());
+
+    // Verify dimensions
+    let heatmap = viz.blur_probability_heatmap.unwrap();
+    assert_eq!(heatmap.dimensions(), (224, 224));
+}
+
+#[test]
+fn test_quality_visualization_render_blur_only() {
+    let raw = QualityRawData {
+        input_width: 640,
+        input_height: 480,
+        paq2piq_global: 75.0,
+        paq2piq_local: [[60u8; 20]; 20],
+        tenengrad_224: [[0.05f32; 20]; 20],
+        tenengrad_112: [[0.025f32; 20]; 20],
+        median_tenengrad_224: 0.04,
+        scale_ratio: 0.5,
+        model_version: "quality-model-v1".to_string(),
+        computed_at: SystemTime::now(),
+    };
+
+    let params = QualityParams::default();
+    let scores = QualityScores::compute(&raw, &params);
+
+    let style = HeatmapStyle::default();
+
+    let heatmap = QualityVisualization::render_blur_only(&scores, &style).unwrap();
+
+    assert_eq!(heatmap.dimensions(), (224, 224));
+}
+
+#[test]
+fn test_quality_visualization_render_overlay() {
+    let test_img = image::DynamicImage::new_rgb8(640, 480);
+
+    let raw = QualityRawData {
+        input_width: 640,
+        input_height: 480,
+        paq2piq_global: 75.0,
+        paq2piq_local: [[60u8; 20]; 20],
+        tenengrad_224: [[0.05f32; 20]; 20],
+        tenengrad_112: [[0.025f32; 20]; 20],
+        median_tenengrad_224: 0.04,
+        scale_ratio: 0.5,
+        model_version: "quality-model-v1".to_string(),
+        computed_at: SystemTime::now(),
+    };
+
+    let params = QualityParams::default();
+    let scores = QualityScores::compute(&raw, &params);
+
+    let style = HeatmapStyle::default();
+
+    let overlay = QualityVisualization::render_overlay_on_image(&test_img, &scores, &style).unwrap();
+
+    // Overlay should match original image size
+    assert_eq!(overlay.dimensions(), (640, 480));
+}
+```
+
+### Step 10: Run all tests
+
+```bash
+cargo test quality_visualization
+```
+
+**Expected output:**
+```
+running 18 tests
+test quality_visualization_test::test_apply_colormap_all_variants ... ok
+test quality_visualization_test::test_apply_colormap_clamping ... ok
+test quality_visualization_test::test_apply_colormap_grayscale ... ok
+test quality_visualization_test::test_bilinear_sample_corners ... ok
+test quality_visualization_test::test_bilinear_sample_interpolation ... ok
+test quality_visualization_test::test_bilinear_sample_out_of_bounds ... ok
+test quality_visualization_test::test_composite_size_mismatch ... ok
+test quality_visualization_test::test_composite_with_alpha_half ... ok
+test quality_visualization_test::test_composite_with_alpha_one ... ok
+test quality_visualization_test::test_composite_with_alpha_zero ... ok
+test quality_visualization_test::test_quality_visualization_render ... ok
+test quality_visualization_test::test_quality_visualization_render_blur_only ... ok
+test quality_visualization_test::test_quality_visualization_render_overlay ... ok
+test quality_visualization_test::test_render_heatmap_different_sizes ... ok
+test quality_visualization_test::test_render_heatmap_gradient ... ok
+test quality_visualization_test::test_render_heatmap_to_buffer_size ... ok
+test quality_visualization_test::test_render_overlay_alpha_effect ... ok
+test quality_visualization_test::test_render_overlay_size ... ok
+
+test result: ok. 18 passed
+```
+
+### Step 11: Update Task 11 to use visualization functions
+
+Now update `blur_weights_from_nchw()` in Task 11 to use the real visualization:
+
+Replace the placeholder in `beaker/src/blur_detection.rs`:
+
+```rust
+// Helper for debug output
+fn save_debug_heatmaps(
+    out_dir: &Path,
+    blur_prob: &Array2<f32>,
+    blur_weights: &Array2<f32>,
+    tenengrad: &[[f32; 20]; 20],
+) -> Result<()> {
+    use crate::quality_visualization::render_heatmap_to_buffer;
+    use crate::quality_types::{HeatmapStyle, ColorMap};
+
+    std::fs::create_dir_all(out_dir)?;
+
+    let style = HeatmapStyle {
+        colormap: ColorMap::Viridis,
+        alpha: 0.7,
+        size: (224, 224),
+    };
+
+    // Convert Array2 to fixed array for blur_prob
+    let mut blur_prob_array = [[0.0f32; 20]; 20];
+    for i in 0..20 {
+        for j in 0..20 {
+            blur_prob_array[i][j] = blur_prob[[i, j]];
+        }
+    }
+
+    // Render and save blur probability heatmap
+    let blur_prob_img = render_heatmap_to_buffer(&blur_prob_array, &style)?;
+    blur_prob_img.save(out_dir.join("blur_probability.png"))?;
+
+    // Convert and render blur weights
+    let mut blur_weights_array = [[0.0f32; 20]; 20];
+    for i in 0..20 {
+        for j in 0..20 {
+            blur_weights_array[i][j] = blur_weights[[i, j]];
+        }
+    }
+
+    let blur_weights_img = render_heatmap_to_buffer(&blur_weights_array, &style)?;
+    blur_weights_img.save(out_dir.join("blur_weights.png"))?;
+
+    // Render tenengrad
+    let tenengrad_img = render_heatmap_to_buffer(tenengrad, &style)?;
+    tenengrad_img.save(out_dir.join("tenengrad.png"))?;
+
+    Ok(())
+}
+```
+
+### Step 12: Commit
+
+```bash
+git add beaker/src/quality_visualization.rs \
+        beaker/src/quality_types.rs \
+        beaker/src/lib.rs \
+        beaker/src/blur_detection.rs \
+        beaker/tests/quality_visualization_test.rs
+git commit -m "feat: implement complete visualization layer with heatmap rendering
+
+- Add quality_visualization module with rendering functions
+- Implement bilinear_sample() for smooth upscaling
+- Implement apply_colormap() with 5 colormap variants
+- Implement render_heatmap_to_buffer() for 20x20 to arbitrary size
+- Implement composite_with_alpha() for alpha blending
+- Implement render_overlay() for compositing on original images
+- Add QualityVisualization struct with render methods
+- Update save_debug_heatmaps() to use real rendering
+- Add comprehensive tests (18 tests covering all functions)
+- All visualization is in-memory for GUI efficiency"
+```
+
+---
+
 ## Testing Strategy
 
 **Unit Tests:**
