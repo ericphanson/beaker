@@ -240,16 +240,22 @@ fn main() {
             }
         }
         Some(Commands::Quality(quality_cmd)) => {
-            // Build outputs list (none for quality assessment)
-            let outputs = Vec::<&str>::new();
+            // Validate that metadata is requested
+            if !cli.global.metadata {
+                error!(
+                    "{} Quality assessment requires --metadata flag to save results\n\
+                     Hint: Run with --metadata to save quality scores to .beaker.toml",
+                    symbols::operation_failed()
+                );
+                std::process::exit(1);
+            }
+
+            // Build outputs list
+            let outputs = ["metadata"];
 
             let feature_str = ""; // No special features for quality assessment
 
-            let output_str = if outputs.is_empty() {
-                "".to_string()
-            } else {
-                format!(" | outputs: {}", outputs.join(", "))
-            };
+            let output_str = format!(" | outputs: {}", outputs.join(", "));
 
             info!(
                 "{} Quality assessment | device: {}{}{}",
