@@ -111,6 +111,21 @@ pub fn parse_probability(s: &str) -> Result<f32, String> {
     Ok(val)
 }
 
+/// Parse colormap name from string
+pub fn parse_colormap(s: &str) -> Result<crate::quality_types::ColorMap, String> {
+    use crate::quality_types::ColorMap;
+    match s.to_lowercase().as_str() {
+        "viridis" => Ok(ColorMap::Viridis),
+        "plasma" => Ok(ColorMap::Plasma),
+        "inferno" => Ok(ColorMap::Inferno),
+        "turbo" => Ok(ColorMap::Turbo),
+        "grayscale" => Ok(ColorMap::Grayscale),
+        _ => Err(format!(
+            "Unknown colormap: '{s}'. Valid options: viridis, plasma, inferno, turbo, grayscale"
+        )),
+    }
+}
+
 /// Global CLI arguments that apply to all beaker commands
 #[derive(Parser, Debug, Clone)]
 pub struct GlobalArgs {
@@ -287,6 +302,18 @@ pub struct QualityCommand {
     #[arg(long)]
     pub debug_dump_images: bool,
 
+    /// Save blur probability heatmap to file
+    #[arg(long, value_name = "PATH")]
+    pub save_heatmap: Option<String>,
+
+    /// Colormap for heatmap rendering (viridis, plasma, inferno, turbo, grayscale)
+    #[arg(long, default_value = "viridis")]
+    pub colormap: String,
+
+    /// Render heatmap as overlay on original image (requires --save-heatmap)
+    #[arg(long)]
+    pub overlay: bool,
+
     /// Override alpha parameter (weight coefficient)
     #[arg(long)]
     pub alpha: Option<f32>,
@@ -343,6 +370,14 @@ pub struct QualityConfig {
     /// Tunable quality parameters (alpha, beta, tau, etc.)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub params: Option<crate::quality_types::QualityParams>,
+    /// Path to save heatmap output
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heatmap_output: Option<String>,
+    /// Colormap for heatmap rendering
+    #[serde(skip)]
+    pub colormap: crate::quality_types::ColorMap,
+    /// Whether to render heatmap as overlay on original image
+    pub overlay: bool,
 }
 
 impl QualityConfig {
@@ -355,6 +390,9 @@ impl QualityConfig {
             model_path: None,
             debug_dump_images: false,
             params: None,
+            heatmap_output: None,
+            colormap: crate::quality_types::ColorMap::Viridis,
+            overlay: false,
         }
     }
 }
@@ -430,6 +468,13 @@ impl CutoutConfig {
 impl QualityConfig {
     /// Create configuration from global args and command-specific args
     pub fn from_args(global: GlobalArgs, cmd: QualityCommand) -> Result<Self, String> {
+        // Validate overlay flag requires save_heatmap
+        if cmd.overlay && cmd.save_heatmap.is_none() {
+            return Err(
+                "Cannot use --overlay without --save-heatmap. Please specify a heatmap output path.".to_string(),
+            );
+        }
+
         let mut base: BaseModelConfig = global.into();
         base.sources = cmd.sources; // Add sources from command
 
@@ -450,6 +495,9 @@ impl QualityConfig {
             None
         };
 
+        // Parse colormap
+        let colormap = parse_colormap(&cmd.colormap)?;
+
         Ok(Self {
             base,
             model_path: cmd.model_path,
@@ -457,6 +505,9 @@ impl QualityConfig {
             model_checksum: cmd.model_checksum,
             debug_dump_images: cmd.debug_dump_images,
             params,
+            heatmap_output: cmd.save_heatmap,
+            colormap,
+            overlay: cmd.overlay,
         })
     }
 }

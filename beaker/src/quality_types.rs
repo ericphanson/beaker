@@ -147,7 +147,6 @@ impl QualityScores {
 }
 
 /// Heatmap rendering options
-#[allow(dead_code)] // Public API used in integration tests and future GUI
 #[derive(Clone, Debug)]
 pub struct HeatmapStyle {
     /// Colormap for heatmap rendering
@@ -171,7 +170,6 @@ impl Default for HeatmapStyle {
 }
 
 /// Available colormaps for heatmap rendering
-#[allow(dead_code)] // Public API used in integration tests and future GUI
 #[derive(Clone, Copy, Debug)]
 pub enum ColorMap {
     Viridis,
@@ -182,7 +180,6 @@ pub enum ColorMap {
 }
 
 /// Visualization layer (parameter-dependent, rendered on-demand)
-#[allow(dead_code)] // Public API used in integration tests and future GUI
 #[derive(Clone)]
 pub struct QualityVisualization {
     /// Rendered heatmap images (in-memory buffers)

@@ -163,6 +163,41 @@ impl ModelProcessor for QualityProcessor {
             let _ = crate::blur_detection::blur_weights_from_nchw(&input_array, Some(output_dir));
         }
 
+        // Generate heatmap visualization if requested
+        if let Some(heatmap_path) = &config.heatmap_output {
+            use crate::quality_types::HeatmapStyle;
+            use crate::quality_visualization;
+
+            // Create heatmap style with user-specified colormap
+            let style = HeatmapStyle {
+                colormap: config.colormap,
+                alpha: 0.7,
+                size: (224, 224),
+            };
+
+            // Render heatmap or overlay
+            let heatmap_img = if config.overlay {
+                // Load original image for overlay
+                let original_img = image::open(image_path)
+                    .context("Failed to open image for heatmap overlay")?;
+                quality_visualization::render_overlay(&original_img, &scores.blur_probability, &style)?
+            } else {
+                // Render standalone heatmap
+                quality_visualization::render_heatmap_to_buffer(&scores.blur_probability, &style)?
+            };
+
+            // Save heatmap to file
+            heatmap_img
+                .save(heatmap_path)
+                .with_context(|| format!("Failed to save heatmap to {}", heatmap_path))?;
+
+            debug!(
+                "{} Saved heatmap to {}",
+                symbols::completed_successfully(),
+                heatmap_path
+            );
+        }
+
         let processing_time = start_time.elapsed().as_secs_f64() * 1000.0;
 
         debug!(
