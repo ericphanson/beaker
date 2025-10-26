@@ -98,6 +98,8 @@ Here are the validation metrics from the [v1.0](https://github.com/ericphanson/b
 | beak  | 0.4016    | 0.9239 | 0.9078    | 0.92   |
 | all   | 0.6009    | 0.9592 | 0.9580    | 0.92   |
 
+**Note on eye/beak detection:** Eye and beak detection are **experimental features**. While the model can detect these classes and they can be used for cropping (e.g., `--crop=eye,beak`), they are not shown in bounding box visualizations due to reliability concerns. Detection quality for eyes and beaks is lower than for bird and head classes (as shown in the mAP metrics above).
+
 This model additionally produces an orientation angle which has been trained for the head/bird classes. I don't have a proper metric for it, but the test loss for the orientation at epoch 6 was 0.00902 which corresponds to an average cosine similarity of 0.991.
 
 Note: these metrics were for the checkpoint _before_ quantizing to int8, which may have degraded performance slightly. The actual model used by default is quantized, making it 30 MB instead of ~120 MB.

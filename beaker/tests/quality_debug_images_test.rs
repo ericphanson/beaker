@@ -19,6 +19,7 @@ fn test_quality_debug_images_not_created_without_flag() {
             test_image.to_str().unwrap(),
             "--output-dir",
             temp_dir.path().to_str().unwrap(),
+            "--metadata",
         ])
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .output()
@@ -58,6 +59,7 @@ fn test_quality_debug_images_created_with_flag() {
             test_image.to_str().unwrap(),
             "--output-dir",
             temp_dir.path().to_str().unwrap(),
+            "--metadata",
             "--debug-dump-images",
         ])
         .current_dir(env!("CARGO_MANIFEST_DIR"))

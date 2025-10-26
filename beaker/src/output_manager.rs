@@ -73,8 +73,12 @@ impl<'a> OutputManager<'a> {
     ) -> Result<PathBuf> {
         let input_stem = self.input_stem();
 
-        // Always add suffix for consistency
-        let output_filename = format!("{input_stem}_{default_suffix}.{extension}");
+        // Check if stem already ends with the suffix to avoid duplication
+        let output_filename = if input_stem.ends_with(&format!("_{default_suffix}")) {
+            format!("{input_stem}.{extension}")
+        } else {
+            format!("{input_stem}_{default_suffix}.{extension}")
+        };
 
         let output_dir = self.get_output_dir()?;
         let output_path = output_dir.join(&output_filename);
@@ -98,17 +102,25 @@ impl<'a> OutputManager<'a> {
         let input_stem = self.input_stem();
 
         let output_filename = if total == 1 {
-            // Single output - always use suffix for consistency
-            format!("{input_stem}_{base_suffix}.{extension}")
+            // Single output - check if stem already ends with suffix to avoid duplication
+            if input_stem.ends_with(&format!("_{base_suffix}")) {
+                format!("{input_stem}.{extension}")
+            } else {
+                format!("{input_stem}_{base_suffix}.{extension}")
+            }
         } else {
-            // Multiple outputs - always numbered with suffix
+            // Multiple outputs - always numbered, check for suffix duplication
             let number_format = if total >= 10 {
                 format!("{index:02}") // Zero-padded for 10+
             } else {
                 format!("{index}") // No padding for < 10
             };
 
-            format!("{input_stem}_{base_suffix}-{number_format}.{extension}")
+            if input_stem.ends_with(&format!("_{base_suffix}")) {
+                format!("{input_stem}-{number_format}.{extension}")
+            } else {
+                format!("{input_stem}_{base_suffix}-{number_format}.{extension}")
+            }
         };
 
         let output_dir = self.get_output_dir()?;
@@ -120,7 +132,13 @@ impl<'a> OutputManager<'a> {
     /// Generate auxiliary output path (always includes suffix)
     pub fn generate_auxiliary_output(&self, suffix: &str, extension: &str) -> Result<PathBuf> {
         let input_stem = self.input_stem();
-        let output_filename = format!("{input_stem}_{suffix}.{extension}");
+
+        // Check if stem already ends with suffix to avoid duplication
+        let output_filename = if input_stem.ends_with(&format!("_{suffix}")) {
+            format!("{input_stem}.{extension}")
+        } else {
+            format!("{input_stem}_{suffix}.{extension}")
+        };
 
         let output_dir = self.get_output_dir()?;
         let output_path = output_dir.join(&output_filename);

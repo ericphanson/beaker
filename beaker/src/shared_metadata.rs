@@ -330,9 +330,25 @@ pub fn load_or_create_metadata(path: &Path) -> Result<BeakerMetadata> {
         match toml::from_str::<BeakerMetadata>(&content) {
             Ok(metadata) => Ok(metadata),
             Err(e) => {
+                // Create backup of corrupted metadata before dropping it
+                let backup_path = path.with_extension("beaker.toml.backup");
+                if let Err(backup_err) = fs::copy(path, &backup_path) {
+                    warn!(
+                        "{} Failed to create backup of corrupted metadata: {}",
+                        crate::color_utils::symbols::warning(),
+                        backup_err
+                    );
+                } else {
+                    warn!(
+                        "{} Created backup of corrupted metadata: {}",
+                        crate::color_utils::symbols::warning(),
+                        backup_path.display()
+                    );
+                }
+
                 let colored_error = crate::color_utils::colors::warning_level(&e.to_string());
                 warn!(
-                    "{} Dropping existing metadata from {}:\n{}",
+                    "{} Dropping existing metadata from {} (parse error):\n{}",
                     crate::color_utils::symbols::warning(),
                     path.display(),
                     colored_error
