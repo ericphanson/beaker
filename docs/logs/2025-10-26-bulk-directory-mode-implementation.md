@@ -237,10 +237,32 @@ Using subagent-driven development to implement the bulk/directory mode feature f
 
 ---
 
+## Task 11: Load Detection Data from TOML After Processing ✅
+
+**Status:** COMPLETED
+**Commit:** f3d92ff748ba01a5519ea8e029ae4f5ef56160a4
+**Pushed:** Pending
+
+### Implementation
+- Modified `beaker-gui/src/views/directory.rs`:
+  - Added `load_detections_from_toml()` method to parse .beaker.toml files
+  - Added `count_triage_results()` helper to count good/unknown/bad detections
+  - Extracts detection metadata: class_name, confidence, bbox, blur_score
+  - Extracts quality triage decisions from TOML
+
+### Tests
+- Added `test_load_detection_data_from_toml` - PASSED
+- All 22 GUI tests passed
+
+### Notes
+- Graceful error handling: returns empty vec or (0,0,0) on parse errors
+- Ready to be used in Task 12 to populate actual detection counts
+
+---
+
 ## Next Tasks
 
-- [ ] Task 11: Load Detection Data from TOML After Processing
-- [ ] Task 11: Load Detection Data from TOML After Processing
+- [ ] Task 12: Load Detections After ImageSuccess Event
 - [ ] Task 12: Load Detections After ImageSuccess Event
 - [ ] Task 13: Build Aggregate Detection List After Processing
 - [ ] Task 14: Implement Basic Gallery UI
