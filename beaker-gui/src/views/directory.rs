@@ -41,6 +41,7 @@ pub struct DirectoryView {
     // Processing state
     progress_receiver: Option<Receiver<beaker::ProcessingEvent>>,
     cancel_flag: Arc<AtomicBool>,
+    output_dir: Option<PathBuf>,
 
     // Aggregate detection list (populated after processing)
     all_detections: Vec<DetectionRef>,
@@ -77,6 +78,7 @@ impl DirectoryView {
             selected_detection_idx: None,
             progress_receiver: None,
             cancel_flag: Arc::new(AtomicBool::new(false)),
+            output_dir: None,
             all_detections: Vec::new(),
             show_good: true,
             show_unknown: true,
@@ -91,6 +93,11 @@ impl DirectoryView {
         let (tx, rx) = channel();
         self.progress_receiver = Some(rx);
 
+        // Create temp output directory
+        let temp_dir = std::env::temp_dir()
+            .join(format!("beaker-gui-bulk-{}", std::process::id()));
+        self.output_dir = Some(temp_dir.clone());
+
         // Collect paths to process
         let image_paths: Vec<PathBuf> = self.images.iter().map(|img| img.path.clone()).collect();
         let cancel_flag = Arc::clone(&self.cancel_flag);
@@ -103,8 +110,6 @@ impl DirectoryView {
             );
 
             // Create temp output directory
-            let temp_dir = std::env::temp_dir()
-                .join(format!("beaker-gui-bulk-{}", std::process::id()));
             if let Err(e) = std::fs::create_dir_all(&temp_dir) {
                 eprintln!("[DirectoryView] ERROR: Failed to create temp dir: {}", e);
                 return;
@@ -164,18 +169,42 @@ impl DirectoryView {
                     eprintln!("[DirectoryView] Image {} started processing", index);
                 }
             }
-            beaker::ProcessingEvent::ImageSuccess { index, .. } => {
+            beaker::ProcessingEvent::ImageSuccess { path, index } => {
                 if index < self.images.len() {
-                    // For now, use placeholder values
-                    // We'll load actual detection data from TOML in next task
+                    // Find TOML file
+                    let stem = path.file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("unknown");
+
+                    let toml_path = if let Some(ref output_dir) = self.output_dir {
+                        output_dir.join(format!("{}.beaker.toml", stem))
+                    } else {
+                        path.parent()
+                            .map(|p| p.join(format!("{}.beaker.toml", stem)))
+                            .unwrap_or_else(|| PathBuf::from(format!("{}.beaker.toml", stem)))
+                    };
+
+                    // Load detections
+                    let detections = Self::load_detections_from_toml(&toml_path)
+                        .unwrap_or_default();
+
+                    let detections_count = detections.len();
+
+                    // Count triage results
+                    let (good_count, unknown_count, bad_count) =
+                        Self::count_triage_results(&toml_path);
+
+                    self.images[index].detections = detections;
                     self.images[index].status = ProcessingStatus::Success {
-                        detections_count: 0,
-                        good_count: 0,
-                        unknown_count: 0,
-                        bad_count: 0,
+                        detections_count,
+                        good_count,
+                        unknown_count,
+                        bad_count,
                         processing_time_ms: 0.0,
                     };
-                    eprintln!("[DirectoryView] Image {} completed successfully", index);
+
+                    eprintln!("[DirectoryView] Image {} completed: {} detections ({} good, {} unknown, {} bad)",
+                        index, detections_count, good_count, unknown_count, bad_count);
                 }
             }
             beaker::ProcessingEvent::ImageError { index, error, .. } => {
@@ -615,5 +644,52 @@ detections = [
         assert_eq!(detections.len(), 1);
         assert_eq!(detections[0].class_name, "head");
         assert_eq!(detections[0].confidence, 0.95);
+    }
+
+    #[test]
+    fn test_update_from_event_loads_detections() {
+        use tempfile::TempDir;
+        use std::fs;
+
+        let temp_dir = TempDir::new().unwrap();
+        let img_path = temp_dir.path().join("test.jpg");
+        let toml_path = temp_dir.path().join("test.beaker.toml");
+
+        // Create dummy image and TOML
+        fs::write(&img_path, b"fake_image").unwrap();
+        let toml_content = r#"
+[detect]
+detections = [
+    { class_name = "head", confidence = 0.95, x1 = 10.0, y1 = 20.0, x2 = 100.0, y2 = 120.0, quality = { triage_decision = "good" } }
+]
+"#;
+        fs::write(&toml_path, toml_content).unwrap();
+
+        let mut view = DirectoryView::new(
+            temp_dir.path().to_path_buf(),
+            vec![img_path.clone()],
+        );
+
+        // Set output directory so we can find TOML
+        view.output_dir = Some(temp_dir.path().to_path_buf());
+
+        let event = beaker::ProcessingEvent::ImageSuccess {
+            path: img_path,
+            index: 0,
+        };
+
+        view.update_from_event(event);
+
+        // Should have loaded detections
+        assert_eq!(view.images[0].detections.len(), 1);
+
+        // Should have correct counts
+        match &view.images[0].status {
+            ProcessingStatus::Success { detections_count, good_count, .. } => {
+                assert_eq!(*detections_count, 1);
+                assert_eq!(*good_count, 1);
+            }
+            _ => panic!("Expected Success status"),
+        }
     }
 }
