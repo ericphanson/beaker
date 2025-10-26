@@ -10,14 +10,19 @@ This document provides development philosophy, planning guidance, and detailed t
 
 ## Prerequisites
 
-**CRITICAL: Install `just` before doing anything else:**
+**CRITICAL: Install `just` and `cargo-nextest` before doing anything else:**
 
 ```bash
 # Fast installation using pre-built binary (~1s vs 60s compilation)
 curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
+
+# Install cargo-nextest using pre-built binary (fast - ~1s vs 60s compilation)
+curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
+# For macOS, use: curl -LsSf https://get.nexte.st/latest/mac | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
+# If pre-built binary fails (service down), fallback to: cargo install cargo-nextest --locked
 ```
 
-All development workflows use `just` commands. Without it installed, you cannot run builds, tests, or CI validation.
+All development workflows use `just` commands, and tests require `cargo-nextest`. Without these tools installed, you cannot run builds, tests, or CI validation.
 
 ## Focus Areas
 
@@ -84,6 +89,11 @@ When developing proposals, technical plans, or architectural changes, align with
 ```bash
 # Install just (REQUIRED for all development) - Fast pre-built binary method
 curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
+
+# Install cargo-nextest (REQUIRED for running tests) - Fast pre-built binary method
+curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
+# For macOS, use: curl -LsSf https://get.nexte.st/latest/mac | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
+# If pre-built binary fails, fallback to: cargo install cargo-nextest --locked
 
 # Common development tasks
 just fmt            # Auto-format code

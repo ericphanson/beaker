@@ -19,6 +19,12 @@ rustc --version && cargo --version
 # Install just (REQUIRED - task runner for all development)
 cargo install just
 
+# Install cargo-nextest (REQUIRED - test runner used by `just test` and `just ci`)
+# Using pre-built binary for fast installation (~1s vs 60s compilation)
+curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
+# For macOS, use: curl -LsSf https://get.nexte.st/latest/mac | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
+# If pre-built binary fails (service down), use fallback: cargo install cargo-nextest --locked
+
 # Build release version - NEVER CANCEL: takes 1 minute 40 seconds. Set timeout to 3+ minutes.
 just build-release
 
@@ -367,6 +373,11 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 # Just task runner (REQUIRED for development)
 cargo install just
+
+# Cargo-nextest (REQUIRED for running tests) - fast pre-built binary installation
+curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
+# For macOS, use: curl -LsSf https://get.nexte.st/latest/mac | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
+# If pre-built binary fails, use fallback: cargo install cargo-nextest --locked
 
 # Python tools (if needed)
 pip install pre-commit ruff
