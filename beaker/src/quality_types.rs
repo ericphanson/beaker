@@ -1,5 +1,7 @@
 //! Data structures for quality assessment
 
+use std::time::SystemTime;
+
 /// Tunable parameters for quality heuristics
 #[derive(Clone, Debug, PartialEq)]
 pub struct QualityParams {
@@ -41,4 +43,26 @@ impl Default for QualityParams {
             core_ratio: 0.60,
         }
     }
+}
+
+/// Parameter-independent computation results (expensive to compute, ~60ms)
+#[derive(Clone, Debug)]
+pub struct QualityRawData {
+    /// Original image dimensions
+    pub input_width: u32,
+    pub input_height: u32,
+
+    /// ONNX model outputs (parameter-independent)
+    pub paq2piq_global: f32,           // Global quality score (0-100)
+    pub paq2piq_local: [[u8; 20]; 20], // 20x20 local quality grid
+
+    /// Raw blur detection (parameter-independent)
+    pub tenengrad_224: [[f32; 20]; 20],  // Raw Tenengrad at 224x224
+    pub tenengrad_112: [[f32; 20]; 20],  // Raw Tenengrad at 112x112
+    pub median_tenengrad_224: f32,       // Median for adaptive thresholding
+    pub scale_ratio: f32,                // 112/224 scale ratio
+
+    /// Provenance
+    pub model_version: String,
+    pub computed_at: SystemTime,
 }

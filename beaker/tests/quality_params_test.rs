@@ -1,4 +1,5 @@
-use beaker::quality_types::QualityParams;
+use beaker::quality_types::{QualityParams, QualityRawData};
+use std::time::SystemTime;
 
 #[test]
 fn test_quality_params_default_values() {
@@ -25,4 +26,25 @@ fn test_quality_params_custom_values() {
     assert_eq!(params.beta, 1.5);
     assert_eq!(params.alpha, 0.8);
     assert_eq!(params.tau_ten_224, 0.02); // Still default
+}
+
+#[test]
+fn test_quality_raw_data_creation() {
+    let raw = QualityRawData {
+        input_width: 640,
+        input_height: 480,
+        paq2piq_global: 75.5,
+        paq2piq_local: [[50u8; 20]; 20],
+        tenengrad_224: [[0.1f32; 20]; 20],
+        tenengrad_112: [[0.05f32; 20]; 20],
+        median_tenengrad_224: 0.08,
+        scale_ratio: 0.5,
+        model_version: "quality-model-v1".to_string(),
+        computed_at: SystemTime::now(),
+    };
+
+    assert_eq!(raw.input_width, 640);
+    assert_eq!(raw.input_height, 480);
+    assert_eq!(raw.paq2piq_global, 75.5);
+    assert_eq!(raw.model_version, "quality-model-v1");
 }
