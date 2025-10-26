@@ -6,7 +6,16 @@
 
 ## Executive Summary
 
-This proposal analyzes architectural approaches for enabling real-time GUI slider-based tuning of the quality assessment algorithm without rerunning expensive ML inference. The quality algorithm combines a PaQ-2-PiQ ONNX model (10-20% cost) with multi-scale blur detection (40-60% cost) and manual heuristics (<5% cost). We evaluate four architectural approaches ranging from simple caching to sophisticated incremental computation frameworks.
+This proposal analyzes architectural approaches for enabling real-time GUI slider-based tuning of the quality assessment algorithm without rerunning expensive ML inference. We evaluate four architectural approaches ranging from simple caching to sophisticated incremental computation frameworks.
+
+**Measured Performance (2025-10-26):** The quality algorithm is **8-10x faster than initially estimated**:
+- **Total:** 57-70ms per image (vs 300-500ms estimated)
+- **Preprocessing:** 24-31ms (~42% of total) - Resize to 224x224
+- **ONNX inference:** 29-31ms (~47% of total) - INT8 quantized model
+- **Blur detection:** 2.1-2.3ms (~3% of total) - Multi-scale Sobel on 224x224
+- **Postprocessing:** <0.1ms (<0.1% of total) - Combine scores
+
+**Impact:** For 1000 images, initial load takes 60-70 seconds (parallelizable to 7-9 seconds). Caching provides a **600-700x speedup** for slider adjustments (<0.1s vs 60-70s).
 
 **Recommendation:** Start with **Approach 2 (Staged Computation with Simple Caching)** for immediate implementation, with **Approach 3 (Hybrid Staged + Salsa)** as a future enhancement if complex multi-parameter dependencies emerge.
 
@@ -21,25 +30,27 @@ The quality pipeline executes three stages sequentially:
 ```
 Input Image (any size)
     ↓
-[1] Preprocessing (10-20ms)
+[1] Preprocessing (24-31ms) ← EXPENSIVE, PARAMETER-INDEPENDENT
     ├─ Resize to 224×224
     └─ Normalize to [0,1] RGB
     ↓
-[2] Multi-Scale Blur Detection (200-400ms) ← EXPENSIVE
+[2] Multi-Scale Blur Detection (2.1-2.3ms) ← FAST, PARAMETER-DEPENDENT
     ├─ Sobel filtering on 224×224
     ├─ Downsample to 112×112
     ├─ Sobel filtering on 112×112
-    ├─ Multi-scale fusion
+    ├─ Multi-scale fusion (uses BETA, TAU_TEN_224, P_FLOOR)
     └─ Output: 20×20 blur maps (w20, p20, t224)
     ↓
-[3] ONNX Model Inference (50-100ms) ← EXPENSIVE
+[3] ONNX Model Inference (29-31ms) ← EXPENSIVE, PARAMETER-INDEPENDENT
     ├─ Input: 224×224 RGB tensor
     └─ Output: 401 values (1 global + 400 local)
     ↓
-[4] Heuristic Postprocessing (<5ms) ← CHEAP, TUNABLE
-    ├─ Combine paq2piq + blur scores
-    ├─ Apply tunable parameters (ALPHA, BETA, etc.)
+[4] Heuristic Postprocessing (<0.1ms) ← NEGLIGIBLE, PARAMETER-DEPENDENT
+    ├─ Combine paq2piq + blur scores (uses ALPHA, MIN_WEIGHT)
+    ├─ Apply tunable parameters
     └─ Generate final quality scores
+
+Total: 57-70ms per image on CPU
 ```
 
 ### Tunable Parameters
@@ -61,12 +72,31 @@ Located in `beaker/src/blur_detection.rs:6-24`:
 
 ### Performance Profile
 
-Per 1000×1000 image on CPU:
-- **Preprocessing:** 10-20ms (depends on resize algorithm)
-- **Blur Detection:** 200-400ms (40-60% of total)
-- **ONNX Inference:** 50-100ms (10-20% of total)
-- **Postprocessing:** <5ms (<2% of total)
-- **Total:** 300-500ms
+**MEASURED TIMINGS (2025-10-26)** on example images (1280x960-1280px) on CPU:
+- **Preprocessing:** 24-31ms (~40-45% of total) - Resize to 224x224 + normalize
+- **Blur Detection:** 2.1-2.3ms (~3-4% of total) - Multi-scale Sobel + Tenengrad on 224x224
+- **ONNX Inference:** 29-31ms (~45-50% of total) - INT8 quantized model
+- **Postprocessing:** 0.01-0.06ms (<0.1% of total) - Combine scores
+- **Total:** 57-70ms per image
+
+**Performance Breakdown:**
+```
+Measured on example.jpg (1280x960):
+  Run 1: Preprocess 24.24ms | Blur 2.16ms | ONNX 30.51ms | Post 0.03ms | Total 63ms
+  Run 2: Preprocess 25.27ms | Blur 2.32ms | ONNX 28.82ms | Post 0.06ms | Total 63ms
+
+Measured on example-2-birds.jpg (1280x1280):
+  Run 3: Preprocess 31.25ms | Blur 2.25ms | ONNX 28.99ms | Post 0.03ms | Total 70ms
+```
+
+**Key Findings:**
+1. **Blur detection is 100x faster than initially estimated** (2ms vs 200-400ms estimated)
+   - Works on already-resized 224x224 image, not original size
+   - Sobel filtering on 224x224 is extremely fast
+2. **ONNX inference faster than expected** (29-31ms vs 50-100ms estimated)
+   - INT8 quantization provides good speedup
+3. **Preprocessing is the largest cost** after ONNX (24-31ms)
+   - Varies with input image size (larger images take longer to resize)
 
 ### GUI Tuning Requirements
 
@@ -299,7 +329,7 @@ use cached::{Cached, TimedCache};
     convert = r#"{ format!("{:?}:{}", _path, _md5) }"#
 )]
 fn stage1_onnx_inference(_path: &Path, _md5: &str, image: &DynamicImage) -> Result<Paq2PiqResult> {
-    // Run ONNX model: 50-100ms
+    // Run ONNX model: 29-31ms
     // Output: global + 20×20 local paq2piq scores
 }
 
@@ -310,7 +340,7 @@ fn stage1_onnx_inference(_path: &Path, _md5: &str, image: &DynamicImage) -> Resu
     convert = r#"{ format!("{:?}:{}", _path, _md5) }"#
 )]
 fn stage2_blur_raw(_path: &Path, _md5: &str, image: &DynamicImage) -> Result<BlurRawResult> {
-    // Run multi-scale Sobel + Tenengrad: 200-400ms
+    // Run multi-scale Sobel + Tenengrad: ~2ms (includes all Sobel filtering)
     // Output: raw Tenengrad values WITHOUT parameter-dependent transformations
 }
 
@@ -325,7 +355,7 @@ fn stage3_blur_mapping(
     blur_raw: &BlurRawResult,
     _params: &BlurParams,
 ) -> BlurMappedResult {
-    // Apply BETA, TAU_TEN_224, P_FLOOR: 1-2ms
+    // Apply BETA, TAU_TEN_224, P_FLOOR: <0.1ms (simple math on 20x20 grid)
     // Output: 20×20 blur probabilities and weights
 }
 
@@ -342,7 +372,7 @@ fn stage4_combine(
     blur: &BlurMappedResult,
     _params: &CombineParams,
 ) -> QualityResult {
-    // Combine scores with ALPHA, MIN_WEIGHT: <1ms
+    // Combine scores with ALPHA, MIN_WEIGHT: <0.01ms (trivial arithmetic)
 }
 ```
 
@@ -622,7 +652,7 @@ impl ExpensiveCache {
             return Ok(cached.clone());
         }
 
-        // Run ONNX: 50-100ms
+        // Run ONNX: 29-31ms
         let result = run_onnx_inference(&input.path)?;
         self.paq_cache.insert(key, result.clone());
         Ok(result)
@@ -634,7 +664,7 @@ impl ExpensiveCache {
             return Ok(cached.clone());
         }
 
-        // Run blur detection: 200-400ms
+        // Run blur detection: ~2ms
         let result = compute_blur_raw(&input.path)?;
         self.blur_cache.insert(key, result.clone());
         Ok(result)
@@ -653,7 +683,7 @@ fn blur_probability_map(
     // Get current params (tracked by Salsa)
     let params = db.quality_params();
 
-    // Fast computation: 1-2ms
+    // Fast computation: <0.1ms
     // Salsa will only rerun this if params.beta/tau_ten_224/p_floor change
     compute_blur_probability(&blur_raw, params.beta, params.tau_ten_224, params.p_floor)
 }
@@ -667,7 +697,7 @@ fn blur_weights(
     let prob_map = blur_probability_map(db, image);
     let params = db.quality_params();
 
-    // Fast computation: <1ms
+    // Fast computation: <0.01ms
     // Salsa will only rerun if prob_map or params.alpha/min_weight change
     compute_weights(&prob_map, params.alpha, params.min_weight)
 }
@@ -712,11 +742,11 @@ Salsa checks dependents:
 User requests quality_result():
     ↓
 Salsa recomputes chain:
-    1. blur_probability_map() → 1-2ms (uses cached blur_raw)
-    2. blur_weights() → <1ms (uses fresh prob_map)
-    3. quality_result() → <1ms (combines everything)
+    1. blur_probability_map() → <0.1ms (uses cached blur_raw)
+    2. blur_weights() → <0.01ms (uses fresh prob_map)
+    3. quality_result() → <0.01ms (combines everything)
     ↓
-Total: ~2-3ms per image
+Total: <0.1ms per image
 
 User adjusts ALPHA slider:
     ↓
@@ -729,10 +759,10 @@ Salsa checks dependents:
     ↓
 Salsa recomputes:
     1. blur_probability_map() → CACHE HIT (unchanged)
-    2. blur_weights() → <1ms (uses cached prob_map)
-    3. quality_result() → <1ms
+    2. blur_weights() → <0.01ms (uses cached prob_map)
+    3. quality_result() → <0.01ms
     ↓
-Total: ~1ms per image (saved 1-2ms by keeping prob_map)
+Total: <0.01ms per image (saved ~0.1ms by keeping prob_map)
 ```
 
 ### GUI Service with Salsa
@@ -1036,17 +1066,22 @@ impl SalsaQualityService {
 
 ### Performance Comparison
 
-| Approach | Initial Load (1000 images) | Slider Adjust (Tier 1) | Slider Adjust (Tier 2) | Memory Overhead |
-|----------|---------------------------|------------------------|------------------------|-----------------|
-| **Approach 1** | 300-500ms × 1000 = 5-8min | 1ms × 1000 = 1s | 2ms × 1000 = 2s | Low (2 caches) |
-| **Approach 2** | 300-500ms × 1000 = 5-8min | <1ms × 1000 = <1s | 1-2ms × 1000 = 1-2s | Medium (4 caches) |
-| **Approach 3** | 300-500ms × 1000 = 5-8min | <1ms × 1000 = <1s | 1-2ms × 1000 = 1-2s | Medium (manual + Salsa) |
-| **Approach 4** | 300-500ms × 1000 = 5-8min | <1ms × 1000 = <1s | 1-2ms × 1000 = 1-2s | High (full Salsa DB) |
+**UPDATED WITH MEASURED TIMINGS:**
+
+| Approach | Initial Load (1000 images) | Slider Adjust (Tier 1) | Slider Adjust (Tier 2) | No Cache (Full Rerun) |
+|----------|---------------------------|------------------------|------------------------|-----------------------|
+| **Approach 1** | 60-70ms × 1000 = 60-70s | <0.1ms × 1000 = <0.1s | 2ms × 1000 = 2s | 60-70s |
+| **Approach 2** | 60-70ms × 1000 = 60-70s | <0.1ms × 1000 = <0.1s | <0.1ms × 1000 = <0.1s | 60-70s |
+| **Approach 3** | 60-70ms × 1000 = 60-70s | <0.1ms × 1000 = <0.1s | <0.1ms × 1000 = <0.1s | 60-70s |
+| **Approach 4** | 60-70ms × 1000 = 60-70s | <0.1ms × 1000 = <0.1s | <0.1ms × 1000 = <0.1s | 60-70s |
 
 **Notes:**
-- **Tier 1:** ALPHA, MIN_WEIGHT (postprocessing only)
-- **Tier 2:** BETA, TAU_TEN_224, P_FLOOR (blur mapping)
-- Initial load parallelizable: ~1-2min with 4-8 cores
+- **Measured timing:** 57-70ms per image (not 300-500ms as initially estimated!)
+- **Tier 1:** ALPHA, MIN_WEIGHT (postprocessing only, <0.1ms)
+- **Tier 2:** BETA, TAU_TEN_224, P_FLOOR (blur mapping, ~0.1ms since blur total is only 2ms)
+- **Initial load parallelizable:** 60-70s ÷ 8 cores = **7-9 seconds** for 1000 images
+- **Key insight:** Even with NO caching, full rerun takes only 60-70s for 1000 images!
+- **Caching benefit:** Reduces slider adjustment from 60-70s to <0.1s (600-700x speedup)
 
 ### Complexity Comparison
 
@@ -1076,6 +1111,13 @@ impl SalsaQualityService {
 
 ## Recommendation
 
+**UPDATE (2025-10-26): After measuring actual performance**, the quality algorithm is **8-10x faster than initially estimated** (57-70ms vs 300-500ms). This changes the analysis:
+
+- **Initial load** of 1000 images takes only **60-70 seconds** (parallelizable to 7-9 seconds)
+- **Blur detection** is negligible at 2ms (not 200-400ms as estimated)
+- **Caching still provides massive value:** 600-700x speedup for slider adjustments (<0.1s vs 60-70s)
+- **All approaches have similar performance** since expensive operations are parameter-independent
+
 ### Primary Recommendation: Approach 2 (Staged Computation)
 
 **Rationale:**
@@ -1087,6 +1129,7 @@ impl SalsaQualityService {
 5. **Room to grow:** Easy to add more stages or convert to Approach 3 later
 6. **Clear stage boundaries:** The quality algorithm naturally separates into stages
 7. **Predictable performance:** Explicit caching rules make performance easy to reason about
+8. **Measured results confirm design:** Preprocessing (24-31ms) and ONNX (29-31ms) are expensive and parameter-independent; blur (2ms) and postprocessing (<0.1ms) are cheap
 
 ### When to Upgrade to Approach 3
 
