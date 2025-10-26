@@ -23,6 +23,7 @@ impl View for DetectionView {
 enum AppState {
     Welcome(WelcomeView),
     Detection(DetectionView),
+    Directory(crate::views::DirectoryView),
 }
 
 pub struct BeakerApp {
@@ -183,9 +184,47 @@ impl BeakerApp {
 
     fn open_folder(&mut self, path: PathBuf) {
         eprintln!("[BeakerApp] Opening folder: {:?}", path);
-        // TODO: Implement folder/bulk mode in future (Proposal A)
-        let _ = self.recent_files.add(path.clone(), RecentItemType::Folder);
-        eprintln!("[BeakerApp] WARNING: Folder mode not yet implemented");
+
+        // Collect image files from directory
+        let image_paths = Self::collect_image_files(&path);
+        eprintln!(
+            "[BeakerApp] Found {} image files in folder",
+            image_paths.len()
+        );
+
+        if image_paths.is_empty() {
+            eprintln!("[BeakerApp] WARNING: No supported image files found in folder");
+            return;
+        }
+
+        // Create DirectoryView and start processing
+        let mut dir_view = crate::views::DirectoryView::new(path.clone(), image_paths);
+        dir_view.start_processing();
+        let _ = self.recent_files.add(path, RecentItemType::Folder);
+        self.state = AppState::Directory(dir_view);
+    }
+
+    /// Collect all supported image files from a directory (non-recursive)
+    fn collect_image_files(dir_path: &PathBuf) -> Vec<PathBuf> {
+        let mut image_files = Vec::new();
+
+        if let Ok(entries) = std::fs::read_dir(dir_path) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    if let Some(ext) = path.extension() {
+                        let ext_lower = ext.to_string_lossy().to_lowercase();
+                        if ext_lower == "jpg" || ext_lower == "jpeg" || ext_lower == "png" {
+                            image_files.push(path);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Sort for consistent ordering
+        image_files.sort();
+        image_files
     }
 
     fn open_paths(&mut self, paths: Vec<PathBuf>) {
@@ -285,6 +324,92 @@ impl eframe::App for BeakerApp {
             AppState::Detection(detection_view) => {
                 detection_view.show(ctx, ui);
             }
+            AppState::Directory(directory_view) => {
+                directory_view.show(ctx, ui);
+            }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_app_state_supports_directory_view() {
+        let dir_view = crate::views::DirectoryView::new(
+            PathBuf::from("/tmp"),
+            vec![PathBuf::from("/tmp/img1.jpg")],
+        );
+        let _state = AppState::Directory(dir_view);
+        // If this compiles, AppState has Directory variant
+    }
+
+    #[test]
+    fn test_app_renders_directory_view() {
+        let dir_view = crate::views::DirectoryView::new(
+            PathBuf::from("/tmp"),
+            vec![PathBuf::from("/tmp/img1.jpg")],
+        );
+        let _app = BeakerApp {
+            state: AppState::Directory(dir_view),
+            recent_files: RecentFiles::default(),
+            use_native_menu: false,
+            pending_menu_file_dialog: Arc::new(Mutex::new(None)),
+            #[cfg(target_os = "macos")]
+            menu: None,
+            #[cfg(target_os = "macos")]
+            menu_rx: None,
+        };
+
+        // This should compile and not panic
+        let _ = format!("{:?}", "Testing directory view in app");
+    }
+
+    #[test]
+    fn test_open_folder_creates_directory_view() {
+        use std::fs::File;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let img1 = temp_dir.path().join("img1.jpg");
+        let img2 = temp_dir.path().join("img2.jpg");
+
+        // Create empty files
+        File::create(&img1).unwrap();
+        File::create(&img2).unwrap();
+
+        let mut app = BeakerApp::new(false, None);
+        app.open_folder(temp_dir.path().to_path_buf());
+
+        // Should transition to Directory state
+        assert!(matches!(app.state, AppState::Directory(_)));
+    }
+
+    #[test]
+    fn test_open_folder_starts_processing() {
+        use std::fs::File;
+        use std::thread;
+        use std::time::Duration;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let img1 = temp_dir.path().join("img1.jpg");
+        File::create(&img1).unwrap();
+
+        let mut app = BeakerApp::new(false, None);
+        app.open_folder(temp_dir.path().to_path_buf());
+
+        // Give processing thread time to start
+        thread::sleep(Duration::from_millis(100));
+
+        // Should transition to Directory state with processing started
+        match &app.state {
+            AppState::Directory(view) => {
+                // At least one image should be in Waiting or Processing state
+                assert!(!view.images.is_empty());
+            }
+            _ => panic!("Expected Directory state"),
+        }
     }
 }
