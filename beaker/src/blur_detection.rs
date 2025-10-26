@@ -24,6 +24,50 @@ const GAUSS_SIGMA_NATIVE: f32 = 1.0; // denoise native crop before Tenengrad/det
 const CORE_RATIO: f32 = 0.60; // inner 60% treated as "core"
 
 /// ------------------------- basic types -------------------------
+use anyhow::Result;
+
+/// Raw Tenengrad computation results (parameter-independent)
+#[derive(Clone, Debug)]
+pub struct RawTenengradData {
+    pub t224: Array2<f32>,      // 20x20 Tenengrad scores at 224x224
+    pub t112: Array2<f32>,      // 20x20 Tenengrad scores at 112x112
+    pub median_224: f32,        // Median for adaptive thresholding
+    pub scale_ratio: f32,       // Scale ratio (112/224)
+}
+
+/// Compute raw Tenengrad scores without applying parameters (expensive: ~2ms)
+/// This is parameter-independent - compute once, cache forever
+pub fn compute_raw_tenengrad(x: &Array4<f32>) -> Result<RawTenengradData> {
+    // Convert to grayscale and compute Tenengrad at both scales
+    let gray224 = nchw_to_gray_224(x);
+    let t224 = tenengrad_mean_grid_20(&gray224);
+
+    let gray112 = downsample_2x_gray_f32(&gray224);
+    let t112 = tenengrad_mean_grid_20(&gray112);
+
+    // Compute median and scale ratio (same logic as current code)
+    let mut v224: Vec<f32> = t224.iter().copied().collect();
+    v224.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let median_224 = v224[v224.len() / 2].max(1e-12);
+
+    let mut v112: Vec<f32> = t112.iter().copied().collect();
+    v112.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let median_112 = v112[v112.len() / 2];
+
+    let scale_ratio = if median_224 > 0.0 {
+        (median_112 / median_224).clamp(0.05, 0.80)
+    } else {
+        0.25
+    };
+
+    Ok(RawTenengradData {
+        t224,
+        t112,
+        median_224,
+        scale_ratio,
+    })
+}
+
 type GrayF32 = ImageBuffer<Luma<f32>, Vec<f32>>;
 
 #[derive(Copy, Clone, Debug)]
