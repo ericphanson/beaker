@@ -38,24 +38,7 @@ Each issue follows this structure:
 
 ### 🟡 HIGH (P1) - Fix Soon
 
-#### UX Improvements
-- **[UX-01](UX-01-cli-validation-inconsistency.md)**: CLI Validation Inconsistency
-  - DetectCommand can validate, Cutout/Quality cannot
-  - Inconsistent developer experience
-  - **Fix**: Standardize all to `Result<Self, String>`
-  - **Effort**: 0.5 day
-  - **Enables**: All other validation fixes
-
-- **[UX-02](UX-02-conflicting-flags-silently-ignored.md)**: Conflicting Flags Silently Ignored
-  - `--alpha-matting --background-color` ignores background color
-  - **Fix**: Validation after UX-01
-  - **Effort**: 1 hour
-  - **Requires**: UX-01
-
-- **[UX-03](UX-03-numeric-range-validation.md)**: Missing Numeric Range Validation
-  - `--confidence 2.0` accepted (should be 0.0-1.0)
-  - **Fix**: Add `value_parser` with range checks
-  - **Effort**: 2 hours
+All HIGH priority issues have been resolved! ✅
 
 ### ⚠️ FEATURE DECISIONS (P2) - Maintainer Input Required
 
@@ -170,9 +153,9 @@ test -f image.beaker.toml || echo "FAIL"
 - [ ] Quality command always produces output
 
 ### Phase 2 Complete When:
-- [x] All CLI validation is consistent (Result return types)
-- [x] Invalid numeric ranges rejected at parse time
-- [x] Conflicting flags error instead of silent ignore
+- [x] All CLI validation is consistent (Result return types) ✅ FIXED
+- [x] Invalid numeric ranges rejected at parse time ✅ FIXED
+- [x] Conflicting flags error instead of silent ignore ✅ FIXED
 - [x] No empty debug directories created
 
 ### Phase 3 Complete When:

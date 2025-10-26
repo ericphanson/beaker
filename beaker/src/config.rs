@@ -100,6 +100,17 @@ pub fn parse_rgba_color(s: &str) -> Result<[u8; 4], String> {
     Ok(color)
 }
 
+/// Parse probability value (must be between 0.0 and 1.0)
+pub fn parse_probability(s: &str) -> Result<f32, String> {
+    let val = s
+        .parse::<f32>()
+        .map_err(|_| format!("Invalid number: '{s}'"))?;
+    if !(0.0..=1.0).contains(&val) {
+        return Err(format!("Must be between 0.0 and 1.0, got {val}"));
+    }
+    Ok(val)
+}
+
 /// Global CLI arguments that apply to all beaker commands
 #[derive(Parser, Debug, Clone)]
 pub struct GlobalArgs {
@@ -158,7 +169,7 @@ pub struct DetectCommand {
     pub sources: Vec<String>,
 
     /// Confidence threshold for detections (0.0-1.0)
-    #[arg(short, long, default_value = "0.5")]
+    #[arg(short, long, default_value = "0.5", value_parser = parse_probability)]
     pub confidence: f32,
 
     /// Classes to crop as comma-separated list (bird,head,eye,beak) or 'all' for all classes.
@@ -373,11 +384,18 @@ impl DetectionConfig {
 
 impl CutoutConfig {
     /// Create configuration from global args and command-specific args
-    pub fn from_args(global: GlobalArgs, cmd: CutoutCommand) -> Self {
+    pub fn from_args(global: GlobalArgs, cmd: CutoutCommand) -> Result<Self, String> {
+        // Validate conflicting flags (UX-02)
+        if cmd.alpha_matting && cmd.background_color.is_some() {
+            return Err(
+                "Cannot use both --alpha-matting and --background-color. Choose one.".to_string(),
+            );
+        }
+
         let mut base: BaseModelConfig = global.into();
         base.sources = cmd.sources; // Add sources from command
 
-        Self {
+        Ok(Self {
             base,
             post_process_mask: cmd.post_process,
             alpha_matting: cmd.alpha_matting,
@@ -389,23 +407,23 @@ impl CutoutConfig {
             model_path: cmd.model_path,
             model_url: cmd.model_url,
             model_checksum: cmd.model_checksum,
-        }
+        })
     }
 }
 
 impl QualityConfig {
     /// Create configuration from global args and command-specific args
-    pub fn from_args(global: GlobalArgs, cmd: QualityCommand) -> Self {
+    pub fn from_args(global: GlobalArgs, cmd: QualityCommand) -> Result<Self, String> {
         let mut base: BaseModelConfig = global.into();
         base.sources = cmd.sources; // Add sources from command
 
-        Self {
+        Ok(Self {
             base,
             model_path: cmd.model_path,
             model_url: cmd.model_url,
             model_checksum: cmd.model_checksum,
             debug_dump_images: cmd.debug_dump_images,
-        }
+        })
     }
 }
 
@@ -534,7 +552,7 @@ mod tests {
             model_checksum: None,
         };
 
-        let config = CutoutConfig::from_args(global_args, cutout_cmd);
+        let config = CutoutConfig::from_args(global_args, cutout_cmd).unwrap();
 
         assert_eq!(config.base.sources, vec!["photo.png"]);
         assert_eq!(config.base.device, "coreml");
@@ -596,7 +614,7 @@ mod tests {
             debug_dump_images: true,
         };
 
-        let config = QualityConfig::from_args(global_args, quality_cmd);
+        let config = QualityConfig::from_args(global_args, quality_cmd).unwrap();
 
         // Test conversion from command to config
         assert_eq!(config.base.sources, vec!["test_image.jpg"]);
@@ -611,6 +629,67 @@ mod tests {
     }
 
     #[test]
+    fn test_cutout_conflicting_flags_validation() {
+        let global_args = GlobalArgs {
+            device: "auto".to_string(),
+            output_dir: None,
+            metadata: false,
+            verbosity: Verbosity::new(0, 0),
+            permissive: false,
+            no_color: false,
+            force: false,
+        };
+
+        let cutout_cmd = CutoutCommand {
+            sources: vec!["photo.png".to_string()],
+            post_process: false,
+            alpha_matting: true,
+            alpha_matting_foreground_threshold: 240,
+            alpha_matting_background_threshold: 10,
+            alpha_matting_erode_size: 10,
+            background_color: Some([255, 0, 0, 255]), // Conflicting with alpha_matting
+            save_mask: false,
+            model_path: None,
+            model_url: None,
+            model_checksum: None,
+        };
+
+        let result = CutoutConfig::from_args(global_args, cutout_cmd);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Cannot use both"));
+    }
+
+    #[test]
+    fn test_cutout_valid_alpha_matting() {
+        let global_args = GlobalArgs {
+            device: "auto".to_string(),
+            output_dir: None,
+            metadata: false,
+            verbosity: Verbosity::new(0, 0),
+            permissive: false,
+            no_color: false,
+            force: false,
+        };
+
+        let cutout_cmd = CutoutCommand {
+            sources: vec!["photo.png".to_string()],
+            post_process: false,
+            alpha_matting: true,
+            alpha_matting_foreground_threshold: 240,
+            alpha_matting_background_threshold: 10,
+            alpha_matting_erode_size: 10,
+            background_color: None, // Valid - no background color
+            save_mask: false,
+            model_path: None,
+            model_url: None,
+            model_checksum: None,
+        };
+
+        let result = CutoutConfig::from_args(global_args, cutout_cmd);
+        assert!(result.is_ok());
+    }
+
+    #[test]
     fn test_parse_rgba_color() {
         // Valid color
         assert_eq!(parse_rgba_color("255,128,0,255"), Ok([255, 128, 0, 255]));
@@ -621,5 +700,19 @@ mod tests {
         assert!(parse_rgba_color("255,128,0,255,128").is_err()); // Too many components
         assert!(parse_rgba_color("256,128,0,255").is_err()); // Out of range
         assert!(parse_rgba_color("invalid,128,0,255").is_err()); // Non-numeric
+    }
+
+    #[test]
+    fn test_parse_probability() {
+        // Valid probabilities
+        assert_eq!(parse_probability("0.0"), Ok(0.0));
+        assert_eq!(parse_probability("0.5"), Ok(0.5));
+        assert_eq!(parse_probability("1.0"), Ok(1.0));
+
+        // Invalid probabilities
+        assert!(parse_probability("-0.5").is_err()); // Below range
+        assert!(parse_probability("2.0").is_err()); // Above range
+        assert!(parse_probability("1.5").is_err()); // Above range
+        assert!(parse_probability("invalid").is_err()); // Non-numeric
     }
 }

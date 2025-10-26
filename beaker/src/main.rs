@@ -220,7 +220,14 @@ fn main() {
                 output_str
             );
 
-            let internal_config = CutoutConfig::from_args(cli.global.clone(), cutout_cmd.clone());
+            let internal_config =
+                match CutoutConfig::from_args(cli.global.clone(), cutout_cmd.clone()) {
+                    Ok(config) => config,
+                    Err(e) => {
+                        error!("{} Configuration error: {e}", symbols::operation_failed());
+                        std::process::exit(1);
+                    }
+                };
             match run_cutout_processing(internal_config) {
                 Ok(_) => {}
                 Err(e) => {
@@ -252,7 +259,14 @@ fn main() {
                 output_str
             );
 
-            let internal_config = QualityConfig::from_args(cli.global.clone(), quality_cmd.clone());
+            let internal_config =
+                match QualityConfig::from_args(cli.global.clone(), quality_cmd.clone()) {
+                    Ok(config) => config,
+                    Err(e) => {
+                        error!("{} Configuration error: {e}", symbols::operation_failed());
+                        std::process::exit(1);
+                    }
+                };
             match run_quality_processing(internal_config) {
                 Ok(_) => {}
                 Err(e) => {
