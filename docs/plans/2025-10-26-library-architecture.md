@@ -24,13 +24,17 @@
 3. **Mixed concerns:** Computation and visualization coupled
 4. **No layer separation:** Can't selectively recompute based on what changed
 
-## Target Architecture: Layered Quality Assessment
+## Target Architecture: Layered Quality Assessment with Transparent Caching
 
-### Core Principle
+### Core Principles
 
 > **Separate what changes from what doesn't**
+>
+> **Cache transparently - frontends shouldn't implement caching**
+>
+> **Breaking changes are fine - optimize for best design**
 
-The library should expose three natural layers that frontends can cache independently:
+The library provides three natural layers with built-in transparent caching:
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -56,6 +60,262 @@ The library should expose three natural layers that frontends can cache independ
 │  - Colormap application                          │
 │  Cost: 7-30ms | Cache: Until params/view changes│
 └─────────────────────────────────────────────────┘
+```
+
+### Transparent Caching Architecture
+
+The library implements transparent multi-level caching. Frontends just call functions; caching happens automatically.
+
+**Design Goals:**
+1. **Zero boilerplate** - Frontends don't implement caching logic
+2. **Intelligent invalidation** - Cache invalidates automatically when inputs change
+3. **Configurable** - Memory limits, disk persistence, TTL
+4. **Thread-safe** - Concurrent access from GUI threads
+5. **Observable** - Cache hits/misses for debugging
+
+**Cache Manager:**
+
+```rust
+/// Central cache manager (singleton or passed to functions)
+pub struct QualityCache {
+    /// Level 1: Raw computation cache (in-memory + disk)
+    raw_cache: Arc<RwLock<LruCache<ImageKey, QualityRawData>>>,
+    raw_disk_cache: Option<DiskCache<ImageKey, QualityRawData>>,
+
+    /// Level 2: Score cache (in-memory only, cheap to recompute)
+    score_cache: Arc<RwLock<HashMap<(ImageKey, QualityParams), QualityScores>>>,
+
+    /// Level 3: Visualization cache (in-memory, LRU)
+    viz_cache: Arc<RwLock<LruCache<(ImageKey, QualityParams, HeatmapStyle), QualityVisualization>>>,
+
+    /// ONNX session (shared across threads)
+    session: Arc<Session>,
+
+    /// Configuration
+    config: CacheConfig,
+}
+
+/// Cache key for images (content-addressed)
+#[derive(Hash, Eq, PartialEq, Clone)]
+pub struct ImageKey {
+    path: PathBuf,
+    content_hash: u64,  // Hash of image bytes
+}
+
+/// Cache configuration
+pub struct CacheConfig {
+    /// Max memory for Level 1 cache (default: 1GB)
+    max_raw_cache_mb: usize,
+
+    /// Max memory for Level 3 cache (default: 100MB)
+    max_viz_cache_mb: usize,
+
+    /// Disk cache directory (default: ~/.cache/beaker/quality)
+    disk_cache_dir: Option<PathBuf>,
+
+    /// Enable disk persistence for Level 1
+    enable_disk_cache: bool,
+
+    /// Level 2 cache size (default: unlimited, cheap to recompute)
+    max_score_cache_entries: Option<usize>,
+}
+
+impl Default for CacheConfig {
+    fn default() -> Self {
+        Self {
+            max_raw_cache_mb: 1024,
+            max_viz_cache_mb: 100,
+            disk_cache_dir: Some(dirs::cache_dir()?.join("beaker/quality")),
+            enable_disk_cache: true,
+            max_score_cache_entries: None,
+        }
+    }
+}
+```
+
+**Usage Pattern (Transparent to Frontend):**
+
+```rust
+// Frontend code - caching is automatic!
+let cache = QualityCache::new(CacheConfig::default())?;
+
+// First call: Cache miss, computes everything (~60ms)
+let scores = cache.assess_quality("image1.jpg", &params)?;
+
+// Second call with same params: Cache hit (<1ms)
+let scores = cache.assess_quality("image1.jpg", &params)?;
+
+// Changed params: Level 1 cached, Level 2 recomputed (<0.1ms)
+let new_params = QualityParams { alpha: 0.8, ..params };
+let scores = cache.assess_quality("image1.jpg", &new_params)?;
+
+// Visualization: Renders only if not cached
+let viz = cache.visualize("image1.jpg", &params, &style)?;
+```
+
+**Cache Invalidation Strategy:**
+
+```rust
+impl QualityCache {
+    /// Automatically invalidates based on changes
+    fn assess_quality(
+        &self,
+        image_path: impl AsRef<Path>,
+        params: &QualityParams,
+    ) -> Result<QualityScores> {
+        let key = self.compute_image_key(image_path.as_ref())?;
+
+        // Level 1: Check raw cache
+        let raw = self.get_or_compute_raw(&key)?;
+
+        // Level 2: Check score cache
+        let cache_key = (key.clone(), params.clone());
+        {
+            let cache = self.score_cache.read().unwrap();
+            if let Some(scores) = cache.get(&cache_key) {
+                return Ok(scores.clone());  // Cache hit!
+            }
+        }
+
+        // Cache miss: Compute scores from raw data
+        let scores = QualityScores::compute(&raw, params);
+
+        // Store in cache
+        {
+            let mut cache = self.score_cache.write().unwrap();
+            cache.insert(cache_key, scores.clone());
+        }
+
+        Ok(scores)
+    }
+
+    /// Get raw data from cache or compute
+    fn get_or_compute_raw(&self, key: &ImageKey) -> Result<QualityRawData> {
+        // Check in-memory cache
+        {
+            let cache = self.raw_cache.read().unwrap();
+            if let Some(raw) = cache.get(key) {
+                return Ok(raw.clone());
+            }
+        }
+
+        // Check disk cache
+        if let Some(disk_cache) = &self.raw_disk_cache {
+            if let Ok(Some(raw)) = disk_cache.get(key) {
+                // Populate in-memory cache
+                let mut cache = self.raw_cache.write().unwrap();
+                cache.put(key.clone(), raw.clone());
+                return Ok(raw);
+            }
+        }
+
+        // Cache miss: Compute from scratch
+        let img = image::open(&key.path)?;
+        let raw = QualityRawData::compute_from_image(
+            &img,
+            &self.session,
+            "quality-model-v1".to_string(),
+        )?;
+
+        // Store in both caches
+        {
+            let mut cache = self.raw_cache.write().unwrap();
+            cache.put(key.clone(), raw.clone());
+        }
+
+        if let Some(disk_cache) = &self.raw_disk_cache {
+            disk_cache.put(key, &raw)?;
+        }
+
+        Ok(raw)
+    }
+
+    /// Clear Level 2 cache (when parameters change globally)
+    pub fn invalidate_scores(&self) {
+        let mut cache = self.score_cache.write().unwrap();
+        cache.clear();
+    }
+
+    /// Clear Level 3 cache (when visualization style changes)
+    pub fn invalidate_visualizations(&self) {
+        let mut cache = self.viz_cache.write().unwrap();
+        cache.clear();
+    }
+}
+```
+
+**Content-Addressed Caching:**
+
+```rust
+impl QualityCache {
+    /// Compute cache key from image path
+    /// Uses content hash to detect file changes
+    fn compute_image_key(&self, path: &Path) -> Result<ImageKey> {
+        let bytes = std::fs::read(path)?;
+        let content_hash = hash_bytes(&bytes);
+
+        Ok(ImageKey {
+            path: path.to_path_buf(),
+            content_hash,
+        })
+    }
+}
+
+fn hash_bytes(bytes: &[u8]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    hasher.finish()
+}
+```
+
+**Disk Cache Implementation:**
+
+```rust
+/// Persistent disk cache for expensive computation results
+pub struct DiskCache<K, V> {
+    cache_dir: PathBuf,
+    _phantom: std::marker::PhantomData<(K, V)>,
+}
+
+impl<K, V> DiskCache<K, V>
+where
+    K: Hash,
+    V: Serialize + for<'de> Deserialize<'de>,
+{
+    pub fn new(cache_dir: PathBuf) -> Result<Self> {
+        std::fs::create_dir_all(&cache_dir)?;
+        Ok(Self {
+            cache_dir,
+            _phantom: std::marker::PhantomData,
+        })
+    }
+
+    pub fn get(&self, key: &K) -> Result<Option<V>> {
+        let path = self.key_to_path(key);
+        if !path.exists() {
+            return Ok(None);
+        }
+
+        let bytes = std::fs::read(&path)?;
+        let value: V = bincode::deserialize(&bytes)?;
+        Ok(Some(value))
+    }
+
+    pub fn put(&self, key: &K, value: &V) -> Result<()> {
+        let path = self.key_to_path(key);
+        let bytes = bincode::serialize(value)?;
+        std::fs::write(&path, bytes)?;
+        Ok(())
+    }
+
+    fn key_to_path(&self, key: &K) -> PathBuf {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        key.hash(&mut hasher);
+        let hash = hasher.finish();
+        self.cache_dir.join(format!("{:016x}.cache", hash))
+    }
+}
 ```
 
 ---
@@ -477,43 +737,47 @@ pub fn render_overlay(
 
 ## Frontend Usage Patterns
 
-### CLI Usage (Current Behavior)
+### CLI Usage (With Transparent Caching)
 
 ```rust
 // Command: beaker quality image.jpg --metadata
 
 pub fn quality_command(config: QualityConfig) -> Result<()> {
-    let session = load_onnx_session(&config)?;
+    // Initialize cache (automatic disk persistence)
+    let cache_config = CacheConfig {
+        enable_disk_cache: !config.no_cache,
+        ..Default::default()
+    };
+    let cache = QualityCache::new(cache_config)?;
+
+    let params = config.params.unwrap_or_default();
 
     for image_path in &config.sources {
-        let img = image::open(image_path)?;
-
-        // Compute Layer 1 (expensive)
-        let raw = QualityRawData::compute_from_image(
-            &img,
-            &session,
-            "quality-model-v1".to_string(),
-        )?;
-
-        // Compute Layer 2 with default parameters
-        let scores = QualityScores::compute(&raw, &QualityParams::default());
+        // Transparent caching - all layers handled automatically
+        let scores = cache.assess_quality(image_path, &params)?;
 
         // Write metadata
         if config.metadata {
-            write_metadata(image_path, &raw, &scores)?;
+            write_metadata(image_path, &scores)?;
         }
 
         // Optional: Generate debug visualizations
         if config.debug_dump_images {
-            let viz = QualityVisualization::render(
-                &raw,
-                &scores,
-                &HeatmapStyle::default(),
-            )?;
+            let style = HeatmapStyle::default();
+            let viz = cache.visualize(image_path, &params, &style)?;
             save_debug_images(image_path, &viz)?;
         }
 
         println!("Quality: {:.1}", scores.final_score);
+    }
+
+    // Print cache statistics if verbose
+    if config.verbose {
+        let stats = cache.stats();
+        println!("\nCache Statistics:");
+        println!("  Level 1 hits: {}/{}", stats.l1_hits, stats.l1_total);
+        println!("  Level 2 hits: {}/{}", stats.l2_hits, stats.l2_total);
+        println!("  Level 3 hits: {}/{}", stats.l3_hits, stats.l3_total);
     }
 
     Ok(())
@@ -521,203 +785,385 @@ pub fn quality_command(config: QualityConfig) -> Result<()> {
 ```
 
 **Benefits:**
+- Automatic disk caching - second run is instant for Level 1
 - Same user experience as current
-- But now cleanly separated into layers
 - Can add `--params` flag to tune from CLI
+- Cache invalidates automatically when files change
 
-### GUI Usage (High-Performance)
+### GUI Usage (High-Performance with Transparent Caching)
 
 ```rust
 // GUI quality triage with 100 images
 
 pub struct QualityGuiState {
-    // Level 1 cache: Never invalidated
-    raw_data: HashMap<PathBuf, QualityRawData>,
+    /// Transparent cache manager (handles all 3 levels automatically)
+    cache: Arc<QualityCache>,
 
-    // Level 2 cache: Invalidated when params change
-    scores: HashMap<PathBuf, QualityScores>,
-
-    // Level 3 cache: LRU cache for visible images only
-    visualizations: LruCache<PathBuf, QualityVisualization>,
-
-    // Current parameters (adjustable via sliders)
+    /// Current parameters (adjustable via sliders)
     params: QualityParams,
+
+    /// Image paths in current folder
+    paths: Vec<PathBuf>,
+
+    /// Current ranking (path, score)
+    ranked: Vec<(PathBuf, f32)>,
+
+    /// Heatmap style
+    style: HeatmapStyle,
 }
 
 impl QualityGuiState {
-    /// Initial load: Populate Level 1 cache (parallel)
+    /// Initialize with cache configuration
+    pub fn new() -> Result<Self> {
+        let cache_config = CacheConfig {
+            max_raw_cache_mb: 1024,      // 1GB for Level 1
+            max_viz_cache_mb: 100,       // 100MB for Level 3
+            enable_disk_cache: true,     // Persist across sessions
+            ..Default::default()
+        };
+
+        Ok(Self {
+            cache: Arc::new(QualityCache::new(cache_config)?),
+            params: QualityParams::default(),
+            paths: Vec::new(),
+            ranked: Vec::new(),
+            style: HeatmapStyle::default(),
+        })
+    }
+
+    /// Load folder: Parallel computation with progress
     pub async fn load_folder(&mut self, paths: Vec<PathBuf>) -> Result<()> {
-        let session = load_onnx_session()?;
+        self.paths = paths;
 
-        // Parallel computation of expensive Layer 1
-        let raw_results: Vec<_> = paths.par_iter()
-            .map(|path| {
-                let img = image::open(path)?;
-                let raw = QualityRawData::compute_from_image(
-                    &img,
-                    &session,
-                    "quality-model-v1".to_string(),
-                )?;
-                Ok((path.clone(), raw))
-            })
-            .collect::<Result<_>>()?;
+        // Parallel warm-up of Level 1 cache
+        // (Subsequent calls will hit disk/memory cache)
+        use rayon::prelude::*;
+        self.paths.par_iter().try_for_each(|path| {
+            // Transparent caching - library handles everything
+            let _ = self.cache.assess_quality(path, &self.params)?;
+            Ok::<_, anyhow::Error>(())
+        })?;
 
-        // Populate Level 1 cache
-        self.raw_data = raw_results.into_iter().collect();
-
-        // Compute initial Level 2 scores
-        self.recompute_all_scores();
+        // Compute initial ranking
+        self.recompute_ranking()?;
 
         Ok(())
     }
 
-    /// Slider changed: Recompute Level 2 (instant: ~10ms for 100 images)
-    pub fn update_params(&mut self, new_params: QualityParams) {
+    /// Slider changed: Transparent cache handles invalidation
+    pub fn update_params(&mut self, new_params: QualityParams) -> Result<()> {
         self.params = new_params;
-        self.recompute_all_scores();
-        self.visualizations.clear(); // Invalidate Level 3 cache
+        // Cache automatically recomputes Level 2, keeps Level 1
+        self.recompute_ranking()?;
+        Ok(())
     }
 
-    /// Recompute all quality scores (cheap)
-    fn recompute_all_scores(&mut self) {
-        self.scores = self.raw_data.iter()
-            .map(|(path, raw)| {
-                let scores = QualityScores::compute(raw, &self.params);
-                (path.clone(), scores)
+    /// Recompute ranking (instant: ~10ms for 100 images)
+    fn recompute_ranking(&mut self) -> Result<()> {
+        // Transparent caching: Level 1 cached, Level 2 recomputed
+        self.ranked = self.paths.par_iter()
+            .filter_map(|path| {
+                let scores = self.cache.assess_quality(path, &self.params).ok()?;
+                Some((path.clone(), scores.final_score))
             })
             .collect();
+
+        self.ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        Ok(())
     }
 
-    /// Get ranked images (instant after recompute_all_scores)
-    pub fn get_ranked_images(&self) -> Vec<(PathBuf, f32)> {
-        let mut ranked: Vec<_> = self.scores.iter()
-            .map(|(path, scores)| (path.clone(), scores.final_score))
-            .collect();
-
-        ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-        ranked
+    /// Get ranked images
+    pub fn get_ranked_images(&self) -> &[(PathBuf, f32)] {
+        &self.ranked
     }
 
-    /// Render visualization for specific image (moderate: 7-30ms)
-    pub fn get_visualization(&mut self, path: &Path) -> Result<&QualityVisualization> {
-        // Check Level 3 cache
-        if !self.visualizations.contains(path) {
-            // Render on-demand
-            let raw = self.raw_data.get(path)
-                .ok_or_else(|| anyhow!("Image not in cache"))?;
-            let scores = self.scores.get(path)
-                .ok_or_else(|| anyhow!("Scores not computed"))?;
+    /// Get visualization (transparent caching, renders on-demand)
+    pub fn get_visualization(&self, path: &Path) -> Result<QualityVisualization> {
+        // Transparent caching: checks Level 3 cache, renders if needed
+        self.cache.visualize(path, &self.params, &self.style)
+    }
 
-            let viz = QualityVisualization::render(
-                raw,
-                scores,
-                &HeatmapStyle::default(),
-            )?;
-
-            self.visualizations.put(path.to_path_buf(), viz);
-        }
-
-        Ok(self.visualizations.get(path).unwrap())
+    /// Batch render for visible images (thumbnails)
+    pub fn get_visualizations_batch(
+        &self,
+        paths: &[&Path],
+    ) -> Vec<Result<QualityVisualization>> {
+        use rayon::prelude::*;
+        paths.par_iter()
+            .map(|path| self.cache.visualize(path, &self.params, &self.style))
+            .collect()
     }
 }
 
 // GUI event loop
 async fn on_slider_change(state: &mut QualityGuiState, new_params: QualityParams) {
-    // Phase 1: Instant (10ms)
-    state.update_params(new_params);
+    // Phase 1: Instant (10ms) - cache recomputes scores automatically
+    state.update_params(new_params)?;
     let ranked = state.get_ranked_images();
 
     // Update UI immediately - user sees ranking change
-    ui.update_image_list(ranked.clone());
+    ui.update_image_list(ranked);
 
-    // Phase 2: Fast (7-8ms)
+    // Phase 2: Fast (7-8ms) - cache checks Level 3, renders if needed
     let top_image = &ranked[0].0;
-    let viz = state.get_visualization(top_image).await?;
+    let viz = state.get_visualization(top_image)?;
     ui.update_main_view(top_image, viz);
 
-    // Phase 3: Background (15-20ms)
+    // Phase 3: Background (15-20ms) - parallel rendering with cache
     tokio::spawn(async move {
-        for (path, _) in ranked.iter().skip(1).take(5) {
-            let viz = state.get_visualization(path).await?;
-            ui.update_thumbnail(path, viz);
+        let thumbnail_paths: Vec<_> = ranked.iter()
+            .skip(1)
+            .take(5)
+            .map(|(p, _)| p.as_path())
+            .collect();
+
+        let vizs = state.get_visualizations_batch(&thumbnail_paths);
+        for (path, viz) in thumbnail_paths.iter().zip(vizs) {
+            if let Ok(viz) = viz {
+                ui.update_thumbnail(path, viz);
+            }
         }
     });
 }
 ```
 
 **Benefits:**
-- Natural three-level caching
-- No GUI-specific code in library
-- GUI just uses library API efficiently
-- Easy to understand and maintain
+- Zero cache management boilerplate - library handles everything
+- Thread-safe `Arc<QualityCache>` for concurrent GUI access
+- Disk persistence across sessions (instant startup on second run)
+- Automatic invalidation when parameters change
+- Natural three-level caching without GUI thinking about it
 
-### API Usage (Server)
+### API Usage (Server with Transparent Caching)
 
 ```rust
-// REST API with caching
+// REST API server - cache handles everything
 
 pub struct QualityApiServer {
-    // Persistent Level 1 cache across requests
-    cache: Arc<RwLock<HashMap<String, QualityRawData>>>,
-    session: Arc<Session>,
+    /// Transparent cache (shared across all requests)
+    cache: Arc<QualityCache>,
 }
 
 impl QualityApiServer {
+    pub fn new() -> Result<Self> {
+        let cache_config = CacheConfig {
+            max_raw_cache_mb: 4096,      // 4GB for server
+            enable_disk_cache: true,     // Persist across restarts
+            ..Default::default()
+        };
+
+        Ok(Self {
+            cache: Arc::new(QualityCache::new(cache_config)?),
+        })
+    }
+
+    /// Assess image quality (transparent caching)
     async fn assess_quality(
         &self,
-        image_url: String,
+        image_path: impl AsRef<Path>,
         params: Option<QualityParams>,
     ) -> Result<QualityScores> {
         let params = params.unwrap_or_default();
 
-        // Check Level 1 cache
-        let cache_key = format!("{}-{}", image_url, hash_of_image);
+        // Transparent caching - library handles everything
+        self.cache.assess_quality(image_path, &params)
+    }
 
-        let raw = {
-            let cache = self.cache.read().await;
-            if let Some(raw) = cache.get(&cache_key) {
-                raw.clone()
-            } else {
-                drop(cache);
+    /// Get visualization for image
+    async fn get_visualization(
+        &self,
+        image_path: impl AsRef<Path>,
+        params: Option<QualityParams>,
+        style: Option<HeatmapStyle>,
+    ) -> Result<QualityVisualization> {
+        let params = params.unwrap_or_default();
+        let style = style.unwrap_or_default();
 
-                // Compute and cache
-                let img = download_image(&image_url).await?;
-                let raw = QualityRawData::compute_from_image(
-                    &img,
-                    &self.session,
-                    "quality-model-v1".to_string(),
-                )?;
+        self.cache.visualize(image_path, &params, &style)
+    }
 
-                let mut cache = self.cache.write().await;
-                cache.insert(cache_key.clone(), raw.clone());
-                raw
-            }
-        };
-
-        // Compute Level 2 (always fresh with current params)
-        Ok(QualityScores::compute(&raw, &params))
+    /// Health check endpoint - return cache stats
+    async fn health(&self) -> CacheStats {
+        self.cache.stats()
     }
 }
 ```
 
 **Benefits:**
-- Server caches Level 1 across requests
+- Zero cache management code - all automatic
+- Thread-safe for concurrent requests
+- Disk persistence across server restarts
 - Can tune parameters per request
-- No need to recompute expensive operations
+- Built-in cache statistics for monitoring
+
+---
+
+## Cache Observability
+
+### Cache Statistics
+
+```rust
+/// Cache performance statistics
+#[derive(Clone, Debug)]
+pub struct CacheStats {
+    // Level 1 (raw data)
+    pub l1_hits: u64,
+    pub l1_misses: u64,
+    pub l1_disk_hits: u64,
+    pub l1_memory_hits: u64,
+    pub l1_total: u64,
+    pub l1_memory_size_mb: usize,
+    pub l1_disk_size_mb: usize,
+
+    // Level 2 (scores)
+    pub l2_hits: u64,
+    pub l2_misses: u64,
+    pub l2_total: u64,
+    pub l2_cache_size: usize,
+
+    // Level 3 (visualizations)
+    pub l3_hits: u64,
+    pub l3_misses: u64,
+    pub l3_total: u64,
+    pub l3_cache_size_mb: usize,
+
+    // Performance
+    pub avg_l1_compute_ms: f64,
+    pub avg_l2_compute_ms: f64,
+    pub avg_l3_render_ms: f64,
+}
+
+impl CacheStats {
+    pub fn l1_hit_rate(&self) -> f64 {
+        if self.l1_total == 0 { 0.0 }
+        else { self.l1_hits as f64 / self.l1_total as f64 }
+    }
+
+    pub fn l2_hit_rate(&self) -> f64 {
+        if self.l2_total == 0 { 0.0 }
+        else { self.l2_hits as f64 / self.l2_total as f64 }
+    }
+
+    pub fn l3_hit_rate(&self) -> f64 {
+        if self.l3_total == 0 { 0.0 }
+        else { self.l3_hits as f64 / self.l3_total as f64 }
+    }
+
+    pub fn pretty_print(&self) {
+        println!("Cache Statistics:");
+        println!("  Level 1 (Raw Data):");
+        println!("    Hit rate: {:.1}% ({}/{})",
+            self.l1_hit_rate() * 100.0, self.l1_hits, self.l1_total);
+        println!("    Memory hits: {}, Disk hits: {}",
+            self.l1_memory_hits, self.l1_disk_hits);
+        println!("    Memory: {:.1}MB, Disk: {:.1}MB",
+            self.l1_memory_size_mb, self.l1_disk_size_mb);
+        println!("    Avg compute time: {:.1}ms", self.avg_l1_compute_ms);
+
+        println!("  Level 2 (Scores):");
+        println!("    Hit rate: {:.1}% ({}/{})",
+            self.l2_hit_rate() * 100.0, self.l2_hits, self.l2_total);
+        println!("    Cache size: {} entries", self.l2_cache_size);
+        println!("    Avg compute time: {:.3}ms", self.avg_l2_compute_ms);
+
+        println!("  Level 3 (Visualizations):");
+        println!("    Hit rate: {:.1}% ({}/{})",
+            self.l3_hit_rate() * 100.0, self.l3_hits, self.l3_total);
+        println!("    Cache size: {:.1}MB", self.l3_cache_size_mb);
+        println!("    Avg render time: {:.1}ms", self.avg_l3_render_ms);
+    }
+}
+```
+
+### Cache Management API
+
+```rust
+impl QualityCache {
+    /// Get current cache statistics
+    pub fn stats(&self) -> CacheStats {
+        // Collect stats from all cache levels
+        // ...
+    }
+
+    /// Clear all caches
+    pub fn clear_all(&self) {
+        self.raw_cache.write().unwrap().clear();
+        self.score_cache.write().unwrap().clear();
+        self.viz_cache.write().unwrap().clear();
+    }
+
+    /// Clear only parameter-dependent caches (L2 + L3)
+    pub fn clear_param_dependent(&self) {
+        self.score_cache.write().unwrap().clear();
+        self.viz_cache.write().unwrap().clear();
+    }
+
+    /// Prune disk cache (remove old entries)
+    pub fn prune_disk_cache(&self, max_age_days: u64) -> Result<()> {
+        if let Some(disk_cache) = &self.raw_disk_cache {
+            disk_cache.prune(max_age_days)?;
+        }
+        Ok(())
+    }
+
+    /// Pre-warm cache for a set of images
+    pub fn prewarm(&self, paths: &[impl AsRef<Path>], params: &QualityParams) -> Result<()> {
+        use rayon::prelude::*;
+        paths.par_iter().try_for_each(|path| {
+            let _ = self.assess_quality(path, params)?;
+            Ok::<_, anyhow::Error>(())
+        })
+    }
+}
+```
+
+### Usage Example
+
+```rust
+// CLI: Print cache stats after processing
+let cache = QualityCache::new(CacheConfig::default())?;
+
+for image in images {
+    let scores = cache.assess_quality(image, &params)?;
+    println!("{}: {:.1}", image, scores.final_score);
+}
+
+// Print statistics
+cache.stats().pretty_print();
+```
+
+**Output:**
+```
+Cache Statistics:
+  Level 1 (Raw Data):
+    Hit rate: 85.0% (85/100)
+    Memory hits: 60, Disk hits: 25
+    Memory: 36.1MB, Disk: 180.6MB
+    Avg compute time: 62.3ms
+  Level 2 (Scores):
+    Hit rate: 0.0% (0/100)
+    Cache size: 100 entries
+    Avg compute time: 0.08ms
+  Level 3 (Visualizations):
+    Hit rate: 40.0% (4/10)
+    Cache size: 6.0MB
+    Avg render time: 7.2ms
+```
 
 ---
 
 ## Implementation Plan
 
-### Phase 1: Data Structure Refactoring (Week 1)
+### Phase 1: Data Structure Refactoring & Cache Infrastructure (Week 1)
 
-**Goal:** Introduce new data structures without breaking existing code
+**Goal:** Introduce new data structures and basic cache infrastructure
 
 1. **Create new data structures**
-   - `QualityRawData`
-   - `QualityParams`
+   - `QualityRawData` with serialization support
+   - `QualityParams` with `Hash`, `Eq`, `PartialEq` derives
    - `QualityScores`
    - `HeatmapStyle`
+   - `ImageKey` with content-addressed hashing
 
 2. **Add helper functions**
    - `compute_raw_tenengrad()`
@@ -725,17 +1171,27 @@ impl QualityApiServer {
    - `fuse_probabilities()`
    - `compute_weights()`
 
-3. **Keep existing API working**
+3. **Basic cache infrastructure**
+   - `CacheConfig` with default configuration
+   - `DiskCache<K, V>` generic implementation
+   - Content hash function for images
+   - Add dependencies: `lru`, `bincode`, `serde`
+
+4. **Keep existing API working**
    - Make `blur_weights_from_nchw()` call new functions internally
    - No CLI changes yet
 
 **Files to modify:**
 - `beaker/src/blur_detection.rs` - Add new functions
 - `beaker/src/quality_processing.rs` - Add new data structures
+- Create `beaker/src/cache.rs` - Cache infrastructure
+- `beaker/Cargo.toml` - Add cache dependencies
 
 **Testing:**
 - Existing tests should pass unchanged
 - Add unit tests for new functions
+- Test content-addressed hashing
+- Test disk cache read/write
 
 ### Phase 2: Separate Computation from Visualization (Week 2)
 
@@ -763,88 +1219,128 @@ impl QualityApiServer {
 - Debug images should look identical to before
 - Benchmark rendering performance
 
-### Phase 3: Parameterize Quality Assessment (Week 3)
+### Phase 3: Transparent Caching Implementation (Week 3)
 
-**Goal:** Make parameters runtime-configurable
+**Goal:** Implement `QualityCache` with automatic caching and invalidation
+
+1. **Implement `QualityCache`**
+   - Three-level cache structure
+   - Thread-safe with `Arc<RwLock<_>>`
+   - Content-addressed image keys
+   - Automatic invalidation logic
+
+2. **Cache statistics tracking**
+   - `CacheStats` structure
+   - Hit/miss counters for each level
+   - Performance timing tracking
+   - Cache size tracking
+
+3. **Cache management functions**
+   - `assess_quality()` with transparent L1+L2 caching
+   - `visualize()` with L3 caching
+   - `clear_all()`, `clear_param_dependent()`
+   - `prewarm()` for batch processing
+   - `stats()` for observability
+
+4. **LRU eviction policies**
+   - Memory-bounded L1 and L3 caches
+   - Disk persistence for L1
+   - Unbounded L2 (cheap to recompute)
+
+**Files to modify:**
+- `beaker/src/cache.rs` - Implement `QualityCache`
+- `beaker/src/quality_processing.rs` - Integrate cache
+
+**Testing:**
+- Cache hit/miss behavior correct
+- Invalidation works when params change
+- Disk persistence across runs
+- Thread-safety under concurrent access
+- Memory bounds enforced
+
+### Phase 4: CLI Integration & Parameterization (Week 4)
+
+**Goal:** Integrate transparent caching into CLI and make parameters tunable
 
 1. **Add parameter support to CLI**
    - `--alpha`, `--beta`, `--tau`, etc. flags
    - Or `--params params.toml` to load from file
+   - `--no-cache` to disable caching
+   - `--verbose` to show cache statistics
 
-2. **Update quality processing**
+2. **Integrate `QualityCache` into CLI**
+   - Replace direct computation with cache API
+   - Show cache stats with `--verbose`
+   - Add `--cache-dir` to customize cache location
+
+3. **Update quality processing**
    - Accept `QualityParams` as argument
    - Use in computation instead of constants
+   - Backward compatibility with defaults
 
-3. **Backward compatibility**
-   - Default parameters match current constants
-   - No behavior change if flags not used
+4. **Public API functions**
+   ```rust
+   // Direct access (low-level)
+   pub fn compute_quality_raw(...) -> QualityRawData
+   pub fn compute_quality_scores(...) -> QualityScores
+   pub fn render_quality_visualization(...) -> QualityVisualization
+
+   // High-level with caching (recommended)
+   impl QualityCache {
+       pub fn assess_quality(...) -> QualityScores
+       pub fn visualize(...) -> QualityVisualization
+   }
+   ```
 
 **Files to modify:**
-- `beaker/src/config.rs` - Add parameter flags
-- `beaker/src/quality_processing.rs` - Accept parameters
+- `beaker/src/config.rs` - Add parameter and cache flags
+- `beaker/src/quality_processing.rs` - Accept parameters, public API
 - `beaker/src/blur_detection.rs` - Use parameters
+- `beaker/src/commands/quality.rs` - Use `QualityCache`
+- `beaker/src/lib.rs` - Export new types
 
 **Testing:**
 - Default behavior unchanged
 - Custom parameters produce different results
+- Cache persistence works
 - Regression tests with known images
-
-### Phase 4: Layer-Based API (Week 4)
-
-**Goal:** Expose clean layer-based API
-
-1. **Add public API functions**
-   ```rust
-   // In quality_processing.rs
-   pub fn compute_quality_raw(...) -> QualityRawData
-   pub fn compute_quality_scores(...) -> QualityScores
-   pub fn render_quality_visualization(...) -> QualityVisualization
-   ```
-
-2. **Add caching helpers**
-   ```rust
-   impl QualityRawData {
-       pub fn save_to_cache(&self, path: &Path) -> Result<()>
-       pub fn load_from_cache(path: &Path) -> Result<Self>
-   }
-   ```
-
-3. **Documentation**
-   - API documentation with examples
-   - Usage patterns for different frontends
-   - Performance characteristics
-
-**Files to modify:**
-- `beaker/src/quality_processing.rs` - Public API
-- `beaker/src/lib.rs` - Export new types
-- `beaker/README.md` - Usage examples
-
-**Testing:**
 - Integration tests for full workflow
-- Example CLI using new API
-- Benchmark caching performance
 
 ### Phase 5: GUI Integration (Week 5+)
 
-**Goal:** Build GUI using new API
+**Goal:** Build GUI using transparent cache API
 
 1. **GUI state management**
-   - Implement three-level caching
-   - Progressive rendering
-   - Parameter sliders
+   - Use `Arc<QualityCache>` for shared state
+   - Track current parameters and ranking
+   - Progressive rendering strategy
 
-2. **Benchmark real-world performance**
+2. **Parameter sliders**
+   - Real-time parameter adjustment
+   - Instant ranking update (10ms)
+   - Progressive heatmap rendering (7-30ms)
+
+3. **Benchmark real-world performance**
    - 100 images, measure actual timings
    - Verify <50ms slider response
+   - Confirm cache hit rates
 
-3. **Polish**
+4. **Polish**
    - Smooth transitions
-   - Loading indicators
+   - Loading indicators for heatmaps
+   - Cache statistics display
    - Error handling
 
+**Benefits of transparent caching:**
+- GUI code is simple - just calls `cache.assess_quality()` and `cache.visualize()`
+- No manual cache management in GUI layer
+- Automatic invalidation when parameters change
+- Thread-safe for parallel rendering
+
 **New files:**
-- `beaker-gui/src/quality_state.rs` - Caching logic
+- `beaker-gui/src/quality_state.rs` - State management (uses `QualityCache`)
 - `beaker-gui/src/quality_view.rs` - UI components
+- `beaker-gui/src/quality_sliders.rs` - Parameter controls
 
 ---
 
@@ -854,9 +1350,19 @@ impl QualityApiServer {
 
 1. **Clean separation:** Three distinct layers with clear responsibilities
 2. **No GUI coupling:** Library has no GUI-specific code
-3. **Backward compatible:** Existing CLI works unchanged
-4. **Well documented:** Clear API with usage examples
-5. **Tested:** Unit tests for each layer, integration tests for workflow
+3. **Transparent caching:** Built into library, zero boilerplate for frontends
+4. **Backward compatible:** Existing CLI works unchanged
+5. **Well documented:** Clear API with usage examples
+6. **Tested:** Unit tests for each layer, integration tests for workflow
+
+### For Caching
+
+1. **Transparent:** Frontends just call functions, caching automatic
+2. **Intelligent invalidation:** Cache invalidates when inputs change
+3. **Configurable:** Memory limits, disk persistence, TTL
+4. **Thread-safe:** Concurrent access from multiple threads
+5. **Observable:** Cache statistics available for debugging
+6. **Disk persistence:** Level 1 cache survives restarts
 
 ### For Performance
 
@@ -864,12 +1370,14 @@ impl QualityApiServer {
 2. **Level 2 computation:** <0.1ms per image (100 images in 10ms)
 3. **Level 3 rendering:** 7-30ms depending on what's rendered
 4. **Memory usage:** ~600KB per image Level 1, ~3KB Level 2, ~600KB Level 3 (for visible)
+5. **Cache hit rates:** >80% for Level 1 in typical workflows
 
 ### For GUI
 
 1. **Slider response:** 17-38ms total for 100 images
 2. **Progressive rendering:** Ranking updates in 10ms, heatmaps follow
 3. **Smooth UX:** No perceptible lag when adjusting parameters
+4. **Session persistence:** Instant startup on second run (disk cache)
 
 ---
 
@@ -892,20 +1400,34 @@ impl QualityApiServer {
 
 ## Key Takeaways
 
-**Design Principle:**
-> Separate what changes from what doesn't. Cache aggressively. Compute lazily.
+**Design Principles:**
+> **Separate what changes from what doesn't. Cache transparently. Compute lazily.**
+
+1. **Transparent Caching:** Built into the library, not frontend responsibility
+2. **Content-Addressed:** Cache invalidates automatically when files change
+3. **Multi-Level:** Three cache levels for different cost/invalidation patterns
+4. **Breaking Changes OK:** Optimize for best design, not backward compatibility
 
 **Library Structure:**
-- **Layer 1:** Expensive, parameter-independent → Compute once, cache forever
-- **Layer 2:** Cheap, parameter-dependent → Recompute freely
-- **Layer 3:** Moderate, visual → Render on-demand for visible items
+- **Layer 1:** Expensive, parameter-independent → Compute once, cache forever (disk + memory)
+- **Layer 2:** Cheap, parameter-dependent → Recompute freely (memory only)
+- **Layer 3:** Moderate, visual → Render on-demand for visible items (memory LRU)
 
 **No GUI Hooks:**
-- Library exposes clean, layered API
+- Library exposes clean, layered API with built-in caching
 - GUI uses API naturally for high performance
 - Same API works for CLI, server, batch processing
+- Zero cache management boilerplate in frontends
+
+**Transparent Caching Benefits:**
+- Frontends just call `cache.assess_quality()` - caching happens automatically
+- Thread-safe for concurrent access
+- Disk persistence across sessions
+- Observable with cache statistics
+- Configurable memory/disk limits
 
 **Result:**
-- Instant-feeling GUI (17-38ms response)
+- Instant-feeling GUI (17-38ms response) with no manual caching
 - Clean, maintainable codebase
 - Flexible for future frontends
+- Second run instant (disk cache hit)
