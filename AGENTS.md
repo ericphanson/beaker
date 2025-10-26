@@ -77,8 +77,9 @@ When developing proposals, technical plans, or architectural changes, align with
 
 **CRITICAL REQUIREMENTS:**
 1. **Always use `just` commands** - Never use raw cargo/bash commands for development tasks
-2. **Before finalizing ANY task, run `just ci`** - This ensures changes will pass CI on first attempt
-3. The justfile is the single source of truth for all development workflows
+2. **During development, use `just ci-dev`** - Fast incremental validation (~80s with changes, ~3s without)
+3. **Before finalizing ANY task, run `just ci`** - Full CI validation ensures changes will pass CI on first attempt
+4. The justfile is the single source of truth for all development workflows
 
 **For complete build/test commands and validated timings, see [copilot-instructions.md](.github/copilot-instructions.md).**
 
@@ -101,21 +102,32 @@ just lint           # Format check + clippy
 just build-release  # Build release binary
 just test           # Run all tests
 
+# Fast validation during development (USE THIS for iteration)
+just ci-dev         # Fast CI: clippy + lib/bin tests (~80s with changes, ~3s without)
+just ci-smoke       # Ultra-fast smoke test (~3-5s)
+
 # CRITICAL: Run before finalizing any task
-just ci             # Full CI workflow locally - REQUIRED before task completion
+just ci             # Full CI workflow - REQUIRED before task completion (~3.5-7m)
 
 # See all available commands
 just --list
 ```
 
-### Task Finalization Checklist
-Before completing any task, you MUST:
-1. Run `just ci` successfully
+### Development Workflow for Agents
+
+**During active development (iterating on changes):**
+1. Make code changes
+2. Run `just ci-dev` to validate (~80s first time, ~3s if re-validating)
+3. Fix any issues found
+4. Repeat until tests pass
+
+**Before finalizing any task:**
+1. Run `just ci` successfully (full validation ~3.5-7m)
 2. Ensure all tests pass
 3. Commit your changes
 4. Push to the remote branch
 
-**Never skip `just ci` - it prevents CI failures and wasted time.**
+**Never skip `just ci` before finalization** - it prevents CI failures and wasted time.
 ## Coding Standards
 
 ### DRY (Don't Repeat Yourself)
