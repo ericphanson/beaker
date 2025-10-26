@@ -1046,29 +1046,874 @@ git commit -m "feat: add cached compute_quality_raw() function"
 
 ---
 
-## Remaining Tasks Summary
+---
 
-The following tasks continue the implementation. Each follows the same TDD pattern:
+## Task 9: Add CLI Parameter Flags to Config
 
-### Task 9: Update CLI to Accept Parameter Flags
-- Add `--alpha`, `--beta`, etc. to `beaker/src/config.rs`
-- Parse into `QualityParams`
-- Update `quality_command()` to use new API
+**Files:**
+- Modify: `beaker/src/config.rs`
+- Test: `beaker/tests/config_test.rs`
 
-### Task 10: Refactor blur_weights_from_nchw() to Use New Functions
-- Make existing function call new layered functions
-- Maintain backward compatibility
-- Ensure existing tests still pass
+### Step 1: Write the failing test
 
-### Task 11: Add Visualization Separation
-- Create `HeatmapStyle` type
-- Extract `render_heatmap_to_buffer()` function
-- Keep visualization separate from computation
+Create `beaker/tests/config_test.rs`:
 
-### Task 12: Integration and Documentation
-- Update main README with new parameter flags
-- Add examples of using layered API
-- Performance documentation
+```rust
+use beaker::config::QualityConfig;
+use beaker::quality_types::QualityParams;
+
+#[test]
+fn test_quality_config_default_params() {
+    let config = QualityConfig {
+        sources: vec!["test.jpg".into()],
+        params: None,
+        metadata: false,
+        debug_dump_images: false,
+    };
+
+    let params = config.params.unwrap_or_default();
+    assert_eq!(params.alpha, 0.7);
+    assert_eq!(params.beta, 1.2);
+}
+
+#[test]
+fn test_quality_config_custom_params() {
+    let custom_params = QualityParams {
+        alpha: 0.8,
+        beta: 1.5,
+        ..Default::default()
+    };
+
+    let config = QualityConfig {
+        sources: vec!["test.jpg".into()],
+        params: Some(custom_params),
+        metadata: false,
+        debug_dump_images: false,
+    };
+
+    assert!(config.params.is_some());
+    assert_eq!(config.params.as_ref().unwrap().alpha, 0.8);
+    assert_eq!(config.params.as_ref().unwrap().beta, 1.5);
+}
+```
+
+### Step 2: Run test to verify it fails
+
+```bash
+cargo test --test config_test
+```
+
+**Expected output:**
+```
+error[E0433]: failed to resolve: could not find `QualityConfig` in `config`
+```
+
+### Step 3: Write minimal implementation
+
+Find the existing `QualityConfig` struct in `beaker/src/config.rs` and add the `params` field:
+
+```rust
+use crate::quality_types::QualityParams;
+
+pub struct QualityConfig {
+    pub sources: Vec<PathBuf>,
+    pub metadata: bool,
+    pub debug_dump_images: bool,
+
+    // New field for tunable parameters
+    pub params: Option<QualityParams>,
+}
+```
+
+Then in the CLI argument parsing section (likely using `clap`), add parameter flags:
+
+```rust
+#[derive(Parser)]
+#[command(name = "beaker")]
+pub struct Cli {
+    // ... existing fields ...
+
+    /// Override alpha parameter (weight coefficient)
+    #[arg(long)]
+    pub alpha: Option<f32>,
+
+    /// Override beta parameter (blur probability exponent)
+    #[arg(long)]
+    pub beta: Option<f32>,
+
+    /// Override tau parameter (Tenengrad threshold)
+    #[arg(long)]
+    pub tau: Option<f32>,
+}
+
+// In the config building function:
+impl From<Cli> for QualityConfig {
+    fn from(cli: Cli) -> Self {
+        let params = if cli.alpha.is_some() || cli.beta.is_some() || cli.tau.is_some() {
+            let mut p = QualityParams::default();
+            if let Some(alpha) = cli.alpha {
+                p.alpha = alpha;
+            }
+            if let Some(beta) = cli.beta {
+                p.beta = beta;
+            }
+            if let Some(tau) = cli.tau {
+                p.tau_ten_224 = tau;
+            }
+            Some(p)
+        } else {
+            None
+        };
+
+        Self {
+            sources: cli.sources,
+            metadata: cli.metadata,
+            debug_dump_images: cli.debug_dump_images,
+            params,
+        }
+    }
+}
+```
+
+### Step 4: Run test to verify it passes
+
+```bash
+cargo test --test config_test
+```
+
+**Expected output:**
+```
+running 2 tests
+test test_quality_config_custom_params ... ok
+test test_quality_config_default_params ... ok
+
+test result: ok. 2 passed
+```
+
+### Step 5: Commit
+
+```bash
+git add beaker/src/config.rs beaker/tests/config_test.rs
+git commit -m "feat: add CLI flags for quality parameter tuning (--alpha, --beta, --tau)"
+```
+
+---
+
+## Task 10: Update quality Command to Use New API
+
+**Files:**
+- Modify: `beaker/src/commands/quality.rs` (or wherever quality command is implemented)
+- Test: `beaker/tests/quality_command_test.rs`
+
+### Step 1: Write the failing test
+
+Create `beaker/tests/quality_command_test.rs`:
+
+```rust
+use beaker::quality_processing::{compute_quality_raw, load_onnx_session_default};
+use beaker::quality_types::{QualityParams, QualityScores};
+use std::path::Path;
+
+#[test]
+fn test_quality_command_workflow() {
+    let test_image = Path::new("example.jpg");
+    if !test_image.exists() {
+        eprintln!("Skipping test - example.jpg not found");
+        return;
+    }
+
+    let session = load_onnx_session_default().unwrap();
+    let params = QualityParams::default();
+
+    // Step 1: Compute raw data (cached)
+    let raw = compute_quality_raw(test_image, &session).unwrap();
+
+    // Step 2: Compute scores with params
+    let scores = QualityScores::compute(&raw, &params);
+
+    // Verify complete workflow
+    assert!(scores.final_score > 0.0);
+    assert!(scores.final_score <= 100.0);
+    println!("Quality score: {:.1}", scores.final_score);
+}
+
+#[test]
+fn test_quality_command_custom_params() {
+    let test_image = Path::new("example.jpg");
+    if !test_image.exists() {
+        eprintln!("Skipping test - example.jpg not found");
+        return;
+    }
+
+    let session = load_onnx_session_default().unwrap();
+
+    // Test with stricter blur detection
+    let strict_params = QualityParams {
+        tau_ten_224: 0.01,  // More sensitive to blur
+        ..Default::default()
+    };
+
+    let raw = compute_quality_raw(test_image, &session).unwrap();
+    let scores = QualityScores::compute(&raw, &strict_params);
+
+    assert!(scores.final_score > 0.0);
+    println!("Quality score (strict): {:.1}", scores.final_score);
+}
+```
+
+### Step 2: Run test to verify it fails
+
+```bash
+cargo test --test quality_command_test
+```
+
+**Expected output:**
+```
+running 2 tests
+test test_quality_command_custom_params ... ok (or skipped)
+test test_quality_command_workflow ... ok (or skipped)
+
+test result: ok. 2 passed
+```
+
+Note: These tests may already pass if Task 8 was completed correctly. This task is primarily about refactoring the command handler.
+
+### Step 3: Write minimal implementation
+
+Update the quality command handler (exact location depends on your CLI structure):
+
+```rust
+// In beaker/src/commands/quality.rs or similar
+
+use crate::config::QualityConfig;
+use crate::quality_processing::{compute_quality_raw, load_onnx_session_default};
+use crate::quality_types::{QualityParams, QualityScores};
+use anyhow::Result;
+
+pub fn quality_command(config: QualityConfig) -> Result<()> {
+    // Load ONNX session once
+    let session = load_onnx_session_default()?;
+
+    // Get parameters (use defaults if not specified)
+    let params = config.params.unwrap_or_default();
+
+    // Process each image
+    for image_path in &config.sources {
+        // Level 1: Compute raw data (cached automatically)
+        let raw = compute_quality_raw(image_path, &session)?;
+
+        // Level 2: Compute scores from raw data with parameters
+        let scores = QualityScores::compute(&raw, &params);
+
+        // Output result
+        println!("{}: {:.1}", image_path.display(), scores.final_score);
+
+        // Optional: Write metadata
+        if config.metadata {
+            write_quality_metadata(image_path, &raw, &scores)?;
+        }
+
+        // Optional: Generate debug visualizations
+        if config.debug_dump_images {
+            generate_debug_images(image_path, &raw, &scores)?;
+        }
+    }
+
+    Ok(())
+}
+
+// Helper function to write metadata (if needed)
+fn write_quality_metadata(
+    path: &Path,
+    raw: &QualityRawData,
+    scores: &QualityScores,
+) -> Result<()> {
+    // Implementation to write .beaker.toml or similar
+    // (Use existing metadata writing code if available)
+    Ok(())
+}
+
+// Helper function for debug images (if needed)
+fn generate_debug_images(
+    path: &Path,
+    raw: &QualityRawData,
+    scores: &QualityScores,
+) -> Result<()> {
+    // Implementation to generate heatmaps
+    // (Use existing debug image code or defer to Task 11)
+    Ok(())
+}
+```
+
+### Step 4: Run test to verify it passes
+
+```bash
+cargo test --test quality_command_test
+```
+
+**Expected output:**
+```
+running 2 tests
+test test_quality_command_custom_params ... ok (or skipped)
+test test_quality_command_workflow ... ok (or skipped)
+
+test result: ok. 2 passed
+```
+
+### Step 5: Commit
+
+```bash
+git add beaker/src/commands/quality.rs beaker/tests/quality_command_test.rs
+git commit -m "refactor: update quality command to use layered API with parameter support"
+```
+
+---
+
+## Task 11: Refactor blur_weights_from_nchw() for Backward Compatibility
+
+**Files:**
+- Modify: `beaker/src/blur_detection.rs`
+- Test: `beaker/tests/blur_detection_backward_compat_test.rs`
+
+### Step 1: Write the failing test
+
+Create `beaker/tests/blur_detection_backward_compat_test.rs`:
+
+```rust
+use beaker::blur_detection::blur_weights_from_nchw;
+use ndarray::Array4;
+use std::path::PathBuf;
+
+#[test]
+fn test_blur_weights_from_nchw_still_works() {
+    // Create a simple test image
+    let img_nchw = Array4::<f32>::from_elem((1, 3, 224, 224), 0.5);
+
+    // Call existing function (should still work)
+    let (w20, p20, t20, global_blur) = blur_weights_from_nchw(&img_nchw, None);
+
+    // Verify structure (same as before)
+    assert_eq!(w20.shape(), &[20, 20]);
+    assert_eq!(p20.shape(), &[20, 20]);
+    assert_eq!(t20.shape(), &[20, 20]);
+    assert!(global_blur >= 0.0 && global_blur <= 1.0);
+}
+
+#[test]
+fn test_blur_weights_from_nchw_produces_same_results() {
+    // This test ensures backward compatibility
+    // Create a high-contrast image
+    let mut img_nchw = Array4::<f32>::zeros((1, 3, 224, 224));
+    for i in 0..224 {
+        for j in 0..224 {
+            let val = if (i / 10 + j / 10) % 2 == 0 { 1.0 } else { 0.0 };
+            img_nchw[[0, 0, i, j]] = val;
+            img_nchw[[0, 1, i, j]] = val;
+            img_nchw[[0, 2, i, j]] = val;
+        }
+    }
+
+    let (w20, p20, _t20, global_blur) = blur_weights_from_nchw(&img_nchw, None);
+
+    // High contrast = low blur probability
+    assert!(global_blur < 0.5, "High contrast should have low blur probability");
+
+    // Weights should be close to 1.0 (low blur means high weight)
+    let mean_weight: f32 = w20.iter().sum::<f32>() / 400.0;
+    assert!(mean_weight > 0.7, "Low blur should produce high weights");
+}
+```
+
+### Step 2: Run test to verify it fails
+
+```bash
+cargo test --test blur_detection_backward_compat_test
+```
+
+**Expected output:**
+```
+running 2 tests
+test test_blur_weights_from_nchw_produces_same_results ... ok
+test test_blur_weights_from_nchw_still_works ... ok
+
+test result: ok. 2 passed
+```
+
+Note: If the function hasn't changed yet, tests should pass. This validates our starting point.
+
+### Step 3: Write minimal implementation
+
+Refactor `blur_weights_from_nchw()` in `beaker/src/blur_detection.rs` to use new functions:
+
+```rust
+/// Compute blur weights from NCHW tensor (backward compatible wrapper)
+pub fn blur_weights_from_nchw(
+    x: &Array4<f32>,
+    out_dir: Option<PathBuf>,
+) -> (Array2<f32>, Array2<f32>, Array2<f32>, f32) {
+    // Use new layered functions internally
+    let raw = compute_raw_tenengrad(x)
+        .expect("Failed to compute raw Tenengrad");
+
+    // Use default parameters (matches old hardcoded constants)
+    let params = crate::quality_types::QualityParams::default();
+
+    // Apply parameters
+    let (p224, p112) = apply_tenengrad_params(
+        &Array2::from_shape_vec((20, 20), raw.t224.iter().flatten().copied().collect()).unwrap(),
+        &Array2::from_shape_vec((20, 20), raw.t112.iter().flatten().copied().collect()).unwrap(),
+        raw.median_224,
+        raw.scale_ratio,
+        &params,
+    );
+
+    // Fuse probabilities
+    let blur_probability = fuse_probabilities(&p224, &p112);
+
+    // Compute weights
+    let blur_weights = compute_weights(&blur_probability, &params);
+
+    // Global blur score
+    let global_blur_score = blur_probability.iter().sum::<f32>() / 400.0;
+
+    // Optional debug output (if out_dir provided)
+    if let Some(dir) = out_dir {
+        // Generate debug heatmaps using existing code
+        // (This may be refactored in Task 12)
+        save_debug_heatmaps(&dir, &blur_probability, &blur_weights, &raw.t224);
+    }
+
+    // Return in old format
+    // Note: Returning raw.t224 as Array2 by converting
+    let t224_array = Array2::from_shape_vec((20, 20),
+        raw.t224.iter().flatten().copied().collect()
+    ).unwrap();
+
+    (blur_weights, blur_probability, t224_array, global_blur_score)
+}
+
+// Helper for debug output (temporary, may be refactored)
+fn save_debug_heatmaps(
+    out_dir: &Path,
+    blur_prob: &Array2<f32>,
+    blur_weights: &Array2<f32>,
+    tenengrad: &[[f32; 20]; 20],
+) {
+    // Use existing heatmap generation code
+    // This is a placeholder - implementation depends on current debug output code
+}
+```
+
+### Step 4: Run test to verify it passes
+
+```bash
+cargo test --test blur_detection_backward_compat_test
+```
+
+**Expected output:**
+```
+running 2 tests
+test test_blur_weights_from_nchw_produces_same_results ... ok
+test test_blur_weights_from_nchw_still_works ... ok
+
+test result: ok. 2 passed
+```
+
+Also run existing blur detection tests:
+
+```bash
+cargo test blur_detection
+```
+
+**Expected output:**
+```
+running X tests
+test blur_detection::... ... ok
+...
+test result: ok. X passed
+```
+
+### Step 5: Commit
+
+```bash
+git add beaker/src/blur_detection.rs beaker/tests/blur_detection_backward_compat_test.rs
+git commit -m "refactor: make blur_weights_from_nchw() use new layered functions internally"
+```
+
+---
+
+## Task 12: Add Visualization Types and Documentation
+
+**Files:**
+- Modify: `beaker/src/quality_types.rs`
+- Modify: `beaker/README.md`
+- Create: `docs/quality-api-guide.md`
+- Test: Manual testing with example images
+
+### Step 1: Add HeatmapStyle type
+
+Add to `beaker/src/quality_types.rs`:
+
+```rust
+/// Heatmap rendering options
+#[derive(Clone, Debug)]
+pub struct HeatmapStyle {
+    /// Colormap for heatmap rendering
+    pub colormap: ColorMap,
+
+    /// Overlay transparency (0.0 = invisible, 1.0 = opaque)
+    pub alpha: f32,
+
+    /// Target size (can be smaller for thumbnails)
+    pub size: (u32, u32),
+}
+
+impl Default for HeatmapStyle {
+    fn default() -> Self {
+        Self {
+            colormap: ColorMap::Viridis,
+            alpha: 0.7,
+            size: (224, 224),
+        }
+    }
+}
+
+/// Available colormaps for heatmap rendering
+#[derive(Clone, Copy, Debug)]
+pub enum ColorMap {
+    Viridis,
+    Plasma,
+    Inferno,
+    Turbo,
+    Grayscale,
+}
+```
+
+### Step 2: Update README.md
+
+Add to `beaker/README.md`:
+
+```markdown
+## Quality Assessment
+
+Beaker includes a no-reference image quality assessment model (PaQ-2-PiQ) combined with blur detection.
+
+### Basic Usage
+
+```bash
+# Assess single image
+beaker quality image.jpg
+
+# Assess multiple images
+beaker quality *.jpg
+
+# Write metadata to sidecar files
+beaker quality --metadata image.jpg
+```
+
+### Parameter Tuning
+
+Quality assessment uses several tunable parameters for blur detection:
+
+```bash
+# Adjust blur sensitivity (lower = more sensitive)
+beaker quality --tau 0.01 image.jpg
+
+# Adjust blur weight impact (higher = more penalty for blur)
+beaker quality --alpha 0.8 image.jpg
+
+# Adjust probability curve steepness
+beaker quality --beta 1.5 image.jpg
+```
+
+**Parameter Reference:**
+
+- `--alpha` (0.0-1.0, default 0.7): Weight coefficient - how much blur reduces quality score
+- `--beta` (0.5-2.0, default 1.2): Probability curve exponent - steeper = more aggressive blur detection
+- `--tau` (0.001-0.1, default 0.02): Tenengrad threshold - lower = more sensitive to blur
+
+### Programmatic API
+
+```rust
+use beaker::quality_processing::{compute_quality_raw, load_onnx_session_default};
+use beaker::quality_types::{QualityParams, QualityScores};
+
+// Load model once
+let session = load_onnx_session_default()?;
+
+// Compute raw data (expensive, cached automatically)
+let raw = compute_quality_raw("image.jpg", &session)?;
+
+// Compute scores with default parameters
+let params = QualityParams::default();
+let scores = QualityScores::compute(&raw, &params);
+
+println!("Quality: {:.1}", scores.final_score);
+
+// Adjust parameters and recompute instantly
+let strict_params = QualityParams {
+    tau_ten_224: 0.01,
+    ..Default::default()
+};
+let strict_scores = QualityScores::compute(&raw, &strict_params);
+```
+
+### Performance
+
+- First run: ~60ms per image (preprocessing + ONNX inference + blur detection)
+- Cached run: <1ms per image (cache hit for raw computation)
+- Parameter adjustment: <0.1ms per image (recomputes scores from cached raw data)
+
+This makes real-time parameter tuning feasible for GUI applications.
+```
+
+### Step 3: Create API guide
+
+Create `docs/quality-api-guide.md`:
+
+```markdown
+# Quality Assessment API Guide
+
+## Architecture
+
+Quality assessment is split into three layers:
+
+1. **Layer 1: Raw Computation** (expensive, parameter-independent)
+   - Image preprocessing and ONNX inference (~30ms)
+   - Raw Tenengrad gradient computation (~2ms)
+   - Total: ~60ms per image
+   - Cached automatically with `#[cached]` annotation
+
+2. **Layer 2: Scoring** (cheap, parameter-dependent)
+   - Apply parameters to raw data
+   - Compute blur probabilities and weights
+   - Calculate final quality score
+   - Total: <0.1ms per image
+
+3. **Layer 3: Visualization** (moderate, on-demand)
+   - Render heatmaps for GUI display
+   - Total: 7-30ms depending on size
+
+## Data Structures
+
+### QualityRawData
+
+Parameter-independent computation results. Expensive to compute, but can be cached forever.
+
+```rust
+pub struct QualityRawData {
+    pub input_width: u32,
+    pub input_height: u32,
+    pub paq2piq_global: f32,           // 0-100 quality score from model
+    pub paq2piq_local: [[u8; 20]; 20], // 20x20 local quality grid
+    pub tenengrad_224: [[f32; 20]; 20], // Raw gradient at 224x224
+    pub tenengrad_112: [[f32; 20]; 20], // Raw gradient at 112x112
+    pub median_tenengrad_224: f32,      // For adaptive thresholding
+    pub scale_ratio: f32,               // Scale factor
+    pub model_version: String,
+    pub computed_at: SystemTime,
+}
+```
+
+### QualityParams
+
+Tunable parameters for blur detection heuristics.
+
+```rust
+pub struct QualityParams {
+    pub beta: f32,          // Probability curve exponent (default: 1.2)
+    pub tau_ten_224: f32,   // Tenengrad threshold (default: 0.02)
+    pub p_floor: f32,       // Probability floor (default: 0.0)
+    pub alpha: f32,         // Weight coefficient (default: 0.7)
+    pub min_weight: f32,    // Minimum weight (default: 0.2)
+    // ... additional parameters
+}
+```
+
+### QualityScores
+
+Parameter-dependent results computed from raw data.
+
+```rust
+pub struct QualityScores {
+    pub final_score: f32,                   // Combined quality score
+    pub paq2piq_score: f32,                 // ML model score
+    pub blur_score: f32,                    // Global blur probability
+    pub blur_probability: [[f32; 20]; 20],  // Local blur probabilities
+    pub blur_weights: [[f32; 20]; 20],      // Quality weights
+    pub params: QualityParams,              // Parameters used
+}
+```
+
+## Usage Patterns
+
+### CLI Application
+
+```rust
+pub fn quality_command(config: QualityConfig) -> Result<()> {
+    let session = load_onnx_session_default()?;
+    let params = config.params.unwrap_or_default();
+
+    for image_path in &config.sources {
+        let raw = compute_quality_raw(image_path, &session)?;
+        let scores = QualityScores::compute(&raw, &params);
+        println!("{}: {:.1}", image_path.display(), scores.final_score);
+    }
+    Ok(())
+}
+```
+
+### GUI Application
+
+```rust
+pub struct QualityGuiState {
+    session: Arc<Session>,
+    params: QualityParams,
+    raw_data: HashMap<PathBuf, QualityRawData>,
+}
+
+impl QualityGuiState {
+    pub fn load_folder(&mut self, paths: Vec<PathBuf>) -> Result<()> {
+        // Parallel computation
+        use rayon::prelude::*;
+        let results: Vec<_> = paths.par_iter()
+            .filter_map(|path| {
+                let raw = compute_quality_raw(path, &self.session).ok()?;
+                Some((path.clone(), raw))
+            })
+            .collect();
+
+        self.raw_data = results.into_iter().collect();
+        Ok(())
+    }
+
+    pub fn update_params(&mut self, new_params: QualityParams) {
+        self.params = new_params;
+        // Recompute scores instantly (<10ms for 100 images)
+    }
+}
+```
+
+### API Server
+
+```rust
+pub struct QualityApiServer {
+    session: Arc<Session>,
+}
+
+impl QualityApiServer {
+    pub async fn assess_quality(
+        &self,
+        path: &Path,
+        params: Option<QualityParams>,
+    ) -> Result<QualityScores> {
+        let params = params.unwrap_or_default();
+
+        // Cached automatically across requests
+        let raw = compute_quality_raw(path, &self.session)?;
+        Ok(QualityScores::compute(&raw, &params))
+    }
+}
+```
+
+## Testing
+
+### Unit Tests
+
+Test each layer independently:
+
+```rust
+#[test]
+fn test_compute_raw_tenengrad() {
+    let img = Array4::<f32>::from_elem((1, 3, 224, 224), 0.5);
+    let result = compute_raw_tenengrad(&img).unwrap();
+    assert_eq!(result.t224.shape(), &[20, 20]);
+}
+
+#[test]
+fn test_apply_params() {
+    let t224 = Array2::from_elem((20, 20), 0.05);
+    let params = QualityParams::default();
+    let (p224, p112) = apply_tenengrad_params(&t224, ...);
+    assert!(p224.iter().all(|&p| p >= 0.0 && p <= 1.0));
+}
+```
+
+### Integration Tests
+
+Test complete workflow:
+
+```rust
+#[test]
+fn test_end_to_end() {
+    let session = load_onnx_session_default().unwrap();
+    let raw = compute_quality_raw("test.jpg", &session).unwrap();
+    let scores = QualityScores::compute(&raw, &QualityParams::default());
+    assert!(scores.final_score > 0.0);
+}
+```
+
+## Performance Tips
+
+1. **Share ONNX session** across all images (expensive to create)
+2. **Use parallel processing** for batch operations (rayon)
+3. **Cache raw data** for parameter tuning workflows
+4. **Don't cache scores** - they're cheap to recompute
+5. **Render visualizations on-demand** only for visible images
+
+## Migration from Old API
+
+Old code using `blur_weights_from_nchw()`:
+
+```rust
+// Old
+let (w20, p20, t20, blur) = blur_weights_from_nchw(&tensor, None);
+```
+
+New layered API:
+
+```rust
+// New
+let raw = compute_raw_tenengrad(&tensor)?;
+let params = QualityParams::default();
+let (p224, p112) = apply_tenengrad_params(&raw.t224, &raw.t112, ...);
+let blur_prob = fuse_probabilities(&p224, &p112);
+let weights = compute_weights(&blur_prob, &params);
+```
+
+The old function still works and now uses the new layered functions internally.
+```
+
+### Step 4: Manual testing
+
+```bash
+# Build the project
+cd beaker && cargo build --release
+
+# Test with example image
+./target/release/beaker quality example.jpg
+
+# Test with custom parameters
+./target/release/beaker quality --alpha 0.8 --beta 1.5 example.jpg
+
+# Test parameter range
+for alpha in 0.5 0.6 0.7 0.8 0.9; do
+    echo "Alpha $alpha:"
+    ./target/release/beaker quality --alpha $alpha example.jpg
+done
+```
+
+**Expected output:**
+```
+example.jpg: 75.3
+```
+
+### Step 5: Commit
+
+```bash
+git add beaker/src/quality_types.rs beaker/README.md docs/quality-api-guide.md
+git commit -m "docs: add HeatmapStyle type and comprehensive quality API documentation"
+```
 
 ## Testing Strategy
 
