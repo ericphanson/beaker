@@ -665,6 +665,7 @@ dependencies = [
  "image",
  "imageproc",
  "muda",
+ "pollster",
  "rfd",
  "serde",
  "serde_json",

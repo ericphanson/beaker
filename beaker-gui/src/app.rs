@@ -118,14 +118,39 @@ impl BeakerApp {
     }
 
     fn open_file_dialog() -> Option<PathBuf> {
-        rfd::FileDialog::new()
-            .add_filter("Images", &["jpg", "jpeg", "png"])
-            .add_filter("Beaker metadata", &["toml"])
-            .pick_file()
+        // On macOS, use async dialogs which work properly with the event loop
+        #[cfg(target_os = "macos")]
+        {
+            let future = rfd::AsyncFileDialog::new()
+                .add_filter("Images", &["jpg", "jpeg", "png"])
+                .add_filter("Beaker metadata", &["toml"])
+                .pick_file();
+            pollster::block_on(future).map(|f| f.path().to_path_buf())
+        }
+
+        // On other platforms, use synchronous dialogs
+        #[cfg(not(target_os = "macos"))]
+        {
+            rfd::FileDialog::new()
+                .add_filter("Images", &["jpg", "jpeg", "png"])
+                .add_filter("Beaker metadata", &["toml"])
+                .pick_file()
+        }
     }
 
     fn open_folder_dialog() -> Option<PathBuf> {
-        rfd::FileDialog::new().pick_folder()
+        // On macOS, use async dialogs which work properly with the event loop
+        #[cfg(target_os = "macos")]
+        {
+            let future = rfd::AsyncFileDialog::new().pick_folder();
+            pollster::block_on(future).map(|f| f.path().to_path_buf())
+        }
+
+        // On other platforms, use synchronous dialogs
+        #[cfg(not(target_os = "macos"))]
+        {
+            rfd::FileDialog::new().pick_folder()
+        }
     }
 
     fn open_image(&mut self, path: PathBuf) {

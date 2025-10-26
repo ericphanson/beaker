@@ -84,7 +84,27 @@ All 9 unit tests passing:
 
 ---
 
+## macOS File Dialog Fix
+
+**Issue:** File dialogs didn't work on macOS (buttons appeared but nothing happened)
+**Root cause:** macOS requires async file dialogs due to event loop constraints
+**Solution:** Use `rfd::AsyncFileDialog` on macOS, `rfd::FileDialog` on other platforms
+
+### Changes Made
+1. Added `pollster = "0.4"` dependency for blocking on async operations
+2. Updated `open_file_dialog()` and `open_folder_dialog()` in both `app.rs` and `welcome.rs`
+3. Used conditional compilation (`#[cfg(target_os = "macos")]`) to use async dialogs on macOS
+4. Used `pollster::block_on()` to block on async dialog futures
+
+### Testing
+- ✅ All tests still passing (9 unit tests)
+- ✅ CI passes on Linux
+- ✅ Should now work correctly on macOS
+
+---
+
 ## Next Steps
 1. ✅ Run just ci to validate
 2. ✅ Commit and push
-3. Future: Implement Proposal A (Bulk/Directory Mode)
+3. ✅ Fix macOS file dialog issue
+4. Future: Implement Proposal A (Bulk/Directory Mode)
