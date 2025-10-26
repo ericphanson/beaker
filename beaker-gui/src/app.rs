@@ -155,9 +155,46 @@ impl BeakerApp {
 
     fn open_folder(&mut self, path: PathBuf) {
         eprintln!("[BeakerApp] Opening folder: {:?}", path);
-        // TODO: Implement folder/bulk mode in future (Proposal A)
-        let _ = self.recent_files.add(path.clone(), RecentItemType::Folder);
-        eprintln!("[BeakerApp] WARNING: Folder mode not yet implemented");
+
+        // Collect image files from directory
+        let image_paths = Self::collect_image_files(&path);
+        eprintln!(
+            "[BeakerApp] Found {} image files in folder",
+            image_paths.len()
+        );
+
+        if image_paths.is_empty() {
+            eprintln!("[BeakerApp] WARNING: No supported image files found in folder");
+            return;
+        }
+
+        // Create DirectoryView and start processing
+        let dir_view = crate::views::DirectoryView::new(path.clone(), image_paths);
+        let _ = self.recent_files.add(path, RecentItemType::Folder);
+        self.state = AppState::Directory(dir_view);
+    }
+
+    /// Collect all supported image files from a directory (non-recursive)
+    fn collect_image_files(dir_path: &PathBuf) -> Vec<PathBuf> {
+        let mut image_files = Vec::new();
+
+        if let Ok(entries) = std::fs::read_dir(dir_path) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    if let Some(ext) = path.extension() {
+                        let ext_lower = ext.to_string_lossy().to_lowercase();
+                        if ext_lower == "jpg" || ext_lower == "jpeg" || ext_lower == "png" {
+                            image_files.push(path);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Sort for consistent ordering
+        image_files.sort();
+        image_files
     }
 
     fn open_paths(&mut self, paths: Vec<PathBuf>) {
@@ -274,5 +311,25 @@ mod tests {
 
         // This should compile and not panic
         let _ = format!("{:?}", "Testing directory view in app");
+    }
+
+    #[test]
+    fn test_open_folder_creates_directory_view() {
+        use std::fs::File;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let img1 = temp_dir.path().join("img1.jpg");
+        let img2 = temp_dir.path().join("img2.jpg");
+
+        // Create empty files
+        File::create(&img1).unwrap();
+        File::create(&img2).unwrap();
+
+        let mut app = BeakerApp::new(false, None);
+        app.open_folder(temp_dir.path().to_path_buf());
+
+        // Should transition to Directory state
+        assert!(matches!(app.state, AppState::Directory(_)));
     }
 }
