@@ -68,6 +68,62 @@ pub fn compute_raw_tenengrad(x: &Array4<f32>) -> Result<RawTenengradData> {
     })
 }
 
+use crate::quality_types::QualityParams;
+
+const BIAS112: f32 = 1.25;
+
+/// Apply parameters to raw Tenengrad to get blur probabilities (cheap: <0.1ms)
+pub fn apply_tenengrad_params(
+    t224: &Array2<f32>,
+    t112: &Array2<f32>,
+    _median_224: f32,
+    scale_ratio: f32,
+    params: &QualityParams,
+) -> (Array2<f32>, Array2<f32>) {
+    // Apply parameters to 224 Tenengrad
+    let p224 = t224.mapv(|t| {
+        let tau = params.tau_ten_224.max(EPS_T);
+        let p = (tau / (t + tau)).powf(params.beta);
+        (p + params.p_floor).min(1.0)
+    });
+
+    // Apply parameters to 112 Tenengrad
+    let tau112 = params.tau_ten_224 * scale_ratio * BIAS112;
+    let p112 = t112.mapv(|t| {
+        let tau = tau112.max(EPS_T);
+        let p = (tau / (t + tau)).powf(params.beta);
+        (p + params.p_floor).min(1.0)
+    });
+
+    (p224, p112)
+}
+
+/// Fuse two probability maps (probabilistic OR)
+pub fn fuse_probabilities(
+    p224: &Array2<f32>,
+    p112: &Array2<f32>,
+) -> Array2<f32> {
+    let mut p = Array2::<f32>::zeros((20, 20));
+    ndarray::Zip::from(&mut p)
+        .and(p224)
+        .and(p112)
+        .for_each(|p_elem, &a, &b| {
+            *p_elem = 1.0 - (1.0 - a) * (1.0 - b);
+        });
+    p
+}
+
+/// Compute blur weights from probabilities
+pub fn compute_weights(
+    blur_probability: &Array2<f32>,
+    params: &QualityParams,
+) -> Array2<f32> {
+    blur_probability.mapv(|p| {
+        let w: f32 = 1.0 - params.alpha * p;
+        w.clamp(params.min_weight, 1.0)
+    })
+}
+
 type GrayF32 = ImageBuffer<Luma<f32>, Vec<f32>>;
 
 #[derive(Copy, Clone, Debug)]
