@@ -742,30 +742,22 @@ fn core_ring_ratio_native(img: &RgbImage, bbox: BBoxF) -> (f32, f32, f32) {
     (ratio, t_core, t_ring)
 }
 
+use crate::quality_types::TriageParams;
+
 /// 3-valued triage with **bad** and **good** margins to tune coverage.
 /// Returns (decision, rationale). Decision ∈ {"bad","good","unknown"}.
 pub fn triage_decision(
     core_ring_sharpness_ratio: f32,
     grid_cells_covered: f32,
+    params: &TriageParams,
 ) -> (String, String) {
-    // Base HP thresholds (your tree):
-    const CORE_RING_SHARPNESS_RATIO_BAD: f32 = 1.19;
-    const GRID_CELLS_COVERED_BAD: f32 = 6.15;
-
-    // Tighten BAD (shrinks bad region → fewer false negatives of GT-good):
-    // Only call BAD if clearly below/inside HP-bad.
-    const DELTA_BAD_CORE_RING_SHARPNESS_RATIO: f32 = 0.4; // BAD if core_ring_sharpness_ratio ≤ 1.19 - 0.05 = 1.14
-    const DELTA_BAD_GRID_CELLS_COVERED: f32 = 1.5; // BAD if (core_ring_sharpness_ratio > 1.19) AND grid_cells_covered ≤ 6.15 - 0.75 = 5.40
-
-    // Loosen GOOD slightly? (admits a few more goods, keep precision reasonable):
-    const DELTA_GOOD_CORE_RING_SHARPNESS_RATIO: f32 = 0.0;
-    const DELTA_GOOD_GRID_CELLS_COVERED: f32 = 0.0;
-
-    // Precompute cutoffs
-    let bad_r_cut = CORE_RING_SHARPNESS_RATIO_BAD - DELTA_BAD_CORE_RING_SHARPNESS_RATIO;
-    let bad_g_cut = GRID_CELLS_COVERED_BAD - DELTA_BAD_GRID_CELLS_COVERED;
-    let good_r_cut = CORE_RING_SHARPNESS_RATIO_BAD + DELTA_GOOD_CORE_RING_SHARPNESS_RATIO;
-    let good_g_cut = GRID_CELLS_COVERED_BAD + DELTA_GOOD_GRID_CELLS_COVERED;
+    // Precompute cutoffs from parameters
+    let bad_r_cut =
+        params.core_ring_sharpness_ratio_bad - params.delta_bad_core_ring_sharpness_ratio;
+    let bad_g_cut = params.grid_cells_covered_bad - params.delta_bad_grid_cells_covered;
+    let good_r_cut =
+        params.core_ring_sharpness_ratio_bad + params.delta_good_core_ring_sharpness_ratio;
+    let good_g_cut = params.grid_cells_covered_bad + params.delta_good_grid_cells_covered;
 
     // ----- BAD: only when comfortably inside HP-bad
     if core_ring_sharpness_ratio <= bad_r_cut {
@@ -777,13 +769,15 @@ pub fn triage_decision(
             ),
         );
     }
-    if core_ring_sharpness_ratio > CORE_RING_SHARPNESS_RATIO_BAD && grid_cells_covered <= bad_g_cut
+    if core_ring_sharpness_ratio > params.core_ring_sharpness_ratio_bad
+        && grid_cells_covered <= bad_g_cut
     {
         return (
             "bad".to_string(),
             format!(
-                "bad: core_ring_sharpness_ratio={core_ring_sharpness_ratio:.2} > {CORE_RING_SHARPNESS_RATIO_BAD:.2} BUT grid_cells_covered={grid_cells_covered:.2} ≤ {bad_g_cut:.2} \
-(sharpness looks sufficient, BUT coverage is small—detection over a small region of the image)"
+                "bad: core_ring_sharpness_ratio={core_ring_sharpness_ratio:.2} > {:.2} BUT grid_cells_covered={grid_cells_covered:.2} ≤ {bad_g_cut:.2} \
+(sharpness looks sufficient, BUT coverage is small—detection over a small region of the image)",
+                params.core_ring_sharpness_ratio_bad
             ),
         );
     }
@@ -800,23 +794,28 @@ pub fn triage_decision(
     }
 
     // ----- UNKNOWN: everything in the buffer zones
-    let rationale = if core_ring_sharpness_ratio <= CORE_RING_SHARPNESS_RATIO_BAD {
+    let rationale = if core_ring_sharpness_ratio <= params.core_ring_sharpness_ratio_bad {
         // near the softness threshold but not clearly bad
         format!(
-            "unknown: core_ring_sharpness_ratio={core_ring_sharpness_ratio:.2} in ({bad_r_cut:.2}, {CORE_RING_SHARPNESS_RATIO_BAD:.2}] \
-(borderline sharpness region held out)"
+            "unknown: core_ring_sharpness_ratio={core_ring_sharpness_ratio:.2} in ({bad_r_cut:.2}, {:.2}] \
+(borderline sharpness region held out)",
+            params.core_ring_sharpness_ratio_bad
         )
-    } else if grid_cells_covered <= GRID_CELLS_COVERED_BAD {
+    } else if grid_cells_covered <= params.grid_cells_covered_bad {
         // near the small-coverage threshold but not clearly bad
         format!(
-            "unknown: grid_cells_covered={grid_cells_covered:.2} in ({bad_g_cut:.2}, {GRID_CELLS_COVERED_BAD:.2}] with core_ring_sharpness_ratio={core_ring_sharpness_ratio:.2} > {CORE_RING_SHARPNESS_RATIO_BAD:.2} \
-(borderline small-coverage region held out)"
+            "unknown: grid_cells_covered={grid_cells_covered:.2} in ({bad_g_cut:.2}, {:.2}] with core_ring_sharpness_ratio={core_ring_sharpness_ratio:.2} > {:.2} \
+(borderline small-coverage region held out)",
+            params.grid_cells_covered_bad,
+            params.core_ring_sharpness_ratio_bad
         )
     } else {
         // inside base good but not past good margins
         format!(
-            "unknown: inside base good region (core_ring_sharpness_ratio={core_ring_sharpness_ratio:.2} > {CORE_RING_SHARPNESS_RATIO_BAD:.2}, grid_cells_covered={grid_cells_covered:.2} > {GRID_CELLS_COVERED_BAD:.2}) \
-BUT not past safety margins (need core_ring_sharpness_ratio>{good_r_cut:.2}, grid_cells_covered>{good_g_cut:.2})"
+            "unknown: inside base good region (core_ring_sharpness_ratio={core_ring_sharpness_ratio:.2} > {:.2}, grid_cells_covered={grid_cells_covered:.2} > {:.2}) \
+BUT not past safety margins (need core_ring_sharpness_ratio>{good_r_cut:.2}, grid_cells_covered>{good_g_cut:.2})",
+            params.core_ring_sharpness_ratio_bad,
+            params.grid_cells_covered_bad
         )
     };
     ("unknown".to_string(), rationale)
@@ -830,8 +829,9 @@ pub fn detection_quality(
     p20: &Array2<f32>, // fused blur probability 20x20 (0..1)
     _global_blur_score: f32,
     _global_paq2piq_score: f32,
-    bbox: BBoxF,         // in native image pixels
-    orig_img: &RgbImage, // native frame
+    bbox: BBoxF,                  // in native image pixels
+    orig_img: &RgbImage,          // native frame
+    triage_params: &TriageParams, // Triage decision parameters
 ) -> DetectionQuality {
     assert_eq!(q20.shape(), &[20, 20]);
     assert_eq!(w20.shape(), &[20, 20]);
@@ -860,7 +860,7 @@ pub fn detection_quality(
     // Triage decision
     // Currently this is only optimized for "head" detections from high-rez images
     // maybe we should drop it for other classes?
-    let (triage, rationale) = triage_decision(r_core_ring, cov_cells);
+    let (triage, rationale) = triage_decision(r_core_ring, cov_cells, triage_params);
 
     // let triage = triage_decision(quality, detail, p_roi, cov_cells, size_prior, r_core_ring);
     DetectionQuality {
@@ -878,4 +878,3 @@ pub fn detection_quality(
         tenengrad_ring_mean: t_ring,
     }
 }
-

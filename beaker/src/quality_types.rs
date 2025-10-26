@@ -46,6 +46,47 @@ impl Default for QualityParams {
     }
 }
 
+/// Tunable parameters for triage decision heuristics
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct TriageParams {
+    /// Base threshold for core/ring sharpness ratio (default: 1.19)
+    /// Values below this suggest overall softness/defocus
+    pub core_ring_sharpness_ratio_bad: f32,
+
+    /// Base threshold for grid cells covered (default: 6.15)
+    /// Values below this with good sharpness suggest small coverage
+    pub grid_cells_covered_bad: f32,
+
+    /// Delta to tighten BAD region for core/ring sharpness ratio (default: 0.4)
+    /// BAD if ratio <= (base - delta). Shrinks bad region to reduce false negatives
+    pub delta_bad_core_ring_sharpness_ratio: f32,
+
+    /// Delta to tighten BAD region for grid cells covered (default: 1.5)
+    /// BAD if cells <= (base - delta). Shrinks bad region to reduce false negatives
+    pub delta_bad_grid_cells_covered: f32,
+
+    /// Delta to loosen GOOD region for core/ring sharpness ratio (default: 0.0)
+    /// GOOD if ratio > (base + delta). Expands good region to admit more goods
+    pub delta_good_core_ring_sharpness_ratio: f32,
+
+    /// Delta to loosen GOOD region for grid cells covered (default: 0.0)
+    /// GOOD if cells > (base + delta). Expands good region to admit more goods
+    pub delta_good_grid_cells_covered: f32,
+}
+
+impl Default for TriageParams {
+    fn default() -> Self {
+        Self {
+            core_ring_sharpness_ratio_bad: 1.19,
+            grid_cells_covered_bad: 6.15,
+            delta_bad_core_ring_sharpness_ratio: 0.4,
+            delta_bad_grid_cells_covered: 1.5,
+            delta_good_core_ring_sharpness_ratio: 0.0,
+            delta_good_grid_cells_covered: 0.0,
+        }
+    }
+}
+
 /// Parameter-independent computation results (expensive to compute, ~60ms)
 #[derive(Clone, Debug)]
 pub struct QualityRawData {

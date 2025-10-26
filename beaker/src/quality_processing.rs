@@ -178,9 +178,13 @@ impl ModelProcessor for QualityProcessor {
             // Render heatmap or overlay
             let heatmap_img = if config.overlay {
                 // Load original image for overlay
-                let original_img = image::open(image_path)
-                    .context("Failed to open image for heatmap overlay")?;
-                quality_visualization::render_overlay(&original_img, &scores.blur_probability, &style)?
+                let original_img =
+                    image::open(image_path).context("Failed to open image for heatmap overlay")?;
+                quality_visualization::render_overlay(
+                    &original_img,
+                    &scores.blur_probability,
+                    &style,
+                )?
             } else {
                 // Render standalone heatmap
                 quality_visualization::render_heatmap_to_buffer(&scores.blur_probability, &style)?
@@ -252,7 +256,6 @@ fn preprocess_image_for_quality(img: &image::DynamicImage) -> Result<ndarray::Ar
 
     Ok(array)
 }
-
 
 /// Compute parameter-independent quality data (expensive: ~60ms, cached)
 #[cached(

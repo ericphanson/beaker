@@ -1,4 +1,4 @@
-use beaker::quality_types::{QualityParams, QualityRawData, QualityScores};
+use beaker::quality_types::{QualityParams, QualityRawData, QualityScores, TriageParams};
 
 #[test]
 fn test_quality_params_default_values() {
@@ -46,7 +46,6 @@ fn test_quality_raw_data_creation() {
     assert_eq!(raw.paq2piq_global, 75.5);
     assert_eq!(raw.model_version, "quality-model-v1");
 }
-
 
 #[test]
 fn test_quality_scores_compute_from_raw() {
@@ -107,4 +106,59 @@ fn test_quality_scores_compute_no_blur() {
         scores.final_score > 85.0,
         "Sharp image should preserve quality score"
     );
+}
+
+#[test]
+fn test_triage_params_default_values() {
+    let params = TriageParams::default();
+
+    assert_eq!(params.core_ring_sharpness_ratio_bad, 1.19);
+    assert_eq!(params.grid_cells_covered_bad, 6.15);
+    assert_eq!(params.delta_bad_core_ring_sharpness_ratio, 0.4);
+    assert_eq!(params.delta_bad_grid_cells_covered, 1.5);
+    assert_eq!(params.delta_good_core_ring_sharpness_ratio, 0.0);
+    assert_eq!(params.delta_good_grid_cells_covered, 0.0);
+}
+
+#[test]
+fn test_triage_params_custom_values() {
+    let params = TriageParams {
+        core_ring_sharpness_ratio_bad: 1.5,
+        delta_bad_core_ring_sharpness_ratio: 0.3,
+        ..Default::default()
+    };
+
+    assert_eq!(params.core_ring_sharpness_ratio_bad, 1.5);
+    assert_eq!(params.delta_bad_core_ring_sharpness_ratio, 0.3);
+    assert_eq!(params.grid_cells_covered_bad, 6.15); // Still default
+}
+
+#[test]
+fn test_triage_decision_with_custom_params() {
+    use beaker::blur_detection::triage_decision;
+
+    let params = TriageParams {
+        core_ring_sharpness_ratio_bad: 1.0,
+        grid_cells_covered_bad: 5.0,
+        delta_bad_core_ring_sharpness_ratio: 0.2,
+        delta_bad_grid_cells_covered: 1.0,
+        delta_good_core_ring_sharpness_ratio: 0.1,
+        delta_good_grid_cells_covered: 0.5,
+    };
+
+    // Test case 1: Should be BAD (low core/ring ratio)
+    let (decision, _) = triage_decision(0.7, 8.0, &params);
+    assert_eq!(decision, "bad", "Low core/ring ratio should be bad");
+
+    // Test case 2: Should be BAD (low coverage)
+    let (decision, _) = triage_decision(1.5, 3.0, &params);
+    assert_eq!(decision, "bad", "Low coverage should be bad");
+
+    // Test case 3: Should be GOOD (high values on both)
+    let (decision, _) = triage_decision(1.5, 8.0, &params);
+    assert_eq!(decision, "good", "High values on both should be good");
+
+    // Test case 4: Should be UNKNOWN (in buffer zone)
+    let (decision, _) = triage_decision(0.9, 8.0, &params);
+    assert_eq!(decision, "unknown", "Buffer zone should be unknown");
 }
