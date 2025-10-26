@@ -529,9 +529,29 @@ All 21 tasks have been successfully completed using subagent-driven development.
 
 **Ready for:** Code review and PR creation
 
+---
+
+## Post-Implementation: Merge and Fixes
+
+### Merged main branch
+- Merged latest changes from main
+- Resolved merge conflicts (clean merge)
+- New dependencies from main: quality library refactor changes
+
+### Fixed formatting and linting issues
+- **Commit:** fd5fbdd08b2daf9d5aef755a98e6a059dcd9ffce
+- Added missing `triage_params: None` field to DetectionConfig initializations
+- Added `#[allow(dead_code)]` attributes for fields planned for future use
+- Auto-fixed formatting and import ordering
+- **Status:** ✅ All checks passing
+
+---
+
 ## Issues Encountered
 
 1. **ONNX model download failures** - Known issue, documented in CLAUDE.md
+2. **Missing field after merge** - Fixed by adding `triage_params: None` to DetectionConfig structs
+3. **Dead code warnings** - Suppressed with #[allow(dead_code)] for future features (thumbnails, quality filtering)
 2. **Disk space** - Needed to run `cargo clean` to free up space
 3. **Test execution** - `just test` only runs beaker lib tests, not GUI tests
 
