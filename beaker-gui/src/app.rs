@@ -86,13 +86,22 @@ impl BeakerApp {
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("File", |ui| {
+                    if ui.button("Open...").clicked() {
+                        eprintln!("[BeakerApp] Menu: Open... clicked");
+                        if let Some(path) = Self::open_file_dialog() {
+                            self.open_image(path);
+                        }
+                        ui.close_menu();
+                    }
                     if ui.button("Open Image...").clicked() {
+                        eprintln!("[BeakerApp] Menu: Open Image... clicked");
                         if let Some(path) = Self::open_file_dialog() {
                             self.open_image(path);
                         }
                         ui.close_menu();
                     }
                     if ui.button("Open Folder...").clicked() {
+                        eprintln!("[BeakerApp] Menu: Open Folder... clicked");
                         if let Some(path) = Self::open_folder_dialog() {
                             self.open_folder(path);
                         }
@@ -118,36 +127,45 @@ impl BeakerApp {
     }
 
     fn open_file_dialog() -> Option<PathBuf> {
+        eprintln!("[BeakerApp] Opening file dialog from menu...");
         // Use async dialogs for consistency across all platforms
         let future = rfd::AsyncFileDialog::new()
             .add_filter("Images", &["jpg", "jpeg", "png"])
             .add_filter("Beaker metadata", &["toml"])
             .pick_file();
-        pollster::block_on(future).map(|f| f.path().to_path_buf())
+        let result = pollster::block_on(future).map(|f| f.path().to_path_buf());
+        eprintln!("[BeakerApp] Menu file dialog result: {:?}", result);
+        result
     }
 
     fn open_folder_dialog() -> Option<PathBuf> {
+        eprintln!("[BeakerApp] Opening folder dialog from menu...");
         // Use async dialogs for consistency across all platforms
         let future = rfd::AsyncFileDialog::new().pick_folder();
-        pollster::block_on(future).map(|f| f.path().to_path_buf())
+        let result = pollster::block_on(future).map(|f| f.path().to_path_buf());
+        eprintln!("[BeakerApp] Menu folder dialog result: {:?}", result);
+        result
     }
 
     fn open_image(&mut self, path: PathBuf) {
+        eprintln!("[BeakerApp] Opening image: {:?}", path);
         match DetectionView::new(path.to_str().unwrap()) {
             Ok(view) => {
+                eprintln!("[BeakerApp] Image loaded successfully, switching to Detection view");
                 let _ = self.recent_files.add(path.clone(), RecentItemType::Image);
                 self.state = AppState::Detection(view);
             }
             Err(e) => {
-                eprintln!("Failed to load image: {}", e);
+                eprintln!("[BeakerApp] ERROR: Failed to load image: {}", e);
             }
         }
     }
 
     fn open_folder(&mut self, path: PathBuf) {
+        eprintln!("[BeakerApp] Opening folder: {:?}", path);
         // TODO: Implement folder/bulk mode in future (Proposal A)
         let _ = self.recent_files.add(path.clone(), RecentItemType::Folder);
-        eprintln!("Folder mode not yet implemented: {:?}", path);
+        eprintln!("[BeakerApp] WARNING: Folder mode not yet implemented");
     }
 }
 
@@ -167,9 +185,11 @@ impl eframe::App for BeakerApp {
                 let action = welcome_view.show(ctx, ui);
                 match action {
                     WelcomeAction::OpenImage(path) => {
+                        eprintln!("[BeakerApp] Received action: OpenImage({:?})", path);
                         self.open_image(path);
                     }
                     WelcomeAction::OpenFolder(path) => {
+                        eprintln!("[BeakerApp] Received action: OpenFolder({:?})", path);
                         self.open_folder(path);
                     }
                     WelcomeAction::None => {}

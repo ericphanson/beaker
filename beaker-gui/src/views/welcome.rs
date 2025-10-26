@@ -31,9 +31,12 @@ impl WelcomeView {
             if !i.raw.dropped_files.is_empty() {
                 if let Some(dropped_file) = i.raw.dropped_files.first() {
                     if let Some(path) = &dropped_file.path {
+                        eprintln!("[WelcomeView] File dropped: {:?}", path);
                         if path.is_file() {
+                            eprintln!("[WelcomeView] Dropped file is an image, opening...");
                             action = WelcomeAction::OpenImage(path.clone());
                         } else if path.is_dir() {
+                            eprintln!("[WelcomeView] Dropped file is a folder, opening...");
                             action = WelcomeAction::OpenFolder(path.clone());
                         }
                     }
@@ -41,7 +44,11 @@ impl WelcomeView {
             }
 
             // Check if files are being hovered
+            let was_hovering = self.drag_hover;
             self.drag_hover = !i.raw.hovered_files.is_empty();
+            if self.drag_hover && !was_hovering {
+                eprintln!("[WelcomeView] Files hovering over drop zone");
+            }
         });
 
         ui.vertical_centered(|ui| {
@@ -51,7 +58,7 @@ impl WelcomeView {
             ui.heading(egui::RichText::new("Beaker - Bird Image Analysis").size(32.0));
             ui.add_space(40.0);
 
-            // Drag & drop zone
+            // Drag & drop zone (also clickable)
             let drop_zone_height = 200.0;
             let available_width = ui.available_width().min(600.0);
 
@@ -60,11 +67,14 @@ impl WelcomeView {
                 egui::vec2(available_width, drop_zone_height),
             );
 
-            let drop_zone_response = ui.allocate_rect(drop_zone_rect, egui::Sense::hover());
+            // Make the drop zone clickable
+            let drop_zone_response = ui.allocate_rect(drop_zone_rect, egui::Sense::click());
 
             // Draw drop zone
             let fill_color = if self.drag_hover {
                 egui::Color32::from_rgb(230, 240, 255)
+            } else if drop_zone_response.hovered() {
+                egui::Color32::from_rgb(245, 245, 250)
             } else {
                 egui::Color32::from_rgb(250, 250, 250)
             };
@@ -79,7 +89,7 @@ impl WelcomeView {
             // Drop zone text
             let text_pos = drop_zone_rect.center();
             ui.painter().text(
-                text_pos - egui::vec2(0.0, 20.0),
+                text_pos - egui::vec2(0.0, 30.0),
                 egui::Align2::CENTER_CENTER,
                 "Drop image or folder here",
                 egui::FontId::proportional(20.0),
@@ -88,21 +98,41 @@ impl WelcomeView {
 
             // Icon hint
             ui.painter().text(
-                text_pos + egui::vec2(0.0, 20.0),
+                text_pos + egui::vec2(0.0, 10.0),
                 egui::Align2::CENTER_CENTER,
                 "📁 or 🖼️",
                 egui::FontId::proportional(32.0),
                 egui::Color32::from_rgb(100, 100, 100),
             );
 
-            // Show hint on hover
-            if drop_zone_response.hovered() {
+            // Click hint
+            ui.painter().text(
+                text_pos + egui::vec2(0.0, 50.0),
+                egui::Align2::CENTER_CENTER,
+                "(or click to browse)",
+                egui::FontId::proportional(14.0),
+                egui::Color32::from_rgb(120, 120, 120),
+            );
+
+            // Show highlight on hover or drag
+            if drop_zone_response.hovered() || self.drag_hover {
                 ui.painter().rect(
                     drop_zone_rect,
                     6.0,
                     egui::Color32::TRANSPARENT,
                     egui::Stroke::new(3.0, egui::Color32::from_rgb(100, 149, 237)),
                 );
+            }
+
+            // Handle click on drop zone
+            if drop_zone_response.clicked() {
+                eprintln!("[WelcomeView] Drop zone clicked, opening file dialog...");
+                if let Some(path) = Self::open_file_dialog() {
+                    eprintln!("[WelcomeView] File selected from dialog: {:?}", path);
+                    action = WelcomeAction::OpenImage(path);
+                } else {
+                    eprintln!("[WelcomeView] File dialog cancelled or returned None");
+                }
             }
 
             ui.add_space(drop_zone_height + 20.0);
@@ -118,8 +148,12 @@ impl WelcomeView {
                     )
                     .clicked()
                 {
+                    eprintln!("[WelcomeView] 'Open Image' button clicked");
                     if let Some(path) = Self::open_file_dialog() {
+                        eprintln!("[WelcomeView] Image selected: {:?}", path);
                         action = WelcomeAction::OpenImage(path);
+                    } else {
+                        eprintln!("[WelcomeView] Image dialog cancelled");
                     }
                 }
 
@@ -132,8 +166,12 @@ impl WelcomeView {
                     )
                     .clicked()
                 {
+                    eprintln!("[WelcomeView] 'Open Folder' button clicked");
                     if let Some(path) = Self::open_folder_dialog() {
+                        eprintln!("[WelcomeView] Folder selected: {:?}", path);
                         action = WelcomeAction::OpenFolder(path);
+                    } else {
+                        eprintln!("[WelcomeView] Folder dialog cancelled");
                     }
                 }
             });
@@ -196,11 +234,14 @@ impl WelcomeView {
                     )
                     .clicked()
                 {
+                    eprintln!("[WelcomeView] Recent item clicked: {:?}", item.path);
                     match item.item_type {
                         RecentItemType::Image => {
+                            eprintln!("[WelcomeView] Opening recent image");
                             *action = WelcomeAction::OpenImage(item.path.clone());
                         }
                         RecentItemType::Folder => {
+                            eprintln!("[WelcomeView] Opening recent folder");
                             *action = WelcomeAction::OpenFolder(item.path.clone());
                         }
                     }
@@ -249,18 +290,24 @@ impl WelcomeView {
     }
 
     fn open_file_dialog() -> Option<PathBuf> {
+        eprintln!("[WelcomeView] Opening file dialog (async)...");
         // Use async dialogs for consistency across all platforms
         let future = rfd::AsyncFileDialog::new()
             .add_filter("Images", &["jpg", "jpeg", "png"])
             .add_filter("Beaker metadata", &["toml"])
             .pick_file();
-        pollster::block_on(future).map(|f| f.path().to_path_buf())
+        let result = pollster::block_on(future).map(|f| f.path().to_path_buf());
+        eprintln!("[WelcomeView] File dialog result: {:?}", result);
+        result
     }
 
     fn open_folder_dialog() -> Option<PathBuf> {
+        eprintln!("[WelcomeView] Opening folder dialog (async)...");
         // Use async dialogs for consistency across all platforms
         let future = rfd::AsyncFileDialog::new().pick_folder();
-        pollster::block_on(future).map(|f| f.path().to_path_buf())
+        let result = pollster::block_on(future).map(|f| f.path().to_path_buf());
+        eprintln!("[WelcomeView] Folder dialog result: {:?}", result);
+        result
     }
 
     /// Add a file to recent files list
