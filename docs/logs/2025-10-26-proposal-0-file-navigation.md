@@ -109,8 +109,52 @@ All 9 unit tests passing:
 
 ---
 
+## UX Improvements: Clickable Drop Zone & Logging
+
+**Changes:**
+1. Made drop zone clickable - clicking opens file dialog (was hover-only before)
+2. Added comprehensive logging throughout the app
+3. Added File > Open menu item
+
+### Clickable Drop Zone
+- Changed from `egui::Sense::hover()` to `egui::Sense::click()`
+- Added visual hover feedback (lighter background)
+- Added "(or click to browse)" hint text
+- Clicking drop zone opens file picker for images
+
+### Comprehensive Logging
+All interactions now logged to stderr with clear prefixes:
+- `[WelcomeView]` - Welcome screen actions
+- `[BeakerApp]` - App-level actions
+
+**Logged events:**
+- Button clicks (Open Image, Open Folder, recent files)
+- Drop zone clicks
+- File/folder drops (drag & drop)
+- File dialog opening and results (path or None)
+- State transitions (switching to Detection view)
+- Errors (with ERROR: prefix)
+
+Example log output:
+```
+[WelcomeView] Drop zone clicked, opening file dialog...
+[WelcomeView] Opening file dialog (async)...
+[WelcomeView] File dialog result: Some("/path/to/image.jpg")
+[BeakerApp] Received action: OpenImage("/path/to/image.jpg")
+[BeakerApp] Opening image: "/path/to/image.jpg"
+[BeakerApp] Image loaded successfully, switching to Detection view
+```
+
+### Testing
+- ✅ All 9 unit tests passing
+- ✅ CI pipeline passing (format, clippy, build, tests)
+- ✅ Committed and pushed
+
+---
+
 ## Next Steps
 1. ✅ Run just ci to validate
 2. ✅ Commit and push
 3. ✅ Fix macOS file dialog issue
-4. Future: Implement Proposal A (Bulk/Directory Mode)
+4. ✅ Make drop zone clickable and add logging
+5. Future: Implement Proposal A (Bulk/Directory Mode)
