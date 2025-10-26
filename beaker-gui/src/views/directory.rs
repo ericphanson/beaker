@@ -404,7 +404,17 @@ impl DirectoryView {
         });
     }
 
-    fn show_gallery_ui(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui) {
+    fn show_gallery_ui(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+        // Handle keyboard shortcuts
+        ctx.input(|i| {
+            if i.key_pressed(egui::Key::ArrowRight) {
+                self.navigate_next_image();
+            }
+            if i.key_pressed(egui::Key::ArrowLeft) {
+                self.navigate_previous_image();
+            }
+        });
+
         // Header
         ui.horizontal(|ui| {
             ui.heading(format!("Gallery: {}", self.directory_path.display()));
@@ -479,12 +489,28 @@ impl DirectoryView {
         }
     }
 
-    fn show_current_image(&self, ui: &mut egui::Ui) {
+    fn show_current_image(&mut self, ui: &mut egui::Ui) {
         if self.current_image_idx >= self.images.len() {
             ui.label("No image selected");
             return;
         }
 
+        // Navigation controls
+        ui.horizontal(|ui| {
+            if ui.button("← Previous").clicked() {
+                self.navigate_previous_image();
+            }
+
+            ui.label(format!("{} / {}", self.current_image_idx + 1, self.images.len()));
+
+            if ui.button("Next →").clicked() {
+                self.navigate_next_image();
+            }
+        });
+
+        ui.add_space(10.0);
+
+        // Get current image data (after navigation buttons which may have changed index)
         let current_image = &self.images[self.current_image_idx];
         let filename = current_image.path.file_name()
             .and_then(|n| n.to_str())
@@ -608,6 +634,33 @@ impl DirectoryView {
         }
 
         (good, unknown, bad)
+    }
+
+    /// Navigate to next image (wraps around)
+    fn navigate_next_image(&mut self) {
+        if self.images.is_empty() {
+            return;
+        }
+        self.current_image_idx = (self.current_image_idx + 1) % self.images.len();
+    }
+
+    /// Navigate to previous image (wraps around)
+    fn navigate_previous_image(&mut self) {
+        if self.images.is_empty() {
+            return;
+        }
+        if self.current_image_idx == 0 {
+            self.current_image_idx = self.images.len() - 1;
+        } else {
+            self.current_image_idx -= 1;
+        }
+    }
+
+    /// Jump to specific image by index
+    fn jump_to_image(&mut self, idx: usize) {
+        if idx < self.images.len() {
+            self.current_image_idx = idx;
+        }
     }
 }
 
@@ -874,5 +927,48 @@ detections = [
         assert_eq!(view.all_detections[0].image_idx, 0);
         assert_eq!(view.all_detections[1].image_idx, 1);
         assert_eq!(view.all_detections[2].image_idx, 1);
+    }
+
+    #[test]
+    fn test_navigate_next_image() {
+        let dir_path = PathBuf::from("/tmp/test");
+        let images = vec![
+            PathBuf::from("/tmp/test/img1.jpg"),
+            PathBuf::from("/tmp/test/img2.jpg"),
+            PathBuf::from("/tmp/test/img3.jpg"),
+        ];
+        let mut view = DirectoryView::new(dir_path, images);
+
+        assert_eq!(view.current_image_idx, 0);
+
+        view.navigate_next_image();
+        assert_eq!(view.current_image_idx, 1);
+
+        view.navigate_next_image();
+        assert_eq!(view.current_image_idx, 2);
+
+        // Should wrap to 0
+        view.navigate_next_image();
+        assert_eq!(view.current_image_idx, 0);
+    }
+
+    #[test]
+    fn test_navigate_previous_image() {
+        let dir_path = PathBuf::from("/tmp/test");
+        let images = vec![
+            PathBuf::from("/tmp/test/img1.jpg"),
+            PathBuf::from("/tmp/test/img2.jpg"),
+            PathBuf::from("/tmp/test/img3.jpg"),
+        ];
+        let mut view = DirectoryView::new(dir_path, images);
+
+        assert_eq!(view.current_image_idx, 0);
+
+        // Should wrap to last
+        view.navigate_previous_image();
+        assert_eq!(view.current_image_idx, 2);
+
+        view.navigate_previous_image();
+        assert_eq!(view.current_image_idx, 1);
     }
 }
