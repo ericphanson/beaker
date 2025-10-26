@@ -87,6 +87,16 @@ impl Default for TriageParams {
     }
 }
 
+/// Quality maps for per-detection quality assessment
+pub struct QualityMaps<'a> {
+    /// PaQ-2-PiQ 20x20 local quality map (0..100)
+    pub q20: &'a ndarray::Array2<f32>,
+    /// Blur weights 20x20 (1 - ALPHA * P)
+    pub w20: &'a ndarray::Array2<f32>,
+    /// Fused blur probability 20x20 (0..1)
+    pub p20: &'a ndarray::Array2<f32>,
+}
+
 /// Parameter-independent computation results (expensive to compute, ~60ms)
 #[derive(Clone, Debug)]
 pub struct QualityRawData {

@@ -824,25 +824,21 @@ BUT not past safety margins (need core_ring_sharpness_ratio>{good_r_cut:.2}, gri
 /// Compute per-detection quality with ROI-aware pooling + native detail + priors + triage.
 /// Now requires both the blur weights `w20` and the fused blur probability map `p20`.
 pub fn detection_quality(
-    q20: &Array2<f32>, // PaQ 20x20 local map (e.g., 0..100)
-    w20: &Array2<f32>, // blur weights 20x20 (1 - ALPHA * P)
-    p20: &Array2<f32>, // fused blur probability 20x20 (0..1)
-    _global_blur_score: f32,
-    _global_paq2piq_score: f32,
+    quality_maps: &crate::quality_types::QualityMaps,
     bbox: BBoxF,                  // in native image pixels
     orig_img: &RgbImage,          // native frame
     triage_params: &TriageParams, // Triage decision parameters
 ) -> DetectionQuality {
-    assert_eq!(q20.shape(), &[20, 20]);
-    assert_eq!(w20.shape(), &[20, 20]);
-    assert_eq!(p20.shape(), &[20, 20]);
+    assert_eq!(quality_maps.q20.shape(), &[20, 20]);
+    assert_eq!(quality_maps.w20.shape(), &[20, 20]);
+    assert_eq!(quality_maps.p20.shape(), &[20, 20]);
 
     let (img_w, img_h) = (orig_img.width(), orig_img.height());
 
     // ROI pooled means from the 20x20 maps
-    let q_roi = roi_align_mean_20(q20, bbox, img_w, img_h);
-    let w_roi = roi_align_mean_20(w20, bbox, img_w, img_h);
-    let p_roi = roi_align_mean_20(p20, bbox, img_w, img_h);
+    let q_roi = roi_align_mean_20(quality_maps.q20, bbox, img_w, img_h);
+    let w_roi = roi_align_mean_20(quality_maps.w20, bbox, img_w, img_h);
+    let p_roi = roi_align_mean_20(quality_maps.p20, bbox, img_w, img_h);
 
     // Native-resolution detail
     let (detail, x0, y0, x1, y1) = native_detail_probability(orig_img, bbox);

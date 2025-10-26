@@ -493,12 +493,14 @@ impl ModelProcessor for DetectionProcessor {
                         .as_ref()
                         .unwrap_or(&default_triage_params);
 
+                    let quality_maps = crate::quality_types::QualityMaps {
+                        q20: &q20,
+                        w20: &w20,
+                        p20: &p20,
+                    };
+
                     let dq = detection_quality(
-                        &q20,
-                        &w20,
-                        &p20,
-                        result.global_blur_score,
-                        result.global_paq2piq_score,
+                        &quality_maps,
                         bbox,     // in native image pixels
                         orig_img, // native frame
                         triage_params,
