@@ -217,8 +217,8 @@ test test_quality_params_default_values ... ok
 ## Execution Summary
 
 **Total Tasks:** 13/13 completed ✅
-**Total Commits:** 21 commits pushed
-**All Tests:** Passing ✅ (211 tests)
+**Total Commits:** 23 commits pushed
+**All Tests:** Passing ✅ (214 tests)
 **CI Status:** Passing ✅
 
 ### Post-Implementation Cleanup
@@ -240,6 +240,13 @@ After completing all 13 tasks, we performed two additional cleanup phases:
 - Added `--overlay` flag to render heatmap overlays on original images
 - Wired up HeatmapStyle, ColorMap, QualityVisualization to actual CLI usage
 - **Result:** No more dead code warnings for visualization types
+
+**Phase 3: Triage Decision Parametrization**
+- Created `TriageParams` struct with 6 tunable thresholds
+- Added CLI flags: `--triage-ratio-bad`, `--triage-cells-bad`, `--triage-delta-bad-ratio`, etc.
+- Refactored `triage_decision()` to use runtime parameters instead of hardcoded constants
+- Added comprehensive tests for triage parameter tuning
+- **Result:** All decision thresholds now GUI-tunable for interactive adjustment
 
 ### Final Verification
 - ✅ All clippy warnings resolved (only justified `#[allow(dead_code)]` remain)
@@ -281,12 +288,21 @@ After completing all 13 tasks, we performed two additional cleanup phases:
 # Basic quality assessment
 beaker quality image.jpg
 
-# With parameter tuning
+# Blur parameter tuning
 beaker quality --alpha 0.8 --beta 1.5 --tau 0.01 image.jpg
+
+# Triage decision threshold tuning
+beaker quality --triage-ratio-bad 1.3 --triage-delta-bad-ratio 0.5 image.jpg
 
 # Save blur probability heatmap
 beaker quality --save-heatmap blur.png --colormap viridis image.jpg
 
 # Save heatmap overlay on original image
 beaker quality --save-heatmap overlay.png --colormap plasma --overlay image.jpg
+
+# Combined: custom parameters + visualization
+beaker quality image.jpg \
+  --alpha 0.8 --beta 1.5 \
+  --triage-ratio-bad 1.3 \
+  --save-heatmap blur.png --colormap inferno --overlay
 ```
