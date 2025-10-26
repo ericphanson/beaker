@@ -188,10 +188,32 @@ Using subagent-driven development to implement the bulk/directory mode feature f
 
 ---
 
+## Task 9: Poll Progress Events in DirectoryView show() Method ✅
+
+**Status:** COMPLETED
+**Commit:** eb240d3a7c87f89a1a038166a40429a276c085f3
+**Pushed:** Pending
+
+### Implementation
+- Modified `beaker-gui/src/views/directory.rs`:
+  - Added `poll_events()` helper method (non-blocking with try_recv)
+  - Modified `show()` to call poll_events() and request repaint while processing
+  - Ensures UI updates as events arrive
+
+### Tests
+- Added `test_show_polls_progress_events` - PASSED
+- All 20 GUI tests passed
+
+### Notes
+- Resolved borrow checker conflict by collecting events into Vec first
+- Standard Rust pattern for handling channel receivers
+- Non-blocking event polling for responsive UI
+
+---
+
 ## Next Tasks
 
-- [ ] Task 9: Poll Progress Events in DirectoryView show() Method
-- [ ] Task 9: Poll Progress Events in DirectoryView show() Method
+- [ ] Task 10: Display Processing Progress UI
 - [ ] Task 10: Display Processing Progress UI
 - [ ] Task 11: Load Detection Data from TOML After Processing
 - [ ] Task 12: Load Detections After ImageSuccess Event
