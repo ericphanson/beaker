@@ -63,5 +63,19 @@ test test_quality_params_default_values ... ok
 ---
 
 ### Task 4: Extract Raw Tenengrad Computation
+**Status:** ✅ Completed
+**Timestamp:** 2025-10-26
+**Commit:** dcbb60f32b57e18da3bb3466e2e5c8e6ff6e041d
+
+**Implementation:**
+- Created `beaker/tests/blur_detection_test.rs` with 2 tests
+- Added RawTenengradData struct and compute_raw_tenengrad() to `beaker/src/blur_detection.rs`
+- All tests passing (2/2 for this task)
+
+**Files Changed:** 2 files, 81 insertions(+)
+
+---
+
+### Task 5: Extract Parameter Application Functions
 **Status:** Starting
 **Timestamp:** 2025-10-26
