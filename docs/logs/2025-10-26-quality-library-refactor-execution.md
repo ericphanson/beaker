@@ -77,5 +77,20 @@ test test_quality_params_default_values ... ok
 ---
 
 ### Task 5: Extract Parameter Application Functions
+**Status:** ✅ Completed
+**Timestamp:** 2025-10-26
+**Commit:** eb4bfc6f08712c1dee45d847a5fe9b7b2d47bbfc
+
+**Implementation:**
+- Added 3 functions to `beaker/src/blur_detection.rs`: apply_tenengrad_params(), fuse_probabilities(), compute_weights()
+- Added 3 tests to `beaker/tests/blur_detection_test.rs`
+- Fixed module import issue by adding quality_types to main.rs
+- All tests passing (3/3 for this task)
+
+**Files Changed:** 3 files, 104 insertions(+), 2 deletions(-)
+
+---
+
+### Task 6: Implement QualityScores::compute() Method
 **Status:** Starting
 **Timestamp:** 2025-10-26
