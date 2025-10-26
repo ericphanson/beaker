@@ -169,7 +169,8 @@ impl BeakerApp {
         }
 
         // Create DirectoryView and start processing
-        let dir_view = crate::views::DirectoryView::new(path.clone(), image_paths);
+        let mut dir_view = crate::views::DirectoryView::new(path.clone(), image_paths);
+        dir_view.start_processing();
         let _ = self.recent_files.add(path, RecentItemType::Folder);
         self.state = AppState::Directory(dir_view);
     }
@@ -331,5 +332,32 @@ mod tests {
 
         // Should transition to Directory state
         assert!(matches!(app.state, AppState::Directory(_)));
+    }
+
+    #[test]
+    fn test_open_folder_starts_processing() {
+        use std::fs::File;
+        use std::thread;
+        use std::time::Duration;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let img1 = temp_dir.path().join("img1.jpg");
+        File::create(&img1).unwrap();
+
+        let mut app = BeakerApp::new(false, None);
+        app.open_folder(temp_dir.path().to_path_buf());
+
+        // Give processing thread time to start
+        thread::sleep(Duration::from_millis(100));
+
+        // Should transition to Directory state with processing started
+        match &app.state {
+            AppState::Directory(view) => {
+                // At least one image should be in Waiting or Processing state
+                assert!(!view.images.is_empty());
+            }
+            _ => panic!("Expected Directory state"),
+        }
     }
 }
