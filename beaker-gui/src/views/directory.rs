@@ -336,57 +336,90 @@ impl DirectoryView {
     }
 
     fn show_processing_ui(&self, ui: &mut egui::Ui) {
-        ui.vertical_centered(|ui| {
-            ui.add_space(20.0);
+        // Define color palette
+        let color_success = egui::Color32::from_rgb(76, 175, 80); // Green
+        let color_warning = egui::Color32::from_rgb(255, 152, 0); // Orange
+        let color_error = egui::Color32::from_rgb(244, 67, 54); // Red
+        let color_processing = egui::Color32::from_rgb(33, 150, 243); // Blue
+        let color_waiting = egui::Color32::from_rgb(158, 158, 158); // Gray
 
-            // Title
-            ui.heading(format!("Processing: {}", self.directory_path.display()));
-            ui.add_space(20.0);
+        ui.vertical_centered(|ui| {
+            ui.add_space(30.0);
+
+            // Title with better styling
+            ui.heading(
+                egui::RichText::new(format!("Processing: {}", self.directory_path.display()))
+                    .size(24.0)
+                    .strong(),
+            );
+            ui.add_space(25.0);
 
             // Progress stats
             let (completed, total, processing_idx) = self.calculate_progress_stats();
             let progress = completed as f32 / total as f32;
 
-            // Progress bar
+            // Styled progress bar with color
             ui.add(
                 egui::ProgressBar::new(progress)
                     .text(format!(
-                        "{}/{} ({:.0}%)",
+                        "{}/{} images ({:.0}%)",
                         completed,
                         total,
                         progress * 100.0
                     ))
-                    .desired_width(600.0),
+                    .desired_width(700.0)
+                    .desired_height(30.0)
+                    .fill(color_processing),
             );
 
-            ui.add_space(10.0);
+            ui.add_space(15.0);
 
-            // Currently processing
+            // Currently processing with emphasis
             if let Some(idx) = processing_idx {
                 let filename = self.images[idx]
                     .path
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("unknown");
-                ui.label(format!("Currently processing: {}", filename));
+                ui.label(
+                    egui::RichText::new(format!("⏳ Currently processing: {}", filename))
+                        .size(16.0)
+                        .color(color_processing),
+                );
             }
 
-            ui.add_space(20.0);
+            ui.add_space(25.0);
 
-            // Cancel button
-            if ui.button("Cancel").clicked() {
+            // Styled cancel button
+            if ui
+                .add_sized(
+                    [150.0, 35.0],
+                    egui::Button::new(
+                        egui::RichText::new("Cancel Processing")
+                            .size(15.0)
+                            .color(egui::Color32::WHITE),
+                    )
+                    .fill(color_error),
+                )
+                .clicked()
+            {
                 use std::sync::atomic::Ordering;
                 self.cancel_flag.store(true, Ordering::Relaxed);
             }
 
-            ui.add_space(30.0);
+            ui.add_space(35.0);
 
-            // Image list with status
-            ui.label(egui::RichText::new("Images:").size(16.0));
-            ui.add_space(10.0);
+            // Image list header with better styling
+            ui.heading(
+                egui::RichText::new(format!("Images ({})", self.images.len()))
+                    .size(18.0)
+                    .strong(),
+            );
+            ui.add_space(15.0);
 
+            // Styled scroll area
             egui::ScrollArea::vertical()
-                .max_height(400.0)
+                .max_height(450.0)
                 .show(ui, |ui| {
                     for img in &self.images {
                         let filename = img
@@ -395,48 +428,39 @@ impl DirectoryView {
                             .and_then(|n| n.to_str())
                             .unwrap_or("unknown");
 
-                        ui.horizontal(|ui| match &img.status {
+                        let (icon, text, color) = match &img.status {
                             ProcessingStatus::Waiting => {
-                                ui.label(
-                                    egui::RichText::new("⏸")
-                                        .color(egui::Color32::GRAY)
-                                        .size(16.0),
-                                );
-                                ui.label(format!("{}: Waiting...", filename));
+                                ("⏸", format!("{}: Waiting...", filename), color_waiting)
                             }
-                            ProcessingStatus::Processing => {
-                                ui.label(
-                                    egui::RichText::new("⏳")
-                                        .color(egui::Color32::BLUE)
-                                        .size(16.0),
-                                );
-                                ui.label(format!("{}: Processing...", filename));
-                            }
+                            ProcessingStatus::Processing => (
+                                "⏳",
+                                format!("{}: Processing...", filename),
+                                color_processing,
+                            ),
                             ProcessingStatus::Success {
                                 detections_count,
                                 good_count,
                                 unknown_count,
                                 ..
-                            } => {
-                                ui.label(
-                                    egui::RichText::new("✓")
-                                        .color(egui::Color32::GREEN)
-                                        .size(16.0),
-                                );
-                                ui.label(format!(
+                            } => (
+                                "✓",
+                                format!(
                                     "{}: {} detections ({} good, {} unknown)",
                                     filename, detections_count, good_count, unknown_count
-                                ));
-                            }
+                                ),
+                                color_success,
+                            ),
                             ProcessingStatus::Error { message } => {
-                                ui.label(
-                                    egui::RichText::new("⚠")
-                                        .color(egui::Color32::RED)
-                                        .size(16.0),
-                                );
-                                ui.label(format!("{}: {}", filename, message));
+                                ("⚠", format!("{}: {}", filename, message), color_error)
                             }
+                        };
+
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(icon).color(color).size(18.0));
+                            ui.label(egui::RichText::new(text).size(14.0));
                         });
+
+                        ui.add_space(8.0);
                     }
                 });
         });
@@ -462,19 +486,29 @@ impl DirectoryView {
             }
         });
 
-        // Header
-        ui.horizontal(|ui| {
-            ui.heading(format!("Gallery: {}", self.directory_path.display()));
-            ui.label(format!(
-                "({} images, {} detections)",
-                self.images.len(),
-                self.all_detections.len()
-            ));
+        // Header with better layout and styling
+        ui.vertical(|ui| {
+            ui.add_space(15.0);
+            ui.heading(
+                egui::RichText::new(format!("Gallery: {}", self.directory_path.display()))
+                    .size(24.0)
+                    .strong(),
+            );
+            ui.add_space(5.0);
+            ui.label(
+                egui::RichText::new(format!(
+                    "{} images • {} detections",
+                    self.images.len(),
+                    self.all_detections.len()
+                ))
+                .size(14.0)
+                .color(egui::Color32::from_rgb(120, 120, 120)),
+            );
+            ui.add_space(15.0);
         });
 
-        ui.add_space(10.0);
         ui.separator();
-        ui.add_space(10.0);
+        ui.add_space(15.0);
 
         // Three-panel layout: Thumbnails + Current Image + Aggregate Detections
         ui.horizontal(|ui| {
@@ -504,31 +538,59 @@ impl DirectoryView {
     }
 
     fn show_aggregate_detection_list(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.heading(format!("All Detections ({})", self.all_detections.len()));
-        });
+        ui.heading(
+            egui::RichText::new(format!("All Detections ({})", self.all_detections.len()))
+                .size(16.0)
+                .strong(),
+        );
 
-        // Navigation controls for detections
+        ui.add_space(12.0);
+
+        // Navigation controls for detections with better styling
         if !self.all_detections.is_empty() {
             ui.horizontal(|ui| {
-                if ui.button("← Prev Detection").clicked() {
+                if ui
+                    .add_sized(
+                        [100.0, 28.0],
+                        egui::Button::new(egui::RichText::new("← Prev").size(13.0)),
+                    )
+                    .clicked()
+                {
                     self.navigate_previous_detection();
                 }
 
+                ui.add_space(8.0);
+
                 if let Some(idx) = self.selected_detection_idx {
-                    ui.label(format!("{} / {}", idx + 1, self.all_detections.len()));
+                    ui.label(
+                        egui::RichText::new(format!("{} / {}", idx + 1, self.all_detections.len()))
+                            .size(14.0)
+                            .strong(),
+                    );
                 }
 
-                if ui.button("Next Detection →").clicked() {
+                ui.add_space(8.0);
+
+                if ui
+                    .add_sized(
+                        [100.0, 28.0],
+                        egui::Button::new(egui::RichText::new("Next →").size(13.0)),
+                    )
+                    .clicked()
+                {
                     self.navigate_next_detection();
                 }
             });
+
+            ui.add_space(15.0);
         }
 
-        ui.add_space(10.0);
-
         if self.all_detections.is_empty() {
-            ui.label("No detections");
+            ui.label(
+                egui::RichText::new("No detections found")
+                    .size(14.0)
+                    .color(egui::Color32::from_rgb(150, 150, 150)),
+            );
             return;
         }
 
@@ -544,32 +606,58 @@ impl DirectoryView {
 
             let is_selected = Some(flat_idx) == self.selected_detection_idx;
 
-            let label_text = format!(
-                "{} - {} #{}: {:.2}",
-                filename,
-                detection.class_name,
-                det_ref.detection_idx + 1,
-                detection.confidence
-            );
+            // Main detection label
+            ui.horizontal(|ui| {
+                let label_text = format!(
+                    "{} - {} #{}",
+                    filename,
+                    detection.class_name,
+                    det_ref.detection_idx + 1
+                );
 
-            let response = ui.selectable_label(is_selected, label_text);
+                let response =
+                    ui.selectable_label(is_selected, egui::RichText::new(label_text).size(13.0));
 
-            if response.clicked() {
-                // Jump to this image and select detection
-                self.current_image_idx = det_ref.image_idx;
-                self.selected_detection_idx = Some(flat_idx);
-            }
+                if response.clicked() {
+                    // Jump to this image and select detection
+                    self.current_image_idx = det_ref.image_idx;
+                    self.selected_detection_idx = Some(flat_idx);
+                }
+            });
 
-            // Show quality info if available
-            if let Some(blur) = detection.blur_score {
-                ui.label(format!("  blur: {:.2}", blur));
-            }
+            // Show metadata on second line
+            ui.horizontal(|ui| {
+                ui.add_space(12.0);
+                ui.label(
+                    egui::RichText::new(format!("{:.1}%", detection.confidence * 100.0))
+                        .size(12.0)
+                        .color(egui::Color32::from_rgb(33, 150, 243)),
+                );
+                if let Some(blur) = detection.blur_score {
+                    ui.label(
+                        egui::RichText::new(format!("• blur: {:.2}", blur))
+                            .size(11.0)
+                            .color(egui::Color32::from_rgb(120, 120, 120)),
+                    );
+                }
+            });
+
+            ui.add_space(8.0);
         }
     }
 
     fn show_thumbnail_grid(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Images");
-        ui.add_space(10.0);
+        // Color palette
+        let color_success = egui::Color32::from_rgb(76, 175, 80);
+        let color_warning = egui::Color32::from_rgb(255, 152, 0);
+        let color_error = egui::Color32::from_rgb(244, 67, 54);
+
+        ui.heading(
+            egui::RichText::new(format!("Images ({})", self.images.len()))
+                .size(16.0)
+                .strong(),
+        );
+        ui.add_space(12.0);
 
         for (idx, image_state) in self.images.iter().enumerate() {
             let filename = image_state
@@ -580,41 +668,68 @@ impl DirectoryView {
 
             let is_selected = idx == self.current_image_idx;
 
-            // Thumbnail button (placeholder for now)
+            // Thumbnail button with icon
             let button_text = if is_selected {
                 format!("▶ {}", filename)
             } else {
-                format!("  {}", filename)
+                format!("   {}", filename)
             };
 
-            let response = ui.selectable_label(is_selected, button_text);
+            let response =
+                ui.selectable_label(is_selected, egui::RichText::new(button_text).size(13.0));
 
             if response.clicked() {
                 self.current_image_idx = idx;
             }
 
-            // Show detection count badge
-            let det_count = image_state.detections.len();
-            if det_count > 0 {
-                ui.label(format!("  {} detections", det_count));
-            }
+            // Show status badges with better styling
+            ui.horizontal(|ui| {
+                ui.add_space(8.0);
 
-            // Show status icon
-            let status_icon = match &image_state.status {
-                ProcessingStatus::Success {
-                    good_count,
-                    unknown_count,
-                    bad_count,
-                    ..
-                } => {
-                    format!("  ✓{} ?{} ✗{}", good_count, unknown_count, bad_count)
+                match &image_state.status {
+                    ProcessingStatus::Success {
+                        detections_count,
+                        good_count,
+                        unknown_count,
+                        bad_count,
+                        ..
+                    } => {
+                        if *detections_count > 0 {
+                            ui.label(
+                                egui::RichText::new(format!("✓ {}", good_count))
+                                    .size(11.0)
+                                    .color(color_success),
+                            );
+                            if *unknown_count > 0 {
+                                ui.label(
+                                    egui::RichText::new(format!("? {}", unknown_count))
+                                        .size(11.0)
+                                        .color(color_warning),
+                                );
+                            }
+                            if *bad_count > 0 {
+                                ui.label(
+                                    egui::RichText::new(format!("✗ {}", bad_count))
+                                        .size(11.0)
+                                        .color(color_error),
+                                );
+                            }
+                        } else {
+                            ui.label(
+                                egui::RichText::new("No detections")
+                                    .size(11.0)
+                                    .color(egui::Color32::from_rgb(150, 150, 150)),
+                            );
+                        }
+                    }
+                    ProcessingStatus::Error { .. } => {
+                        ui.label(egui::RichText::new("⚠ Error").size(11.0).color(color_error));
+                    }
+                    _ => {}
                 }
-                ProcessingStatus::Error { .. } => "  ⚠ Error".to_string(),
-                _ => "  ...".to_string(),
-            };
-            ui.label(egui::RichText::new(status_icon).size(12.0));
+            });
 
-            ui.add_space(5.0);
+            ui.add_space(10.0);
         }
     }
 
@@ -624,24 +739,44 @@ impl DirectoryView {
             return;
         }
 
-        // Navigation controls
+        // Navigation controls with better styling
         ui.horizontal(|ui| {
-            if ui.button("← Previous").clicked() {
+            if ui
+                .add_sized(
+                    [100.0, 30.0],
+                    egui::Button::new(egui::RichText::new("← Previous").size(14.0)),
+                )
+                .clicked()
+            {
                 self.navigate_previous_image();
             }
 
-            ui.label(format!(
-                "{} / {}",
-                self.current_image_idx + 1,
-                self.images.len()
-            ));
+            ui.add_space(10.0);
 
-            if ui.button("Next →").clicked() {
+            ui.label(
+                egui::RichText::new(format!(
+                    "{} / {}",
+                    self.current_image_idx + 1,
+                    self.images.len()
+                ))
+                .size(16.0)
+                .strong(),
+            );
+
+            ui.add_space(10.0);
+
+            if ui
+                .add_sized(
+                    [100.0, 30.0],
+                    egui::Button::new(egui::RichText::new("Next →").size(14.0)),
+                )
+                .clicked()
+            {
                 self.navigate_next_image();
             }
         });
 
-        ui.add_space(10.0);
+        ui.add_space(15.0);
 
         // Get current image data (after navigation buttons which may have changed index)
         let current_image = &self.images[self.current_image_idx];
@@ -651,28 +786,55 @@ impl DirectoryView {
             .and_then(|n| n.to_str())
             .unwrap_or("unknown");
 
-        ui.heading(filename);
-        ui.add_space(10.0);
+        ui.heading(egui::RichText::new(filename).size(18.0).strong());
+        ui.add_space(15.0);
 
-        // Placeholder for image display
-        ui.label("[Image will be displayed here]");
-        ui.add_space(20.0);
+        // Placeholder for image display with better styling
+        ui.label(
+            egui::RichText::new("[Image will be displayed here]")
+                .size(14.0)
+                .color(egui::Color32::from_rgb(120, 120, 120))
+                .italics(),
+        );
+        ui.add_space(25.0);
 
-        // Show detections list
-        ui.heading("Detections");
-        ui.add_space(10.0);
+        // Show detections list with better formatting
+        ui.heading(
+            egui::RichText::new(format!("Detections ({})", current_image.detections.len()))
+                .size(16.0)
+                .strong(),
+        );
+        ui.add_space(12.0);
 
         if current_image.detections.is_empty() {
-            ui.label("No detections");
+            ui.label(
+                egui::RichText::new("No detections found")
+                    .size(14.0)
+                    .color(egui::Color32::from_rgb(150, 150, 150)),
+            );
         } else {
             for (idx, det) in current_image.detections.iter().enumerate() {
                 ui.horizontal(|ui| {
-                    ui.label(format!("{}.", idx + 1));
-                    ui.label(format!("{}: {:.2}", det.class_name, det.confidence));
+                    ui.label(
+                        egui::RichText::new(format!("{}.", idx + 1))
+                            .size(13.0)
+                            .color(egui::Color32::from_rgb(100, 100, 100)),
+                    );
+                    ui.label(egui::RichText::new(&det.class_name).size(14.0).strong());
+                    ui.label(
+                        egui::RichText::new(format!("{:.1}%", det.confidence * 100.0))
+                            .size(13.0)
+                            .color(egui::Color32::from_rgb(33, 150, 243)),
+                    );
                     if let Some(blur) = det.blur_score {
-                        ui.label(format!("blur: {:.2}", blur));
+                        ui.label(
+                            egui::RichText::new(format!("blur: {:.2}", blur))
+                                .size(12.0)
+                                .color(egui::Color32::from_rgb(120, 120, 120)),
+                        );
                     }
                 });
+                ui.add_space(6.0);
             }
         }
     }
