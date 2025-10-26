@@ -216,3 +216,19 @@ ci-lint target="":
     @echo "Running lint checks..."
     @just lint "{{target}}"
     @echo "Lint checks complete!"
+
+# Fast CI for incremental development (REQUIRED before pushing)
+# Runs clippy + lib/bin tests, skips slow integration tests
+# Timing: ~80s with code changes, ~3s without changes (vs 213s for full incremental ci)
+# NOTE: Full 'just ci' is still required before creating PR
+ci-dev target="":
+    #!/usr/bin/env bash
+    echo "Running developer CI (incremental, skips integration tests)..."
+    if [ -n "{{target}}" ]; then
+        cargo clippy --all-targets --target {{target}} -- -D warnings
+        cargo nextest run --release --lib --bins --target {{target}} --failure-output=immediate-final
+    else
+        cargo clippy --all-targets -- -D warnings
+        cargo nextest run --release --lib --bins --failure-output=immediate-final
+    fi
+    echo "✓ Dev CI passed! Run 'just ci' before finalizing PR."
