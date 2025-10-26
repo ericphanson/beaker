@@ -22,3 +22,6 @@ pub mod progress;
 pub mod quality_processing;
 pub mod rfdetr;
 pub mod shared_metadata;
+
+// Re-export common types for convenience
+pub use model_processing::{ProcessingEvent, ProcessingStage};
