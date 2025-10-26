@@ -84,3 +84,58 @@ pub struct QualityScores {
     /// Parameters used to compute these scores
     pub params: QualityParams,
 }
+
+use crate::blur_detection::{apply_tenengrad_params, fuse_probabilities, compute_weights};
+
+impl QualityScores {
+    /// Compute scores from raw data and parameters (cheap: <0.1ms)
+    pub fn compute(raw: &QualityRawData, params: &QualityParams) -> Self {
+        // Convert arrays to ndarray for computation
+        use ndarray::Array2;
+        let t224 = Array2::from_shape_vec((20, 20), raw.tenengrad_224.iter().flatten().copied().collect()).unwrap();
+        let t112 = Array2::from_shape_vec((20, 20), raw.tenengrad_112.iter().flatten().copied().collect()).unwrap();
+
+        // Apply parameters to raw Tenengrad to get probabilities
+        let (p224, p112) = apply_tenengrad_params(
+            &t224,
+            &t112,
+            raw.median_tenengrad_224,
+            raw.scale_ratio,
+            params,
+        );
+
+        // Fuse probabilities
+        let blur_probability_array = fuse_probabilities(&p224, &p112);
+
+        // Compute weights
+        let blur_weights_array = compute_weights(&blur_probability_array, params);
+
+        // Convert back to fixed arrays
+        let mut blur_probability = [[0.0f32; 20]; 20];
+        let mut blur_weights = [[0.0f32; 20]; 20];
+        for i in 0..20 {
+            for j in 0..20 {
+                blur_probability[i][j] = blur_probability_array[[i, j]];
+                blur_weights[i][j] = blur_weights_array[[i, j]];
+            }
+        }
+
+        // Global blur score (mean probability)
+        let blur_score: f32 = blur_probability.iter()
+            .flat_map(|row| row.iter())
+            .sum::<f32>() / 400.0;
+
+        // Final combined score
+        let w_mean = (1.0 - params.alpha * blur_score).clamp(params.min_weight, 1.0);
+        let final_score = raw.paq2piq_global * w_mean;
+
+        Self {
+            final_score,
+            paq2piq_score: raw.paq2piq_global,
+            blur_score,
+            blur_probability,
+            blur_weights,
+            params: params.clone(),
+        }
+    }
+}

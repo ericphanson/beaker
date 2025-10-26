@@ -66,3 +66,63 @@ fn test_quality_scores_creation() {
     assert_eq!(scores.blur_score, 0.3);
     assert_eq!(scores.params.alpha, 0.7);
 }
+
+#[test]
+fn test_quality_scores_compute_from_raw() {
+    let raw = QualityRawData {
+        input_width: 640,
+        input_height: 480,
+        paq2piq_global: 80.0,
+        paq2piq_local: [[60u8; 20]; 20],
+        tenengrad_224: [[0.05f32; 20]; 20],
+        tenengrad_112: [[0.025f32; 20]; 20],
+        median_tenengrad_224: 0.04,
+        scale_ratio: 0.5,
+        model_version: "quality-model-v1".to_string(),
+        computed_at: SystemTime::now(),
+    };
+
+    let params = QualityParams::default();
+    let scores = QualityScores::compute(&raw, &params);
+
+    // Verify final score is computed
+    assert!(scores.final_score > 0.0);
+    assert!(scores.final_score <= 100.0);
+
+    // Verify component scores
+    assert_eq!(scores.paq2piq_score, 80.0);
+    assert!(scores.blur_score >= 0.0 && scores.blur_score <= 1.0);
+
+    // Verify grids have correct shape
+    assert_eq!(scores.blur_probability.len(), 20);
+    assert_eq!(scores.blur_weights.len(), 20);
+
+    // Verify params are stored
+    assert_eq!(scores.params.alpha, 0.7);
+}
+
+#[test]
+fn test_quality_scores_compute_no_blur() {
+    // High Tenengrad = sharp = low blur probability
+    let raw = QualityRawData {
+        input_width: 640,
+        input_height: 480,
+        paq2piq_global: 90.0,
+        paq2piq_local: [[80u8; 20]; 20],
+        tenengrad_224: [[1.0f32; 20]; 20],  // Very high gradient
+        tenengrad_112: [[0.5f32; 20]; 20],
+        median_tenengrad_224: 0.8,
+        scale_ratio: 0.5,
+        model_version: "quality-model-v1".to_string(),
+        computed_at: SystemTime::now(),
+    };
+
+    let params = QualityParams::default();
+    let scores = QualityScores::compute(&raw, &params);
+
+    // Low blur probability should mean blur_score is low
+    assert!(scores.blur_score < 0.5, "Sharp image should have low blur score");
+
+    // Low blur means high weight, so final_score should be close to paq2piq
+    assert!(scores.final_score > 85.0, "Sharp image should preserve quality score");
+}
