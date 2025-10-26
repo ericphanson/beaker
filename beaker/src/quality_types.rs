@@ -1,9 +1,10 @@
 //! Data structures for quality assessment
 
 use std::time::SystemTime;
+use serde::Serialize;
 
 /// Tunable parameters for quality heuristics
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct QualityParams {
     /// Blur probability mapping exponent (default: 1.2, range: [0.5, 2.0])
     pub beta: f32,

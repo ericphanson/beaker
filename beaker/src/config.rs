@@ -286,6 +286,18 @@ pub struct QualityCommand {
     /// Dump debug heatmap and overlay images for blur analysis
     #[arg(long)]
     pub debug_dump_images: bool,
+
+    /// Override alpha parameter (weight coefficient)
+    #[arg(long)]
+    pub alpha: Option<f32>,
+
+    /// Override beta parameter (blur probability exponent)
+    #[arg(long)]
+    pub beta: Option<f32>,
+
+    /// Override tau parameter (Tenengrad threshold)
+    #[arg(long)]
+    pub tau: Option<f32>,
 }
 
 /// Internal configuration for cutout processing
@@ -328,6 +340,9 @@ pub struct QualityConfig {
     pub model_checksum: Option<String>,
     /// Whether to dump debug heatmap and overlay images
     pub debug_dump_images: bool,
+    /// Tunable quality parameters (alpha, beta, tau, etc.)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub params: Option<crate::quality_types::QualityParams>,
 }
 
 impl QualityConfig {
@@ -339,6 +354,7 @@ impl QualityConfig {
             model_url: None,
             model_path: None,
             debug_dump_images: false,
+            params: None,
         }
     }
 }
@@ -417,12 +433,30 @@ impl QualityConfig {
         let mut base: BaseModelConfig = global.into();
         base.sources = cmd.sources; // Add sources from command
 
+        // Build params from CLI overrides if any are provided
+        let params = if cmd.alpha.is_some() || cmd.beta.is_some() || cmd.tau.is_some() {
+            let mut p = crate::quality_types::QualityParams::default();
+            if let Some(alpha) = cmd.alpha {
+                p.alpha = alpha;
+            }
+            if let Some(beta) = cmd.beta {
+                p.beta = beta;
+            }
+            if let Some(tau) = cmd.tau {
+                p.tau_ten_224 = tau;
+            }
+            Some(p)
+        } else {
+            None
+        };
+
         Ok(Self {
             base,
             model_path: cmd.model_path,
             model_url: cmd.model_url,
             model_checksum: cmd.model_checksum,
             debug_dump_images: cmd.debug_dump_images,
+            params,
         })
     }
 }
@@ -612,6 +646,9 @@ mod tests {
             model_url: None,
             model_checksum: None,
             debug_dump_images: true,
+            alpha: None,
+            beta: None,
+            tau: None,
         };
 
         let config = QualityConfig::from_args(global_args, quality_cmd).unwrap();
@@ -626,6 +663,7 @@ mod tests {
         assert_eq!(config.model_url, None);
         assert_eq!(config.model_checksum, None);
         assert!(config.debug_dump_images);
+        assert!(config.params.is_none()); // No params specified
     }
 
     #[test]
