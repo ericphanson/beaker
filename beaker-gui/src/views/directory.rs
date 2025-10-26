@@ -344,6 +344,100 @@ impl DirectoryView {
     fn show_gallery_ui(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui) {
         ui.label("Gallery view - coming soon");
     }
+
+    /// Load detection data from TOML file
+    fn load_detections_from_toml(toml_path: &PathBuf) -> anyhow::Result<Vec<crate::views::detection::Detection>> {
+        let toml_data = std::fs::read_to_string(toml_path)?;
+        let toml_value: toml::Value = toml::from_str(&toml_data)?;
+
+        let mut detections = Vec::new();
+
+        if let Some(dets) = toml_value
+            .get("detect")
+            .and_then(|v| v.get("detections"))
+            .and_then(|v| v.as_array())
+        {
+            for det_toml in dets {
+                if let Some(det_table) = det_toml.as_table() {
+                    let class_name = det_table
+                        .get("class_name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown")
+                        .to_string();
+
+                    let confidence = det_table
+                        .get("confidence")
+                        .and_then(|v| v.as_float())
+                        .unwrap_or(0.0) as f32;
+
+                    let blur_score = det_table
+                        .get("quality")
+                        .and_then(|q| q.as_table())
+                        .and_then(|q| q.get("roi_blur_probability_mean"))
+                        .and_then(|v| v.as_float())
+                        .map(|v| v as f32);
+
+                    let x1 = det_table.get("x1").and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
+                    let y1 = det_table.get("y1").and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
+                    let x2 = det_table.get("x2").and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
+                    let y2 = det_table.get("y2").and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
+
+                    detections.push(crate::views::detection::Detection {
+                        class_name,
+                        confidence,
+                        blur_score,
+                        x1,
+                        y1,
+                        x2,
+                        y2,
+                    });
+                }
+            }
+        }
+
+        Ok(detections)
+    }
+
+    /// Count quality triage results from detections
+    fn count_triage_results(toml_path: &PathBuf) -> (usize, usize, usize) {
+        let toml_data = match std::fs::read_to_string(toml_path) {
+            Ok(data) => data,
+            Err(_) => return (0, 0, 0),
+        };
+
+        let toml_value: toml::Value = match toml::from_str(&toml_data) {
+            Ok(val) => val,
+            Err(_) => return (0, 0, 0),
+        };
+
+        let mut good = 0;
+        let mut unknown = 0;
+        let mut bad = 0;
+
+        if let Some(dets) = toml_value
+            .get("detect")
+            .and_then(|v| v.get("detections"))
+            .and_then(|v| v.as_array())
+        {
+            for det_toml in dets {
+                if let Some(triage) = det_toml
+                    .get("quality")
+                    .and_then(|q| q.as_table())
+                    .and_then(|q| q.get("triage_decision"))
+                    .and_then(|v| v.as_str())
+                {
+                    match triage {
+                        "good" => good += 1,
+                        "unknown" => unknown += 1,
+                        "bad" => bad += 1,
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        (good, unknown, bad)
+    }
 }
 
 #[cfg(test)]
@@ -496,5 +590,30 @@ mod tests {
         assert_eq!(completed, 1);
         assert_eq!(total, 3);
         assert_eq!(processing_idx, Some(1));
+    }
+
+    #[test]
+    fn test_load_detection_data_from_toml() {
+        use tempfile::TempDir;
+        use std::fs;
+
+        let temp_dir = TempDir::new().unwrap();
+        let _img_path = temp_dir.path().join("test.jpg");
+        let toml_path = temp_dir.path().join("test.beaker.toml");
+
+        // Create test TOML file with detection data
+        let toml_content = r#"
+[detect]
+detections = [
+    { class_name = "head", confidence = 0.95, x1 = 10.0, y1 = 20.0, x2 = 100.0, y2 = 120.0, quality = { triage_decision = "good" } }
+]
+"#;
+        fs::write(&toml_path, toml_content).unwrap();
+
+        let detections = DirectoryView::load_detections_from_toml(&toml_path).unwrap();
+
+        assert_eq!(detections.len(), 1);
+        assert_eq!(detections[0].class_name, "head");
+        assert_eq!(detections[0].confidence, 0.95);
     }
 }
