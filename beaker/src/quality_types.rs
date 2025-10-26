@@ -2,6 +2,7 @@
 
 use std::time::SystemTime;
 use serde::Serialize;
+use image::RgbaImage;
 
 /// Tunable parameters for quality heuristics
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -172,4 +173,16 @@ pub enum ColorMap {
     Inferno,
     Turbo,
     Grayscale,
+}
+
+/// Visualization layer (parameter-dependent, rendered on-demand)
+#[derive(Clone)]
+pub struct QualityVisualization {
+    /// Rendered heatmap images (in-memory buffers)
+    pub blur_probability_heatmap: Option<RgbaImage>,
+    pub blur_weights_heatmap: Option<RgbaImage>,
+    pub tenengrad_heatmap: Option<RgbaImage>,
+
+    /// Overlay on original image
+    pub blur_overlay: Option<RgbaImage>,
 }
