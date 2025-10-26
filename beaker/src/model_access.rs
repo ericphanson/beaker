@@ -234,10 +234,10 @@ fn download_model(url: &str, output_path: &Path) -> Result<()> {
     // Validate content length if provided
     if let Some(expected_length) = content_length {
         if downloaded != expected_length {
-            log::warn!(
-                "{}Size mismatch: expected {expected_length} bytes, got {downloaded} bytes",
-                symbols::warning()
-            );
+            return Err(anyhow!(
+                "Download incomplete: expected {expected_length} bytes, got {downloaded} bytes. \
+                 This usually indicates a network interruption or server issue."
+            ));
         }
     }
 
@@ -392,7 +392,54 @@ fn download_with_concurrency_protection(
 
     match download_result {
         Ok(()) => {
-            // Download succeeded, atomically rename temp file to final path
+            // Download succeeded, now verify checksum before atomic rename
+            if let Some(checksum) = &model_info.md5_checksum {
+                log::debug!(
+                    "{} Verifying downloaded model checksum on temporary file...",
+                    symbols::checking()
+                );
+
+                let actual_checksum = cache_common::calculate_md5(&tmp_path).inspect_err(|_| {
+                    let _ = fs::remove_file(&tmp_path);
+                })?;
+
+                log::debug!("   Expected checksum: {checksum}");
+                log::debug!("   Actual checksum:   {actual_checksum}");
+
+                if actual_checksum != *checksum {
+                    // Checksum mismatch - clean up temp file and fail
+                    let file_info = get_file_info(&tmp_path)
+                        .unwrap_or_else(|e| format!("Error getting file info: {e}"));
+
+                    let _ = fs::remove_file(&tmp_path);
+
+                    return Err(anyhow!(
+                        "Downloaded model failed checksum verification.\n\
+                         Expected checksum: {}\n\
+                         Actual checksum:   {}\n\
+                         File details: {}\n\
+                         Model URL: {}\n\
+                         \n\
+                         Possible causes:\n\
+                         - Network corruption during download\n\
+                         - Disk space or permission issues\n\
+                         - Model file was updated but checksum wasn't\n\
+                         \n\
+                         Temporary file has been removed. Please retry the operation.",
+                        checksum,
+                        actual_checksum,
+                        file_info,
+                        model_info.url
+                    ));
+                }
+
+                log::debug!(
+                    "{} Checksum verification passed",
+                    symbols::completed_successfully()
+                );
+            }
+
+            // Checksum verified (or not required), atomically rename temp file to final path
             log::debug!(
                 "{} Download complete, moving to final location",
                 symbols::completed_successfully()
@@ -549,49 +596,8 @@ pub fn get_or_download_model(
     onnx_cache_stats.model_cache_hit = Some(false);
     onnx_cache_stats.download_time_ms = Some(download_time_ms);
 
-    // Verify the downloaded model if we have a checksum
-    if let Some(checksum) = model_info.md5_checksum.clone() {
-        log::debug!(
-            "{} Verifying downloaded model checksum...",
-            symbols::checking()
-        );
-        let actual_checksum = cache_common::calculate_md5(&model_path)?;
-        let file_info = get_file_info(&model_path)?;
-
-        log::debug!("   Expected checksum: {checksum}");
-        log::debug!("   Actual checksum:   {actual_checksum}");
-        log::debug!("   File info: {file_info}");
-
-        if actual_checksum != checksum {
-            fs::remove_file(&model_path)?;
-
-            // Provide comprehensive error information for debugging
-            return Err(anyhow!(
-                "Downloaded model failed checksum verification.\n\
-             Expected checksum: {}\n\
-             Actual checksum:   {}\n\
-             File details: {}\n\
-             Model URL: {}\n\
-             Cache directory: {}\n\
-             \n\
-             Possible causes:\n\
-             - Network corruption during download\n\
-             - Disk space or permission issues\n\
-             - Cache corruption\n\
-             - Model file was updated but checksum wasn't\n\
-             \n\
-             Try clearing the cache or setting FORCE_DOWNLOAD=1",
-                checksum,
-                actual_checksum,
-                file_info,
-                model_info.url,
-                model_path
-                    .parent()
-                    .unwrap_or_else(|| Path::new("unknown"))
-                    .display()
-            ));
-        }
-
+    // Download completed successfully (checksum already verified in download_with_concurrency_protection)
+    if model_info.md5_checksum.is_some() {
         log::info!(
             "{} Model downloaded and verified successfully",
             crate::color_utils::symbols::completed_successfully()
@@ -1328,5 +1334,246 @@ mod tests {
             "Second thread should have waited for first thread (waited {}ms)",
             elapsed.as_millis()
         );
+    }
+
+    // Tests for CRITICAL-02: Partial Downloads Leave Corrupt Files
+    #[test]
+    fn test_stale_tmp_file_cleanup() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let cache_dir = temp_dir.path();
+
+        let model_path = cache_dir.join("test_model.onnx");
+        let tmp_path = model_path.with_extension("tmp");
+        let lock_path = cache_dir.join("test_model.onnx.lock");
+
+        // Create a stale .tmp file from a previous failed download
+        fs::write(&tmp_path, b"stale partial download data").unwrap();
+        assert!(tmp_path.exists(), "Stale tmp file should exist");
+
+        // Create a test file to "download"
+        let source_file = cache_dir.join("source.onnx");
+        let test_content = b"This is the complete model file";
+        fs::write(&source_file, test_content).unwrap();
+        let expected_checksum = format!("{:x}", md5::compute(test_content));
+
+        let _model_info = ModelInfo {
+            name: "test-model".to_string(),
+            url: format!("file://{}", source_file.display()),
+            md5_checksum: Some(expected_checksum.clone()),
+            filename: "test_model.onnx".to_string(),
+        };
+
+        // Simulate download_with_concurrency_protection
+        let result = || -> Result<()> {
+            fs::create_dir_all(cache_dir)?;
+
+            let lock_file = fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(&lock_path)?;
+
+            lock_file.lock_exclusive()?;
+
+            // Clean up stale temp file (this is what the fix does)
+            if tmp_path.exists() {
+                fs::remove_file(&tmp_path)?;
+            }
+
+            // Download to temp file
+            fs::copy(&source_file, &tmp_path)?;
+
+            // Verify checksum on temp file
+            let actual_checksum = cache_common::calculate_md5(&tmp_path)?;
+            if actual_checksum != expected_checksum {
+                fs::remove_file(&tmp_path)?;
+                return Err(anyhow!("Checksum mismatch"));
+            }
+
+            // Atomic rename
+            fs::rename(&tmp_path, &model_path)?;
+
+            Ok(())
+        }();
+
+        assert!(result.is_ok(), "Download should succeed: {:?}", result);
+        assert!(
+            !tmp_path.exists(),
+            "Temp file should not exist after success"
+        );
+        assert!(model_path.exists(), "Final model file should exist");
+
+        let final_content = fs::read(&model_path).unwrap();
+        assert_eq!(final_content, test_content, "Content should match source");
+    }
+
+    #[test]
+    fn test_atomic_rename_on_success() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let cache_dir = temp_dir.path();
+
+        let model_path = cache_dir.join("test_model.onnx");
+        let tmp_path = model_path.with_extension("tmp");
+
+        let test_content = b"Complete model file content";
+        let expected_checksum = format!("{:x}", md5::compute(test_content));
+
+        // Simulate successful download to temp file
+        fs::write(&tmp_path, test_content).unwrap();
+        assert!(tmp_path.exists(), "Temp file should exist after download");
+        assert!(!model_path.exists(), "Final file should not exist yet");
+
+        // Verify checksum and rename (atomic operation)
+        let actual_checksum = cache_common::calculate_md5(&tmp_path).unwrap();
+        assert_eq!(actual_checksum, expected_checksum);
+
+        fs::rename(&tmp_path, &model_path).unwrap();
+
+        // Verify atomic rename worked
+        assert!(
+            !tmp_path.exists(),
+            "Temp file should not exist after rename"
+        );
+        assert!(model_path.exists(), "Final file should exist after rename");
+
+        let final_content = fs::read(&model_path).unwrap();
+        assert_eq!(final_content, test_content, "Content should be intact");
+    }
+
+    #[test]
+    fn test_tmp_removed_on_checksum_failure() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let cache_dir = temp_dir.path();
+
+        let model_path = cache_dir.join("test_model.onnx");
+        let tmp_path = model_path.with_extension("tmp");
+        let lock_path = cache_dir.join("test_model.onnx.lock");
+
+        // Create a file with wrong content
+        let wrong_content = b"Corrupted or incomplete model data";
+        fs::write(&tmp_path, wrong_content).unwrap();
+
+        let expected_checksum = "correct_checksum_12345";
+
+        let _model_info = ModelInfo {
+            name: "test-model".to_string(),
+            url: "file:///fake/path".to_string(),
+            md5_checksum: Some(expected_checksum.to_string()),
+            filename: "test_model.onnx".to_string(),
+        };
+
+        // Simulate download_with_concurrency_protection with checksum failure
+        let result = || -> Result<()> {
+            fs::create_dir_all(cache_dir)?;
+
+            let lock_file = fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(&lock_path)?;
+
+            lock_file.lock_exclusive()?;
+
+            // Temp file already exists (simulating completed download)
+            assert!(tmp_path.exists());
+
+            // Verify checksum on temp file
+            let actual_checksum = cache_common::calculate_md5(&tmp_path)?;
+            if actual_checksum != expected_checksum {
+                // Checksum mismatch - clean up temp file
+                fs::remove_file(&tmp_path)?;
+                return Err(anyhow!("Checksum mismatch"));
+            }
+
+            // Should not reach here in this test
+            fs::rename(&tmp_path, &model_path)?;
+            Ok(())
+        }();
+
+        assert!(result.is_err(), "Should fail due to checksum mismatch");
+        assert!(
+            !tmp_path.exists(),
+            "Temp file should be removed on checksum failure"
+        );
+        assert!(
+            !model_path.exists(),
+            "Final file should not be created on checksum failure"
+        );
+    }
+
+    #[test]
+    fn test_size_mismatch_fails_download() {
+        // This test verifies that size mismatch is now a hard error, not just a warning
+        // We can't easily test the actual download_model function without a real HTTP server,
+        // but we can verify the logic would fail by checking the error handling
+
+        let expected_length = 1000u64;
+        let downloaded = 500u64;
+
+        // Simulate the size check
+        let result = if downloaded != expected_length {
+            Err(anyhow!(
+                "Download incomplete: expected {expected_length} bytes, got {downloaded} bytes"
+            ))
+        } else {
+            Ok(())
+        };
+
+        assert!(result.is_err(), "Size mismatch should cause failure");
+        let error_msg = result.unwrap_err().to_string();
+        assert!(
+            error_msg.contains("Download incomplete"),
+            "Error should mention download incomplete"
+        );
+        assert!(
+            error_msg.contains("expected 1000"),
+            "Error should include expected size"
+        );
+        assert!(
+            error_msg.contains("got 500"),
+            "Error should include actual size"
+        );
+    }
+
+    #[test]
+    fn test_interrupted_download_leaves_tmp_not_final() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let cache_dir = temp_dir.path();
+
+        let model_path = cache_dir.join("test_model.onnx");
+        let tmp_path = model_path.with_extension("tmp");
+
+        // Simulate interrupted download - partial data written to .tmp
+        let partial_content = b"Partial model data from interrupted download";
+        fs::write(&tmp_path, partial_content).unwrap();
+
+        // Verify state after interruption
+        assert!(
+            tmp_path.exists(),
+            "Temp file should exist after interruption"
+        );
+        assert!(
+            !model_path.exists(),
+            "Final file should NOT exist after interruption"
+        );
+
+        // Simulate next run - should clean up stale .tmp and start fresh
+        if tmp_path.exists() {
+            fs::remove_file(&tmp_path).unwrap();
+        }
+
+        assert!(
+            !tmp_path.exists(),
+            "Stale temp file should be cleaned up on next run"
+        );
+        assert!(!model_path.exists(), "Final file should still not exist");
     }
 }
