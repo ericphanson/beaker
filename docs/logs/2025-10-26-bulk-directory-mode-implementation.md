@@ -310,10 +310,34 @@ Using subagent-driven development to implement the bulk/directory mode feature f
 
 ---
 
+## Task 14: Implement Basic Gallery UI ✅
+
+**Status:** COMPLETED
+**Commit:** 065739793ba226ce80c2ceb785d26d02f9ca8abe
+**Pushed:** Pending
+
+### Implementation
+- Modified `beaker-gui/src/views/directory.rs`:
+  - Implemented `show_gallery_ui()` with two-panel layout
+  - Implemented `show_thumbnail_grid()` for left panel
+  - Implemented `show_current_image()` for right panel
+  - Shows directory path and counts in header
+  - Clickable thumbnail list with status badges (✓, ?, ✗)
+  - Displays current image detections
+
+### Tests
+- All 24 GUI tests passed (no regressions)
+
+### Notes
+- UI displays after processing completes
+- Placeholder for image display (actual image rendering in future work)
+- Arrow indicator (▶) shows current selection
+
+---
+
 ## Next Tasks
 
-- [ ] Task 14: Implement Basic Gallery UI
-- [ ] Task 14: Implement Basic Gallery UI
+- [ ] Task 15: Add Navigation Controls
 - [ ] Task 15: Add Navigation Controls
 - [ ] Task 16: Display Aggregate Detection List Sidebar
 - [ ] Task 17: Add Detection Navigation
