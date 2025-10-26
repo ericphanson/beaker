@@ -1,4 +1,5 @@
 mod app;
+mod recent_files;
 mod style;
 mod views;
 
@@ -21,17 +22,30 @@ struct Args {
 #[cfg(target_os = "macos")]
 fn create_native_menu() -> (muda::Menu, std::sync::mpsc::Receiver<muda::MenuEvent>) {
     use muda::accelerator::{Accelerator, Code, Modifiers};
+    use muda::MenuId;
 
     let menu = muda::Menu::new();
 
-    // File menu
-    let file_menu = muda::Submenu::new("File", true);
-    let quit_item = muda::MenuItem::new(
-        "Quit",
+    // Application menu (first menu on macOS, automatically named after the app)
+    let app_menu = muda::Submenu::new("Beaker", true);
+    let quit_item = muda::MenuItem::with_id(
+        MenuId::new("quit"),
+        "Quit Beaker",
         true,
         Some(Accelerator::new(Some(Modifiers::SUPER), Code::KeyQ)),
     );
-    file_menu.append(&quit_item).unwrap();
+    app_menu.append(&quit_item).unwrap();
+    menu.append(&app_menu).unwrap();
+
+    // File menu
+    let file_menu = muda::Submenu::new("File", true);
+    let open_item = muda::MenuItem::with_id(
+        MenuId::new("open"),
+        "Open...",
+        true,
+        Some(Accelerator::new(Some(Modifiers::SUPER), Code::KeyO)),
+    );
+    file_menu.append(&open_item).unwrap();
     menu.append(&file_menu).unwrap();
 
     // View menu
