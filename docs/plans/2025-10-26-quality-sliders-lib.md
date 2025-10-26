@@ -116,17 +116,56 @@ When `--debug-dump-images` flag is enabled, the algorithm generates 13 heatmap v
 ### GUI Tuning Requirements
 
 **User Experience Goals:**
-1. Adjust sliders and see results update within 50-100ms
+1. Adjust sliders and see results update within 50ms ("instant" feel)
 2. Handle folders of 100-1000 images
 3. Support undo/redo of parameter changes
 4. Enable A/B comparison of parameter sets
 5. Export tuned parameter configurations
 
 **Technical Requirements:**
-- Cache expensive operations (blur detection, ONNX inference)
+- Cache expensive operations (preprocessing, ONNX inference)
 - Recompute only affected results when parameters change
 - Support batch recomputation when changing folders
 - Memory-efficient caching for large image sets
+- Render heatmap visualizations on demand
+
+### Real-Time GUI Scenario Analysis
+
+**See detailed analysis:** [`docs/plans/2025-10-26-gui-scenario-analysis.md`](./2025-10-26-gui-scenario-analysis.md)
+
+**Scenario:** 100 images, user adjusts slider, GUI shows top image with heatmap + sidebar thumbnails
+
+**Key Performance Insights:**
+
+With three-level caching strategy:
+
+**Level 1: Expensive ML (Parameter-Independent)**
+- Cache: Preprocessed tensors + ONNX outputs + raw Tenengrad
+- Cost: 57-70ms per image on initial load
+- Memory: ~600KB per image (60MB for 100 images)
+
+**Level 2: Heuristics (Parameter-Dependent, Cheap)**
+- Compute: Quality scores from Level 1 cache
+- Cost: **<0.1ms per image × 100 = 10ms total** ← Instant!
+- Memory: ~3KB per image (300KB for 100 images)
+
+**Level 3: Visualization (Parameter-Dependent, On-Demand)**
+- Render: Heatmaps for visible images only (top + 3-5 thumbnails)
+- Cost: 7-8ms for main view, 3-4ms per thumbnail
+- Memory: ~600KB per visible image (~6MB for 10 cached)
+
+**Total Response Time:**
+- Best case: 10ms (scores only, cached heatmap)
+- Typical: 17-18ms (scores + main heatmap)
+- Worst case: 37-38ms (scores + main + 5 thumbnails)
+
+All well under 50ms threshold for "instant" feel!
+
+**Critical Insight:** Heatmaps ARE parameter-dependent (use BETA, ALPHA, etc.), so we must:
+1. Separate computation from visualization
+2. Render heatmaps to in-memory buffers (not PNG files)
+3. Render only visible images, cache the results
+4. Use progressive rendering (update ranking instantly, then heatmaps)
 
 ---
 
@@ -1256,8 +1295,9 @@ For rapid prototyping:
 1. **GPU acceleration:** ONNX inference on GPU (requires different caching strategy)
 2. **Progressive loading:** Load and cache images lazily as user scrolls
 3. **Differential quality:** Show how parameter changes affect specific images
-4. **Heatmap overlay:** Visualize which image regions are most affected by parameter changes
+4. **Smart visualization:** Cache only visible heatmaps, render to in-memory buffers
 5. **Auto-tuning:** ML-based parameter suggestion for specific image types
+6. **Heatmap optimization:** Extract rendering logic from debug code for faster GUI updates
 
 ### Migration Path
 
@@ -1284,9 +1324,28 @@ For enabling GUI slider-based quality algorithm tuning:
 4. **Avoid premature optimization:** Approach 4 is overkill for this use case
 
 The staged computation approach (Approach 2) hits the sweet spot of:
-- Fast enough (<100ms slider response for 1000 images)
+- Fast enough (<20ms typical slider response for 100 images)
 - Simple enough (2-3 days implementation)
 - Robust enough (automatic memoization, LRU caching)
 - Extensible enough (easy to add stages or upgrade to Salsa)
 
-Key architectural principle: **Cache the expensive ML operations simply, make the cheap heuristics tunable.** This separation of concerns enables fast GUI responsiveness without over-engineering the caching layer.
+### Key Architectural Principles
+
+**1. Three-Level Caching Strategy** (See [GUI Scenario Analysis](./2025-10-26-gui-scenario-analysis.md)):
+- **Level 1:** Cache expensive ML (preprocessing, ONNX, raw Tenengrad) - parameter-independent
+- **Level 2:** Recompute cheap heuristics on every slider change (~10ms for 100 images)
+- **Level 3:** Render visualizations on-demand for visible images only (~7-30ms)
+
+**2. Separate Computation from Visualization:**
+- Quality scoring must be instant (10ms for 100 images)
+- Heatmaps can lag slightly (17-38ms total with progressive rendering)
+- This separation enables instant feedback while visualizations load
+
+**3. Progressive Rendering:**
+- Update ranking immediately (user sees instant response)
+- Render main heatmap next (17-18ms total)
+- Update sidebar thumbnails in background (37-38ms total)
+
+**Result:** 17-38ms end-to-end response time - well under 50ms threshold for "instant" feel!
+
+This separation of concerns enables fast GUI responsiveness without over-engineering the caching layer.
