@@ -54,12 +54,16 @@ pub struct DirectoryView {
     pub selected_detection_idx: Option<usize>,
 
     // Processing state
-    progress_receiver: Option<Receiver<beaker::ProcessingEvent>>,
+    #[doc(hidden)] // Public for testing only
+    pub progress_receiver: Option<Receiver<beaker::ProcessingEvent>>,
     cancel_flag: Arc<AtomicBool>,
     output_dir: Option<PathBuf>,
-    current_stage: Option<beaker::ProcessingStage>,
-    quality_completed: usize,
-    detection_completed: usize,
+    #[doc(hidden)] // Public for testing only
+    pub current_stage: Option<beaker::ProcessingStage>,
+    #[doc(hidden)] // Public for testing only
+    pub quality_completed: usize,
+    #[doc(hidden)] // Public for testing only
+    pub detection_completed: usize,
 
     // Aggregate detection list (populated after processing)
     all_detections: Vec<DetectionRef>,
@@ -280,7 +284,8 @@ impl DirectoryView {
     }
 
     /// Build flattened list of all detections across all images
-    fn build_aggregate_detection_list(&mut self) {
+    #[doc(hidden)] // Public for testing only
+    pub fn build_aggregate_detection_list(&mut self) {
         self.all_detections.clear();
 
         for (image_idx, image_state) in self.images.iter().enumerate() {
