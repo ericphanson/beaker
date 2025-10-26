@@ -217,13 +217,33 @@ test test_quality_params_default_values ... ok
 ## Execution Summary
 
 **Total Tasks:** 13/13 completed ✅
-**Total Commits:** 18 commits pushed
-**All Tests:** Passing ✅ (216 tests)
+**Total Commits:** 21 commits pushed
+**All Tests:** Passing ✅ (211 tests)
 **CI Status:** Passing ✅
 
+### Post-Implementation Cleanup
+
+After completing all 13 tasks, we performed two additional cleanup phases:
+
+**Phase 1: Dead Code Removal**
+- Removed `image_overall_from_paq_and_blur()` - obsolete convenience function
+- Removed `load_onnx_session_default()` - replaced by new ModelProcessor framework
+- Removed `params` field from QualityScores - never read
+- Removed `computed_at` field from QualityRawData - never read
+- Removed obsolete constants ALPHA, MIN_WEIGHT
+- Deleted 2 obsolete test files (quality_command_test.rs, quality_integration_test.rs)
+- **Result:** ~190 lines removed, 4 unjustified `#[allow(dead_code)]` removed
+
+**Phase 2: Visualization CLI Integration**
+- Added `--save-heatmap <PATH>` flag to save blur heatmaps
+- Added `--colormap <viridis|plasma|inferno|turbo|grayscale>` flag
+- Added `--overlay` flag to render heatmap overlays on original images
+- Wired up HeatmapStyle, ColorMap, QualityVisualization to actual CLI usage
+- **Result:** No more dead code warnings for visualization types
+
 ### Final Verification
-- ✅ All clippy warnings resolved
-- ✅ All tests pass (cargo nextest run --all-features)
+- ✅ All clippy warnings resolved (only justified `#[allow(dead_code)]` remain)
+- ✅ All tests pass (cargo nextest run --all-features) - 211 tests
 - ✅ Code formatted (cargo fmt)
 - ✅ Full CI workflow passes
 
@@ -244,11 +264,29 @@ test test_quality_params_default_values ... ok
    - Heatmap rendering with 5 colormaps
    - Alpha blending for overlays
    - GUI-ready image buffers
+   - **Now accessible via CLI!**
 
 ### Key Achievements
 - **Performance**: 600x speedup for parameter tuning (60ms → <0.1ms)
 - **API Design**: Clean separation of concerns across 3 layers
 - **Backward Compatible**: Old API (`blur_weights_from_nchw()`) still works
 - **Well Documented**: 315 lines of documentation (README + API guide)
-- **Thoroughly Tested**: 216 tests passing
+- **Thoroughly Tested**: 211 tests passing
 - **Code Quality**: All clippy warnings resolved, properly formatted
+- **CLI Complete**: All features accessible from command line
+
+### CLI Usage Examples
+
+```bash
+# Basic quality assessment
+beaker quality image.jpg
+
+# With parameter tuning
+beaker quality --alpha 0.8 --beta 1.5 --tau 0.01 image.jpg
+
+# Save blur probability heatmap
+beaker quality --save-heatmap blur.png --colormap viridis image.jpg
+
+# Save heatmap overlay on original image
+beaker quality --save-heatmap overlay.png --colormap plasma --overlay image.jpg
+```
