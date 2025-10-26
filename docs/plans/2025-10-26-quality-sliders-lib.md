@@ -8,14 +8,18 @@
 
 This proposal analyzes architectural approaches for enabling real-time GUI slider-based tuning of the quality assessment algorithm without rerunning expensive ML inference. We evaluate four architectural approaches ranging from simple caching to sophisticated incremental computation frameworks.
 
-**Measured Performance (2025-10-26):** The quality algorithm is **8-10x faster than initially estimated**:
-- **Total:** 57-70ms per image (vs 300-500ms estimated)
-- **Preprocessing:** 24-31ms (~42% of total) - Resize to 224x224
+**Performance Characteristics:**
+- **Total processing time:** 57-70ms per image on CPU
+- **Preprocessing:** 24-31ms (~42% of total) - Resize to 224x224 + normalize
 - **ONNX inference:** 29-31ms (~47% of total) - INT8 quantized model
 - **Blur detection:** 2.1-2.3ms (~3% of total) - Multi-scale Sobel on 224x224
-- **Postprocessing:** <0.1ms (<0.1% of total) - Combine scores
+- **Postprocessing:** <0.1ms (<0.1% of total) - Score combination
 
-**Impact:** For 1000 images, initial load takes 60-70 seconds (parallelizable to 7-9 seconds). Caching provides a **600-700x speedup** for slider adjustments (<0.1s vs 60-70s).
+**Caching Impact:**
+- **Initial load (1000 images):** 60-70 seconds sequential, 7-9 seconds parallelized (8 cores)
+- **Slider adjustment with caching:** <0.1 seconds
+- **Slider adjustment without caching:** 60-70 seconds (full recomputation)
+- **Speedup from caching:** 600-700x
 
 **Recommendation:** Start with **Approach 2 (Staged Computation with Simple Caching)** for immediate implementation, with **Approach 3 (Hybrid Staged + Salsa)** as a future enhancement if complex multi-parameter dependencies emerge.
 
@@ -72,31 +76,42 @@ Located in `beaker/src/blur_detection.rs:6-24`:
 
 ### Performance Profile
 
-**MEASURED TIMINGS (2025-10-26)** on example images (1280x960-1280px) on CPU:
-- **Preprocessing:** 24-31ms (~40-45% of total) - Resize to 224x224 + normalize
-- **Blur Detection:** 2.1-2.3ms (~3-4% of total) - Multi-scale Sobel + Tenengrad on 224x224
-- **ONNX Inference:** 29-31ms (~45-50% of total) - INT8 quantized model
+Benchmark timings on example images (1280x960-1280px) using CPU:
+
+**Per-Stage Breakdown:**
+- **Preprocessing:** 24-31ms (~42% of total) - Resize to 224x224 + normalize
+- **Blur Detection:** 2.1-2.3ms (~3% of total) - Multi-scale Sobel + Tenengrad on 224x224
+- **ONNX Inference:** 29-31ms (~47% of total) - INT8 quantized model
 - **Postprocessing:** 0.01-0.06ms (<0.1% of total) - Combine scores
 - **Total:** 57-70ms per image
 
-**Performance Breakdown:**
+**Benchmark Results:**
 ```
-Measured on example.jpg (1280x960):
+example.jpg (1280x960):
   Run 1: Preprocess 24.24ms | Blur 2.16ms | ONNX 30.51ms | Post 0.03ms | Total 63ms
   Run 2: Preprocess 25.27ms | Blur 2.32ms | ONNX 28.82ms | Post 0.06ms | Total 63ms
 
-Measured on example-2-birds.jpg (1280x1280):
+example-2-birds.jpg (1280x1280):
   Run 3: Preprocess 31.25ms | Blur 2.25ms | ONNX 28.99ms | Post 0.03ms | Total 70ms
 ```
 
-**Key Findings:**
-1. **Blur detection is 100x faster than initially estimated** (2ms vs 200-400ms estimated)
-   - Works on already-resized 224x224 image, not original size
-   - Sobel filtering on 224x224 is extremely fast
-2. **ONNX inference faster than expected** (29-31ms vs 50-100ms estimated)
-   - INT8 quantization provides good speedup
-3. **Preprocessing is the largest cost** after ONNX (24-31ms)
-   - Varies with input image size (larger images take longer to resize)
+**Key Observations:**
+1. **Preprocessing and ONNX dominate cost** - Together account for ~90% of processing time
+2. **Blur detection is surprisingly fast** - Only 2ms because it operates on 224x224 resized images, not original resolution
+3. **Postprocessing is negligible** - Less than 0.1ms, essentially free
+4. **Preprocessing cost varies with input size** - Larger images take longer to resize to 224x224
+
+**Debug Visualization Cost:**
+
+When `--debug-dump-images` flag is enabled, the algorithm generates 13 heatmap visualizations:
+- Heatmaps: t224, t112, p224, p112, pfused, weights (6 images)
+- Overlays: overlay_t224, overlay_t112, overlay_p224, overlay_p112, overlay_pfused, overlay_weights (6 images)
+- Normalized input: image.png (1 image)
+
+**Performance with Debug Images:**
+- **Debug image generation:** 35-38ms (writes 13 PNG files)
+- **Total with debug images:** 99-109ms per image (~40-50ms overhead)
+- **For GUI use:** Debug images can be generated on-demand or cached alongside quality results
 
 ### GUI Tuning Requirements
 
@@ -1066,22 +1081,20 @@ impl SalsaQualityService {
 
 ### Performance Comparison
 
-**UPDATED WITH MEASURED TIMINGS:**
-
 | Approach | Initial Load (1000 images) | Slider Adjust (Tier 1) | Slider Adjust (Tier 2) | No Cache (Full Rerun) |
 |----------|---------------------------|------------------------|------------------------|-----------------------|
-| **Approach 1** | 60-70ms × 1000 = 60-70s | <0.1ms × 1000 = <0.1s | 2ms × 1000 = 2s | 60-70s |
-| **Approach 2** | 60-70ms × 1000 = 60-70s | <0.1ms × 1000 = <0.1s | <0.1ms × 1000 = <0.1s | 60-70s |
-| **Approach 3** | 60-70ms × 1000 = 60-70s | <0.1ms × 1000 = <0.1s | <0.1ms × 1000 = <0.1s | 60-70s |
-| **Approach 4** | 60-70ms × 1000 = 60-70s | <0.1ms × 1000 = <0.1s | <0.1ms × 1000 = <0.1s | 60-70s |
+| **Approach 1** | 60-70s | <0.1s | ~2s | 60-70s |
+| **Approach 2** | 60-70s | <0.1s | <0.1s | 60-70s |
+| **Approach 3** | 60-70s | <0.1s | <0.1s | 60-70s |
+| **Approach 4** | 60-70s | <0.1s | <0.1s | 60-70s |
 
 **Notes:**
-- **Measured timing:** 57-70ms per image (not 300-500ms as initially estimated!)
-- **Tier 1:** ALPHA, MIN_WEIGHT (postprocessing only, <0.1ms)
-- **Tier 2:** BETA, TAU_TEN_224, P_FLOOR (blur mapping, ~0.1ms since blur total is only 2ms)
-- **Initial load parallelizable:** 60-70s ÷ 8 cores = **7-9 seconds** for 1000 images
-- **Key insight:** Even with NO caching, full rerun takes only 60-70s for 1000 images!
-- **Caching benefit:** Reduces slider adjustment from 60-70s to <0.1s (600-700x speedup)
+- **Base performance:** 57-70ms per image × 1000 images = 60-70 seconds
+- **Tier 1 params:** ALPHA, MIN_WEIGHT (postprocessing only, <0.1ms to recompute)
+- **Tier 2 params:** BETA, TAU_TEN_224, P_FLOOR (blur mapping, ~0.1ms to recompute)
+- **Parallelization:** Initial load can be reduced to 7-9 seconds with 8 CPU cores
+- **Caching benefit:** 600-700x speedup for slider adjustments
+- **Key insight:** All approaches have similar performance since expensive operations (preprocessing + ONNX) are parameter-independent
 
 ### Complexity Comparison
 
@@ -1111,25 +1124,24 @@ impl SalsaQualityService {
 
 ## Recommendation
 
-**UPDATE (2025-10-26): After measuring actual performance**, the quality algorithm is **8-10x faster than initially estimated** (57-70ms vs 300-500ms). This changes the analysis:
-
-- **Initial load** of 1000 images takes only **60-70 seconds** (parallelizable to 7-9 seconds)
-- **Blur detection** is negligible at 2ms (not 200-400ms as estimated)
-- **Caching still provides massive value:** 600-700x speedup for slider adjustments (<0.1s vs 60-70s)
-- **All approaches have similar performance** since expensive operations are parameter-independent
-
 ### Primary Recommendation: Approach 2 (Staged Computation)
 
-**Rationale:**
+**Performance Context:**
+- **Processing time:** 57-70ms per image on CPU
+- **Initial load (1000 images):** 60-70 seconds sequential, 7-9 seconds parallelized
+- **Caching benefit:** 600-700x speedup for slider adjustments (<0.1s vs 60-70s)
+- **Cost distribution:** Preprocessing (42%) + ONNX (47%) are expensive and parameter-independent; blur (3%) and postprocessing (<1%) are cheap and parameter-dependent
+
+**Why Approach 2:**
 
 1. **Right complexity level:** Balances simplicity with robustness for 5-10 parameters
 2. **Proven patterns:** Staged computation is well-understood and maintainable
 3. **Fast implementation:** 2-3 days to production-ready code
 4. **Lightweight dependency:** `cached` crate is minimal and well-maintained
 5. **Room to grow:** Easy to add more stages or convert to Approach 3 later
-6. **Clear stage boundaries:** The quality algorithm naturally separates into stages
+6. **Natural fit:** The quality algorithm has clear stage boundaries (preprocess → expensive ops → cheap heuristics)
 7. **Predictable performance:** Explicit caching rules make performance easy to reason about
-8. **Measured results confirm design:** Preprocessing (24-31ms) and ONNX (29-31ms) are expensive and parameter-independent; blur (2ms) and postprocessing (<0.1ms) are cheap
+8. **All approaches perform similarly:** Since expensive operations are parameter-independent, sophisticated dependency tracking (Approach 3/4) provides minimal benefit
 
 ### When to Upgrade to Approach 3
 

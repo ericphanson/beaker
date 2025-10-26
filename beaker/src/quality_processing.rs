@@ -133,7 +133,7 @@ impl ModelProcessor for QualityProcessor {
         let start_time = Instant::now();
         let mut io_timing = IoTiming::new();
 
-        debug!("🖼️  Processing: {}", image_path.display());
+        debug!("Processing: {}", image_path.display());
 
         // Load and preprocess the image with timing
         let img = io_timing.time_image_read(image_path)?;
@@ -143,7 +143,7 @@ impl ModelProcessor for QualityProcessor {
         let preprocess_start = Instant::now();
         let input_array = preprocess_image_for_quality(&img)?;
         let preprocess_time_ms = preprocess_start.elapsed().as_secs_f64() * 1000.0;
-        debug!("⏱️  Preprocessing took: {:.2}ms", preprocess_time_ms);
+        debug!("Timing - Preprocessing: {:.2}ms", preprocess_time_ms);
 
         let input_stem = output_manager.input_stem();
         // Only create debug directory when --debug-dump-images flag is passed
@@ -162,7 +162,7 @@ impl ModelProcessor for QualityProcessor {
         let (w20, p20, _, global_blur_score) =
             crate::blur_detection::blur_weights_from_nchw(&input_array, output_dir);
         let blur_time_ms = blur_start.elapsed().as_secs_f64() * 1000.0;
-        debug!("⏱️  Blur detection took: {:.2}ms", blur_time_ms);
+        debug!("Timing - Blur detection: {:.2}ms", blur_time_ms);
 
         assert_eq!(w20.shape(), [20, 20]);
         let mut local_blur_weights = [[0.0f32; 20]; 20];
@@ -180,7 +180,7 @@ impl ModelProcessor for QualityProcessor {
         // Prepare input for the model
         let input_name = session.inputs[0].name.clone();
         let output_name = session.outputs[0].name.clone();
-        debug!("🖼️  Running inference: {input_name} -> {output_name}");
+        debug!("Running inference: {input_name} -> {output_name}");
         let input_value = Value::from_array(input_array)
             .map_err(|e| anyhow::anyhow!("Failed to create input value: {}", e))?;
 
@@ -190,7 +190,7 @@ impl ModelProcessor for QualityProcessor {
             .run(ort::inputs![input_name.as_str() => &input_value])
             .map_err(|e| anyhow::anyhow!("Failed to run inference: {}", e))?;
         let inference_time_ms = inference_start.elapsed().as_secs_f64() * 1000.0;
-        debug!("⏱️  ONNX inference took: {:.2}ms", inference_time_ms);
+        debug!("Timing - ONNX inference: {:.2}ms", inference_time_ms);
 
         // Extract the output tensor using ORT v2 API
         let output_view = outputs[output_name.as_str()]
@@ -202,7 +202,7 @@ impl ModelProcessor for QualityProcessor {
         let (global_quality_score, global_paq2piq_score, local_paq2piq_grid) =
             postprocess_quality_output(&output_view, global_blur_score)?;
         let postprocess_time_ms = postprocess_start.elapsed().as_secs_f64() * 1000.0;
-        debug!("⏱️  Postprocessing took: {:.2}ms", postprocess_time_ms);
+        debug!("Timing - Postprocessing: {:.2}ms", postprocess_time_ms);
 
         let processing_time = start_time.elapsed().as_secs_f64() * 1000.0;
 
