@@ -209,6 +209,29 @@ impl DirectoryView {
         }
     }
 
+    /// Calculate progress statistics
+    fn calculate_progress_stats(&self) -> (usize, usize, Option<usize>) {
+        let completed = self
+            .images
+            .iter()
+            .filter(|img| {
+                matches!(
+                    img.status,
+                    ProcessingStatus::Success { .. } | ProcessingStatus::Error { .. }
+                )
+            })
+            .count();
+
+        let total = self.images.len();
+
+        let processing_idx = self
+            .images
+            .iter()
+            .position(|img| matches!(img.status, ProcessingStatus::Processing));
+
+        (completed, total, processing_idx)
+    }
+
     pub fn show(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
         // Poll progress events
         self.poll_events();
@@ -224,7 +247,102 @@ impl DirectoryView {
             ctx.request_repaint();
         }
 
-        ui.label("Directory view - under construction");
+        // Show progress UI if processing
+        if is_processing {
+            self.show_processing_ui(ui);
+        } else {
+            self.show_gallery_ui(ctx, ui);
+        }
+    }
+
+    fn show_processing_ui(&self, ui: &mut egui::Ui) {
+        ui.vertical_centered(|ui| {
+            ui.add_space(20.0);
+
+            // Title
+            ui.heading(format!("Processing: {}", self.directory_path.display()));
+            ui.add_space(20.0);
+
+            // Progress stats
+            let (completed, total, processing_idx) = self.calculate_progress_stats();
+            let progress = completed as f32 / total as f32;
+
+            // Progress bar
+            ui.add(
+                egui::ProgressBar::new(progress)
+                    .text(format!("{}/{} ({:.0}%)", completed, total, progress * 100.0))
+                    .desired_width(600.0),
+            );
+
+            ui.add_space(10.0);
+
+            // Currently processing
+            if let Some(idx) = processing_idx {
+                let filename = self.images[idx]
+                    .path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("unknown");
+                ui.label(format!("Currently processing: {}", filename));
+            }
+
+            ui.add_space(20.0);
+
+            // Cancel button
+            if ui.button("Cancel").clicked() {
+                use std::sync::atomic::Ordering;
+                self.cancel_flag.store(true, Ordering::Relaxed);
+            }
+
+            ui.add_space(30.0);
+
+            // Image list with status
+            ui.label(egui::RichText::new("Images:").size(16.0));
+            ui.add_space(10.0);
+
+            egui::ScrollArea::vertical().max_height(400.0).show(ui, |ui| {
+                for img in &self.images {
+                    let filename = img
+                        .path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("unknown");
+
+                    ui.horizontal(|ui| {
+                        match &img.status {
+                            ProcessingStatus::Waiting => {
+                                ui.label(egui::RichText::new("⏸").color(egui::Color32::GRAY).size(16.0));
+                                ui.label(format!("{}: Waiting...", filename));
+                            }
+                            ProcessingStatus::Processing => {
+                                ui.label(egui::RichText::new("⏳").color(egui::Color32::BLUE).size(16.0));
+                                ui.label(format!("{}: Processing...", filename));
+                            }
+                            ProcessingStatus::Success {
+                                detections_count,
+                                good_count,
+                                unknown_count,
+                                ..
+                            } => {
+                                ui.label(egui::RichText::new("✓").color(egui::Color32::GREEN).size(16.0));
+                                ui.label(format!(
+                                    "{}: {} detections ({} good, {} unknown)",
+                                    filename, detections_count, good_count, unknown_count
+                                ));
+                            }
+                            ProcessingStatus::Error { message } => {
+                                ui.label(egui::RichText::new("⚠").color(egui::Color32::RED).size(16.0));
+                                ui.label(format!("{}: {}", filename, message));
+                            }
+                        }
+                    });
+                }
+            });
+        });
+    }
+
+    fn show_gallery_ui(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui) {
+        ui.label("Gallery view - coming soon");
     }
 }
 
@@ -350,5 +468,33 @@ mod tests {
 
         // Event should have been processed
         assert!(matches!(view.images[0].status, ProcessingStatus::Processing));
+    }
+
+    #[test]
+    fn test_calculate_progress_stats() {
+        let dir_path = PathBuf::from("/tmp/test");
+        let images = vec![
+            PathBuf::from("/tmp/test/img1.jpg"),
+            PathBuf::from("/tmp/test/img2.jpg"),
+            PathBuf::from("/tmp/test/img3.jpg"),
+        ];
+        let mut view = DirectoryView::new(dir_path, images);
+
+        // Set various statuses
+        view.images[0].status = ProcessingStatus::Success {
+            detections_count: 2,
+            good_count: 1,
+            unknown_count: 1,
+            bad_count: 0,
+            processing_time_ms: 100.0,
+        };
+        view.images[1].status = ProcessingStatus::Processing;
+        view.images[2].status = ProcessingStatus::Waiting;
+
+        let (completed, total, processing_idx) = view.calculate_progress_stats();
+
+        assert_eq!(completed, 1);
+        assert_eq!(total, 3);
+        assert_eq!(processing_idx, Some(1));
     }
 }
