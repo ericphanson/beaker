@@ -277,11 +277,11 @@ pub fn compute_quality_raw(
     let paq2piq_global = output_data[global_idx].clamp(0.0, 100.0);
 
     let mut paq2piq_local = [[0u8; 20]; 20];
-    for i in 0..20 {
-        for j in 0..20 {
+    for (i, row) in paq2piq_local.iter_mut().enumerate() {
+        for (j, cell) in row.iter_mut().enumerate() {
             let idx = i * 20 + j;
             let val = output_data[idx].clamp(0.0, 100.0);
-            paq2piq_local[i][j] = val as u8;
+            *cell = val as u8;
         }
     }
 

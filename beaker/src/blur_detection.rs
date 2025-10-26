@@ -5,14 +5,15 @@ use serde::Serialize;
 
 /// ------------------------- tunables -------------------------
 /// Blur weighting (from fused blur probability P via W = 1 - ALPHA*P)
+#[allow(dead_code)]
 const ALPHA: f32 = 0.7;
+#[allow(dead_code)]
 const MIN_WEIGHT: f32 = 0.2;
 
 /// Tenengrad mapping + multi-scale
+#[allow(dead_code)]
 const TAU_TEN_224: f32 = 0.02; // threshold for 224x224 in [0,1]
-const BETA: f32 = 1.2; // P = (tau / (T + tau))^BETA
 const EPS_T: f32 = 1e-12; // safety epsilon for divisions
-const P_FLOOR: f32 = 0.0; // set to 0.01..0.02 to avoid W==1.0 saturation
 
 /// ROI / priors
 const S_REF: f32 = 96.0; // min bbox side (px) for "fully reliable"
