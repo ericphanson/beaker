@@ -93,11 +93,35 @@ pub struct DetectionWithPath {
 
 /// Process multiple images sequentially
 pub fn run_detection(config: DetectionConfig) -> Result<usize> {
+    run_detection_with_options(config, None, None)
+}
+
+/// Process multiple images with optional progress reporting and cancellation
+pub fn run_detection_with_options(
+    config: DetectionConfig,
+    progress_tx: Option<std::sync::mpsc::Sender<crate::model_processing::ProcessingEvent>>,
+    cancel_flag: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+) -> Result<usize> {
+    use crate::model_processing::{ProcessingEvent, ProcessingStage};
+
+    // Emit quality stage change event
+    if let Some(ref tx) = progress_tx {
+        let _ = tx.send(ProcessingEvent::StageChange {
+            stage: ProcessingStage::Quality,
+            images_total: config.base().sources.len(),
+        });
+    }
+
     log::info!("   Analyzing image quality");
     let quality_config = crate::config::QualityConfig::from_detection_config(&config);
     let quality_results = crate::model_processing::run_model_processing_with_quality_outputs::<
         QualityProcessor,
-    >(quality_config);
+    >(
+        quality_config,
+        progress_tx.clone(),
+        cancel_flag.clone(),
+        Some(ProcessingStage::Quality),
+    );
 
     let config = match quality_results {
         Ok((_count, results)) => DetectionConfig {
@@ -107,8 +131,21 @@ pub fn run_detection(config: DetectionConfig) -> Result<usize> {
         Err(_) => config,
     };
 
+    // Emit detection stage change event
+    if let Some(ref tx) = progress_tx {
+        let _ = tx.send(ProcessingEvent::StageChange {
+            stage: ProcessingStage::Detection,
+            images_total: config.base().sources.len(),
+        });
+    }
+
     log::info!("   Detecting...");
-    crate::model_processing::run_model_processing::<DetectionProcessor>(config)
+    crate::model_processing::run_model_processing_with_options::<DetectionProcessor>(
+        config,
+        progress_tx,
+        cancel_flag,
+        Some(ProcessingStage::Detection),
+    )
 }
 
 impl ModelResult for DetectionResult {
