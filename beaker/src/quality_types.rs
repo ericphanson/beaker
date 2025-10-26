@@ -140,3 +140,36 @@ impl QualityScores {
         }
     }
 }
+
+/// Heatmap rendering options
+#[derive(Clone, Debug)]
+pub struct HeatmapStyle {
+    /// Colormap for heatmap rendering
+    pub colormap: ColorMap,
+
+    /// Overlay transparency (0.0 = invisible, 1.0 = opaque)
+    pub alpha: f32,
+
+    /// Target size (can be smaller for thumbnails)
+    pub size: (u32, u32),
+}
+
+impl Default for HeatmapStyle {
+    fn default() -> Self {
+        Self {
+            colormap: ColorMap::Viridis,
+            alpha: 0.7,
+            size: (224, 224),
+        }
+    }
+}
+
+/// Available colormaps for heatmap rendering
+#[derive(Clone, Copy, Debug)]
+pub enum ColorMap {
+    Viridis,
+    Plasma,
+    Inferno,
+    Turbo,
+    Grayscale,
+}
