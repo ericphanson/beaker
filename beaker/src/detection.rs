@@ -486,14 +486,24 @@ impl ModelProcessor for DetectionProcessor {
                             &DynamicImage::ImageRgba8(img_rgba.clone()).to_rgb8()
                         }
                     };
+                    // Use triage params from config, or default if not provided
+                    let default_triage_params = crate::quality_types::TriageParams::default();
+                    let triage_params = config
+                        .triage_params
+                        .as_ref()
+                        .unwrap_or(&default_triage_params);
+
+                    let quality_maps = crate::quality_types::QualityMaps {
+                        q20: &q20,
+                        w20: &w20,
+                        p20: &p20,
+                    };
+
                     let dq = detection_quality(
-                        &q20,
-                        &w20,
-                        &p20,
-                        result.global_blur_score,
-                        result.global_paq2piq_score,
+                        &quality_maps,
                         bbox,     // in native image pixels
                         orig_img, // native frame
+                        triage_params,
                     );
                     debug!("Detection quality: {dq:?}");
                     detection.quality = Some(dq);

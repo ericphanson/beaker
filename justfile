@@ -34,7 +34,7 @@ lint target="":
     @echo "Running format check..."
     @just fmt-check
     @echo "Running clippy..."
-    @just clippy {{target}}
+    @just clippy "{{target}}"
 
 # ─────────────────────────────────────────────────────────────
 # Building
@@ -186,18 +186,18 @@ test-cli-cutout target="" device="auto":
 # Run smoke tests (basic validation that binary and models work)
 smoke-test target="" device="auto":
     @echo "Running smoke tests..."
-    @just test-cli-help {{target}}
-    @just preload-models {{target}} {{device}}
-    @just test-cli-detect {{target}} {{device}}
-    @just test-cli-cutout {{target}} {{device}}
+    @just test-cli-help "{{target}}"
+    @just preload-models "{{target}}" "{{device}}"
+    @just test-cli-detect "{{target}}" "{{device}}"
+    @just test-cli-cutout "{{target}}" "{{device}}"
     @echo "All smoke tests passed!"
 
 # Run full CLI test suite
 test-cli-full target="" device="auto" os="linux":
-    @just test-cli-help {{target}}
-    @just preload-models {{target}} {{device}}
-    @just test-cli-detect {{target}} {{device}}
-    @just test-execution-providers {{target}} {{os}}
+    @just test-cli-help "{{target}}"
+    @just preload-models "{{target}}" "{{device}}"
+    @just test-cli-detect "{{target}}" "{{device}}"
+    @just test-execution-providers "{{target}}" "{{os}}"
 
 # ─────────────────────────────────────────────────────────────
 # CI Workflows
@@ -206,13 +206,29 @@ test-cli-full target="" device="auto" os="linux":
 # Full CI workflow: lint, build, test
 ci target="" device="auto" os="linux":
     @echo "Running full CI workflow..."
-    @just build-release {{target}}
-    @just test {{target}}
-    @just test-cli-full {{target}} {{device}} {{os}}
+    @just build-release "{{target}}"
+    @just test "{{target}}"
+    @just test-cli-full "{{target}}" "{{device}}" "{{os}}"
     @echo "CI workflow complete!"
 
 # Lint-only workflow (typically run once on Linux)
 ci-lint target="":
     @echo "Running lint checks..."
-    @just lint {{target}}
+    @just lint "{{target}}"
     @echo "Lint checks complete!"
+
+# Fast CI for incremental development (REQUIRED before pushing)
+# Runs clippy + lib/bin tests, skips slow integration tests
+# Timing: ~80s with code changes, ~3s without changes (vs 213s for full incremental ci)
+# NOTE: Full 'just ci' is still required before creating PR
+ci-dev target="":
+    #!/usr/bin/env bash
+    echo "Running developer CI (incremental, skips integration tests)..."
+    if [ -n "{{target}}" ]; then
+        cargo clippy --all-targets --target {{target}} -- -D warnings
+        cargo nextest run --release --lib --bins --target {{target}} --failure-output=immediate-final
+    else
+        cargo clippy --all-targets -- -D warnings
+        cargo nextest run --release --lib --bins --failure-output=immediate-final
+    fi
+    echo "✓ Dev CI passed! Run 'just ci' before finalizing PR."
