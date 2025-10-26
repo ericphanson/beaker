@@ -26,6 +26,17 @@ fn create_native_menu() -> (muda::Menu, std::sync::mpsc::Receiver<muda::MenuEven
 
     let menu = muda::Menu::new();
 
+    // Application menu (first menu on macOS, automatically named after the app)
+    let app_menu = muda::Submenu::new("Beaker", true);
+    let quit_item = muda::MenuItem::with_id(
+        MenuId::new("quit"),
+        "Quit Beaker",
+        true,
+        Some(Accelerator::new(Some(Modifiers::SUPER), Code::KeyQ)),
+    );
+    app_menu.append(&quit_item).unwrap();
+    menu.append(&app_menu).unwrap();
+
     // File menu
     let file_menu = muda::Submenu::new("File", true);
     let open_image_item = muda::MenuItem::with_id(
@@ -34,20 +45,17 @@ fn create_native_menu() -> (muda::Menu, std::sync::mpsc::Receiver<muda::MenuEven
         true,
         Some(Accelerator::new(Some(Modifiers::SUPER), Code::KeyO)),
     );
-    let open_folder_item =
-        muda::MenuItem::with_id(MenuId::new("open_folder"), "Open Folder...", true, None);
+    let open_folder_item = muda::MenuItem::with_id(
+        MenuId::new("open_folder"),
+        "Open Folder...",
+        true,
+        Some(Accelerator::new(
+            Some(Modifiers::SUPER | Modifiers::SHIFT),
+            Code::KeyO,
+        )),
+    );
     file_menu.append(&open_image_item).unwrap();
     file_menu.append(&open_folder_item).unwrap();
-    file_menu
-        .append(&muda::PredefinedMenuItem::separator())
-        .unwrap();
-    let quit_item = muda::MenuItem::with_id(
-        MenuId::new("quit"),
-        "Quit",
-        true,
-        Some(Accelerator::new(Some(Modifiers::SUPER), Code::KeyQ)),
-    );
-    file_menu.append(&quit_item).unwrap();
     menu.append(&file_menu).unwrap();
 
     // View menu
