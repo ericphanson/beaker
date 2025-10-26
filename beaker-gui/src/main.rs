@@ -22,12 +22,27 @@ struct Args {
 #[cfg(target_os = "macos")]
 fn create_native_menu() -> (muda::Menu, std::sync::mpsc::Receiver<muda::MenuEvent>) {
     use muda::accelerator::{Accelerator, Code, Modifiers};
+    use muda::MenuId;
 
     let menu = muda::Menu::new();
 
     // File menu
     let file_menu = muda::Submenu::new("File", true);
-    let quit_item = muda::MenuItem::new(
+    let open_image_item = muda::MenuItem::with_id(
+        MenuId::new("open_image"),
+        "Open Image...",
+        true,
+        Some(Accelerator::new(Some(Modifiers::SUPER), Code::KeyO)),
+    );
+    let open_folder_item =
+        muda::MenuItem::with_id(MenuId::new("open_folder"), "Open Folder...", true, None);
+    file_menu.append(&open_image_item).unwrap();
+    file_menu.append(&open_folder_item).unwrap();
+    file_menu
+        .append(&muda::PredefinedMenuItem::separator())
+        .unwrap();
+    let quit_item = muda::MenuItem::with_id(
+        MenuId::new("quit"),
         "Quit",
         true,
         Some(Accelerator::new(Some(Modifiers::SUPER), Code::KeyQ)),

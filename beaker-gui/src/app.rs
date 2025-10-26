@@ -84,6 +84,12 @@ impl BeakerApp {
             while let Ok(event) = rx.try_recv() {
                 if event.id == muda::MenuId::new("quit") {
                     std::process::exit(0);
+                } else if event.id == muda::MenuId::new("open_image") {
+                    eprintln!("[BeakerApp] Native menu: Open Image clicked");
+                    self.spawn_menu_file_dialog();
+                } else if event.id == muda::MenuId::new("open_folder") {
+                    eprintln!("[BeakerApp] Native menu: Open Folder clicked");
+                    self.spawn_menu_folder_dialog();
                 }
             }
         }
@@ -93,11 +99,6 @@ impl BeakerApp {
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("File", |ui| {
-                    if ui.button("Open...").clicked() {
-                        eprintln!("[BeakerApp] Menu: Open... clicked");
-                        self.spawn_menu_file_dialog();
-                        ui.close_menu();
-                    }
                     if ui.button("Open Image...").clicked() {
                         eprintln!("[BeakerApp] Menu: Open Image... clicked");
                         self.spawn_menu_file_dialog();
