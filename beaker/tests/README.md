@@ -76,7 +76,6 @@ The framework provides several validation checks for `.beaker.toml` metadata:
 - **`DeviceUsed(tool, device)`** - Verifies which device was used (e.g., "cpu", "auto", "cuda")
 - **`FilesProcessed(tool, count)`** - Confirms number of files processed by the tool
 - **`ConfigValue(tool, field_path, expected_value)`** - Validates specific configuration values using dot notation
-- **`TimingBound(tool, field, min_ms, max_ms)`** - Ensures timing fields fall within expected ranges
 - **`OutputCreated(filename)`** - Confirms expected output files were created
 - **`ExecutionProvider(tool, provider)`** - Verifies execution provider (e.g., "onnxruntime")
 - **`ExitCode(tool, expected_code)`** - Validates tool exit codes

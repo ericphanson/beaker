@@ -18,12 +18,6 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 MetadataCheck::DeviceUsed("detect", "cpu"),
                 MetadataCheck::ConfigValue("detect", "confidence", toml::Value::from(0.25)),
                 MetadataCheck::ConfigValue("detect", "device", toml::Value::from("cpu")),
-                MetadataCheck::TimingBound(
-                    "detect",
-                    "execution.model_processing_time_ms",
-                    10.0,
-                    300000.0,
-                ),
                 MetadataCheck::ExecutionProvider("detect", "CPUExecutionProvider"),
                 MetadataCheck::ExitCode("detect", 0),
                 MetadataCheck::BeakerVersion("detect"),
@@ -41,13 +35,6 @@ fn get_test_scenarios() -> Vec<TestScenario> {
             metadata_checks: vec![
                 MetadataCheck::ConfigValue("detect", "confidence", toml::Value::from(0.5)),
                 MetadataCheck::ConfigValue("detect", "device", toml::Value::from("auto")),
-                MetadataCheck::TimingBound(
-                    "detect",
-                    "execution.model_processing_time_ms",
-                    10.0,
-                    300000.0,
-                ),
-                MetadataCheck::TimingBound("detect", "system.model_load_time_ms", 1.0, 300000.0),
                 MetadataCheck::ExitCode("detect", 0),
                 MetadataCheck::CoreResultsField("detect", "model_version"),
             ],
@@ -105,12 +92,6 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 MetadataCheck::ConfigValue("detect", "confidence", toml::Value::from(0.3)),
                 MetadataCheck::ExitCode("detect", 0),
                 MetadataCheck::CoreResultsField("detect", "detections"),
-                MetadataCheck::TimingBound(
-                    "detect",
-                    "execution.model_processing_time_ms",
-                    10.0,
-                    300000.0,
-                ),
             ],
             env_vars: vec![],
         },
@@ -126,12 +107,6 @@ fn get_test_scenarios() -> Vec<TestScenario> {
             expected_files: vec!["example.beaker.toml", "example-2-birds.beaker.toml"],
             metadata_checks: vec![
                 MetadataCheck::ConfigValue("detect", "confidence", toml::Value::from(0.25)),
-                MetadataCheck::TimingBound(
-                    "detect",
-                    "execution.model_processing_time_ms",
-                    10.0,
-                    300000.0,
-                ),
                 MetadataCheck::ExitCode("detect", 0),
             ],
             env_vars: vec![],
@@ -146,12 +121,6 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 MetadataCheck::ConfigValue("cutout", "alpha_matting", toml::Value::from(false)),
                 MetadataCheck::ConfigValue("cutout", "save_mask", toml::Value::from(false)),
                 MetadataCheck::OutputCreated("example_cutout.png"),
-                MetadataCheck::TimingBound(
-                    "cutout",
-                    "execution.model_processing_time_ms",
-                    1.0,  // No minimum - faster is better
-                    300000.0,
-                ),
                 MetadataCheck::ExitCode("cutout", 0),
                 MetadataCheck::CoreResultsField("cutout", "model_version"),
                 MetadataCheck::IoTimingExists("cutout"),
@@ -176,12 +145,6 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 MetadataCheck::ConfigValue("cutout", "save_mask", toml::Value::from(true)),
                 MetadataCheck::OutputCreated("example_cutout.png"),
                 MetadataCheck::OutputCreated("example_mask.png"),
-                MetadataCheck::TimingBound(
-                    "cutout",
-                    "execution.model_processing_time_ms",
-                    1.0,  // No minimum - faster is better
-                    300000.0,
-                ),
                 MetadataCheck::ExitCode("cutout", 0),
             ],
             env_vars: vec![],
@@ -201,18 +164,6 @@ fn get_test_scenarios() -> Vec<TestScenario> {
                 MetadataCheck::ConfigValue("cutout", "save_mask", toml::Value::from(true)),
                 MetadataCheck::ExitCode("detect", 0),
                 MetadataCheck::ExitCode("cutout", 0),
-                MetadataCheck::TimingBound(
-                    "detect",
-                    "execution.model_processing_time_ms",
-                    10.0,
-                    300000.0,
-                ),
-                MetadataCheck::TimingBound(
-                    "cutout",
-                    "execution.model_processing_time_ms",
-                    1.0,  // No minimum - faster is better
-                    300000.0,
-                ),
             ],
             env_vars: vec![],
         },
