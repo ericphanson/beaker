@@ -66,6 +66,7 @@ pub struct QualityRawData {
 
     /// Provenance
     pub model_version: String,
+    #[allow(dead_code)]
     pub computed_at: SystemTime,
 }
 
@@ -84,6 +85,7 @@ pub struct QualityScores {
     pub blur_weights: [[f32; 20]; 20], // Weights (1 - alpha*P)
 
     /// Parameters used to compute these scores
+    #[allow(dead_code)]
     pub params: QualityParams,
 }
 
@@ -153,6 +155,7 @@ impl QualityScores {
 }
 
 /// Heatmap rendering options
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct HeatmapStyle {
     /// Colormap for heatmap rendering
@@ -176,6 +179,7 @@ impl Default for HeatmapStyle {
 }
 
 /// Available colormaps for heatmap rendering
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug)]
 pub enum ColorMap {
     Viridis,
@@ -186,6 +190,7 @@ pub enum ColorMap {
 }
 
 /// Visualization layer (parameter-dependent, rendered on-demand)
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct QualityVisualization {
     /// Rendered heatmap images (in-memory buffers)

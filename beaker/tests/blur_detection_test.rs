@@ -65,7 +65,7 @@ fn test_fuse_probabilities() {
 
     assert_eq!(fused.shape(), &[20, 20]);
     // Fused probability should be >= max of inputs (probabilistic OR)
-    assert!(fused[[0, 0]] >= 0.3 && fused[[0, 0]] >= 0.2);
+    assert!(fused[[0, 0]] >= 0.3); // >= 0.3 implies >= 0.2
     assert!(fused[[0, 0]] <= 1.0);
 }
 

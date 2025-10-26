@@ -887,6 +887,7 @@ pub fn detection_quality(
 }
 
 /// Convenience: fuse a full-frame PaQ scalar with full-frame blur_global (if you want a single image score).
+#[allow(dead_code)]
 pub fn image_overall_from_paq_and_blur(paq_global: f32, blur_global: f32) -> f32 {
     let w_mean = clampf(1.0 - ALPHA * blur_global, MIN_WEIGHT, 1.0);
     paq_global * w_mean

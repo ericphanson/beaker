@@ -73,11 +73,7 @@ fn test_apply_colormap_all_variants() {
 
         // Alpha should always be 255
         assert_eq!(color[3], 255);
-
-        // RGB values should be valid
-        assert!(color[0] <= 255);
-        assert!(color[1] <= 255);
-        assert!(color[2] <= 255);
+        // RGB values are u8, always valid (0-255)
     }
 }
 
@@ -112,9 +108,9 @@ fn test_render_heatmap_to_buffer_size() {
 fn test_render_heatmap_gradient() {
     // Create gradient from 0 to 1
     let mut data = [[0.0f32; 20]; 20];
-    for i in 0..20 {
-        for j in 0..20 {
-            data[i][j] = (i * 20 + j) as f32 / 399.0;
+    for (i, row) in data.iter_mut().enumerate() {
+        for (j, cell) in row.iter_mut().enumerate() {
+            *cell = (i * 20 + j) as f32 / 399.0;
         }
     }
 

@@ -219,6 +219,7 @@ fn preprocess_image_for_quality(img: &image::DynamicImage) -> Result<ndarray::Ar
 }
 
 /// Load ONNX session with default model path
+#[allow(dead_code)]
 pub fn load_onnx_session_default() -> Result<Session> {
     let model_dir = std::env::var("ONNX_MODEL_CACHE_DIR").unwrap_or_else(|_| "models".to_string());
     let model_path = Path::new(&model_dir).join("quality_model.onnx");
