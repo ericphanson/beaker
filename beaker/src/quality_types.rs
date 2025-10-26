@@ -66,3 +66,21 @@ pub struct QualityRawData {
     pub model_version: String,
     pub computed_at: SystemTime,
 }
+
+/// Parameter-dependent quality scores (cheap to compute, <0.1ms)
+#[derive(Clone, Debug)]
+pub struct QualityScores {
+    /// Final quality score (combining paq2piq and blur)
+    pub final_score: f32,
+
+    /// Component scores (for analysis)
+    pub paq2piq_score: f32,
+    pub blur_score: f32,      // Global blur probability (0-1)
+
+    /// Intermediate results (20x20 grids)
+    pub blur_probability: [[f32; 20]; 20],  // Fused blur probability
+    pub blur_weights: [[f32; 20]; 20],      // Weights (1 - alpha*P)
+
+    /// Parameters used to compute these scores
+    pub params: QualityParams,
+}
