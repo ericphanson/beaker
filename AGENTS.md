@@ -77,8 +77,8 @@ When developing proposals, technical plans, or architectural changes, align with
 
 **CRITICAL REQUIREMENTS:**
 1. **Always use `just` commands** - Never use raw cargo/bash commands for development tasks
-2. **During development, use `just ci-dev`** - Fast incremental validation (~80s with changes, ~3s without)
-3. **Before finalizing ANY task, run `just ci`** - Full CI validation ensures changes will pass CI on first attempt
+2. **REQUIRED before pushing: `just ci-dev`** - Fast validation (~80s with changes, ~3s without)
+3. **REQUIRED before creating PR: `just ci`** - Full CI validation ensures changes will pass CI on first attempt
 4. The justfile is the single source of truth for all development workflows
 
 **For complete build/test commands and validated timings, see [copilot-instructions.md](.github/copilot-instructions.md).**
@@ -102,12 +102,11 @@ just lint           # Format check + clippy
 just build-release  # Build release binary
 just test           # Run all tests
 
-# Fast validation during development (USE THIS for iteration)
+# REQUIRED before pushing
 just ci-dev         # Fast CI: clippy + lib/bin tests (~80s with changes, ~3s without)
-just ci-smoke       # Ultra-fast smoke test (~3-5s)
 
-# CRITICAL: Run before finalizing any task
-just ci             # Full CI workflow - REQUIRED before task completion (~3.5-7m)
+# REQUIRED before creating PR
+just ci             # Full CI workflow - comprehensive validation (~3.5-7m)
 
 # See all available commands
 just --list
@@ -121,13 +120,18 @@ just --list
 3. Fix any issues found
 4. Repeat until tests pass
 
-**Before finalizing any task:**
-1. Run `just ci` successfully (full validation ~3.5-7m)
+**Before pushing changes (REQUIRED):**
+1. Run `just ci-dev` successfully
 2. Ensure all tests pass
 3. Commit your changes
 4. Push to the remote branch
 
-**Never skip `just ci` before finalization** - it prevents CI failures and wasted time.
+**Before creating a pull request (REQUIRED):**
+1. Run `just ci` successfully (full validation ~3.5-7m)
+2. Ensure all tests and integration tests pass
+3. Create the pull request
+
+**Never skip these validation steps** - they prevent CI failures and wasted time.
 ## Coding Standards
 
 ### DRY (Don't Repeat Yourself)

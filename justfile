@@ -217,9 +217,10 @@ ci-lint target="":
     @just lint {{target}}
     @echo "Lint checks complete!"
 
-# Fast CI for incremental development (agents should use this)
-# Skips slow integration tests - run full 'ci' before creating PR
+# Fast CI for incremental development (REQUIRED before pushing)
+# Runs clippy + lib/bin tests, skips slow integration tests
 # Timing: ~80s with code changes, ~3s without changes (vs 213s for full incremental ci)
+# NOTE: Full 'just ci' is still required before creating PR
 ci-dev target="":
     #!/usr/bin/env bash
     echo "Running developer CI (incremental, skips integration tests)..."
@@ -231,16 +232,3 @@ ci-dev target="":
         cargo nextest run --release --lib --bins --failure-output=immediate-final
     fi
     echo "✓ Dev CI passed! Run 'just ci' before finalizing PR."
-
-# Ultra-fast smoke test (basic validation only)
-# Timing: ~3-5s
-ci-smoke target="":
-    #!/usr/bin/env bash
-    echo "Running smoke test..."
-    if [ -n "{{target}}" ]; then
-        cargo nextest run --release --lib --target {{target}}
-    else
-        cargo nextest run --release --lib
-    fi
-    just test-cli-help {{target}}
-    echo "✓ Smoke test passed!"

@@ -134,7 +134,7 @@ ci-debug:
 ### Immediate Action (Add to justfile)
 
 ```bash
-# Fast CI for incremental development (agents should use this)
+# Fast CI for incremental development (REQUIRED before pushing)
 ci-dev:
     @echo "Running developer CI (incremental)..."
     @cargo clippy --all-targets -- -D warnings
@@ -142,12 +142,7 @@ ci-dev:
     @cargo nextest run --release --bins --failure-output=immediate-final
     @echo "✓ Dev CI passed! Run 'just ci' before finalizing PR."
 
-# Ultra-fast smoke test (basic validation)
-ci-smoke:
-    @cargo nextest run --release --lib
-    @./target/release/beaker --help
-
-# Full CI (use before creating PR)
+# Full CI (REQUIRED before creating PR)
 ci:
     @echo "Running full CI workflow..."
     @just build-release
@@ -158,41 +153,38 @@ ci:
 
 ### Updated Development Workflow
 
-**During development (agents):**
+**During development and before pushing (REQUIRED):**
 ```bash
-just ci-dev  # 10-30s incremental
+just ci-dev  # 80s with changes, ~3s without
 ```
 
-**Before finalizing PR:**
+**Before creating PR (REQUIRED):**
 ```bash
 just ci      # 3.5-7m full validation
-```
-
-**Quick sanity check:**
-```bash
-just ci-smoke  # 5-10s
 ```
 
 ## Expected Time Savings
 
 | Command | Time (clean) | Time (incremental) | Use Case |
 |---------|--------------|-------------------|----------|
-| `just ci` | 430s (7m) | 213s (3.5m) | Final validation before PR |
-| `just ci-dev` | 120s (2m) | **15-30s** | **Agent development (RECOMMENDED)** |
-| `just ci-smoke` | 60s (1m) | **5-10s** | Quick sanity check |
+| `just ci` | 430s (7m) | 213s (3.5m) | Final validation before PR (REQUIRED) |
+| `just ci-dev` | 120s (2m) | **80s → 3s** | **Before pushing (REQUIRED)** |
 
-**Result:** Agents can validate changes in 15-30 seconds instead of 3.5-4 minutes (**92% faster**)
+**Result:** Agents can validate changes in 80s (or 3s when re-validating) instead of 3.5-4 minutes (**62-99% faster**)
 
 ## Implementation Priority
 
-1. ✅ **HIGH:** Add `ci-dev` command to justfile (immediate 92% speedup for agents)
-2. **MEDIUM:** Document that cargo-nextest should be pre-installed
-3. **MEDIUM:** Consider marking slow integration tests with `#[ignore]`
-4. **LOW:** Investigate why collision tests take 60+ seconds
-5. **LOW:** Evaluate sccache for build caching
+1. ✅ **HIGH:** Add `ci-dev` command to justfile (immediate 62-99% speedup for agents)
+2. ✅ **HIGH:** Require `ci-dev` before pushing (prevents slow iteration)
+3. **MEDIUM:** Document that cargo-nextest should be pre-installed
+4. **MEDIUM:** Consider marking slow integration tests with `#[ignore]`
+5. **LOW:** Investigate why collision tests take 60+ seconds
+6. **LOW:** Evaluate sccache for build caching
 
 ## Conclusion
 
-The current `just ci` is optimized for CI/CD pipelines (comprehensive validation), not for rapid iteration. Adding `ci-dev` gives agents a 92% faster feedback loop while maintaining quality through full `just ci` before PR creation.
+The current `just ci` is optimized for CI/CD pipelines (comprehensive validation), not for rapid iteration. Adding `ci-dev` as a required step before pushing gives agents a 62-99% faster feedback loop while maintaining quality through full `just ci` before PR creation.
 
-**Recommended next step:** Add the `ci-dev` and `ci-smoke` recipes to `justfile`.
+**Workflow:**
+- **Before pushing:** `just ci-dev` (REQUIRED, 80s with changes / 3s without)
+- **Before PR:** `just ci` (REQUIRED, 3.5-7m full validation)
