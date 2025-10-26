@@ -117,9 +117,33 @@ Using subagent-driven development to implement the bulk/directory mode feature f
 
 ---
 
+## Task 6: Start Background Processing Thread ✅
+
+**Status:** COMPLETED
+**Commit:** 91993662e259e3f1a0072bbea8ed04c1974773ef
+**Pushed:** Pending
+
+### Implementation
+- Modified `beaker-gui/src/views/directory.rs`:
+  - Added `start_processing()` method that spawns background thread
+  - Creates MPSC channel for progress events
+  - Background thread runs `beaker::detection::run_detection_with_options()`
+  - Passes progress callback and cancel flag to detection
+  - Creates temp output directory for results
+
+### Tests
+- Added `test_start_processing_creates_thread` - PASSED
+- All 179 tests passed
+
+### Notes
+- Initially used wrong function name (`run_detection` vs `run_detection_with_options`)
+- Corrected to use the version that accepts progress channel and cancel flag
+
+---
+
 ## Next Tasks
 
-- [ ] Task 6: Start Background Processing Thread
+- [ ] Task 7: Call start_processing When DirectoryView Created
 - [ ] Task 7: Call start_processing When DirectoryView Created
 - [ ] Task 8: Handle Progress Events in DirectoryView
 - [ ] Task 9: Poll Progress Events in DirectoryView show() Method
