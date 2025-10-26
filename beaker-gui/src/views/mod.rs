@@ -1,10 +1,10 @@
 pub mod detection;
-pub mod welcome;
 mod directory;
+pub mod welcome;
 
 pub use detection::DetectionView;
+pub use directory::DirectoryView;
 pub use welcome::{WelcomeAction, WelcomeView};
-pub use directory::{DirectoryView, ProcessingStatus, ImageState};
 
 #[cfg(test)]
 mod tests {

@@ -42,6 +42,7 @@ pub struct ImageState {
     pub status: ProcessingStatus,
     // Will be populated after processing
     pub detections: Vec<crate::views::detection::Detection>,
+    #[allow(dead_code)] // TODO: Implement thumbnail display
     pub thumbnail: Option<egui::TextureHandle>,
 }
 
@@ -61,8 +62,11 @@ pub struct DirectoryView {
     all_detections: Vec<DetectionRef>,
 
     // Filter state
+    #[allow(dead_code)] // TODO: Implement quality filtering
     show_good: bool,
+    #[allow(dead_code)]
     show_unknown: bool,
+    #[allow(dead_code)]
     show_bad: bool,
 }
 
@@ -108,8 +112,7 @@ impl DirectoryView {
         self.progress_receiver = Some(rx);
 
         // Create temp output directory
-        let temp_dir = std::env::temp_dir()
-            .join(format!("beaker-gui-bulk-{}", std::process::id()));
+        let temp_dir = std::env::temp_dir().join(format!("beaker-gui-bulk-{}", std::process::id()));
         self.output_dir = Some(temp_dir.clone());
 
         // Collect paths to process
@@ -153,6 +156,7 @@ impl DirectoryView {
                 model_url: None,
                 model_checksum: None,
                 quality_results: None,
+                triage_params: None,
             };
 
             // Run detection with progress callback
@@ -186,7 +190,8 @@ impl DirectoryView {
             beaker::ProcessingEvent::ImageSuccess { path, index } => {
                 if index < self.images.len() {
                     // Find TOML file
-                    let stem = path.file_stem()
+                    let stem = path
+                        .file_stem()
                         .and_then(|s| s.to_str())
                         .unwrap_or("unknown");
 
@@ -199,8 +204,8 @@ impl DirectoryView {
                     };
 
                     // Load detections
-                    let detections = Self::load_detections_from_toml(&toml_path)
-                        .unwrap_or_default();
+                    let detections =
+                        Self::load_detections_from_toml(&toml_path).unwrap_or_default();
 
                     let detections_count = detections.len();
 
@@ -248,8 +253,10 @@ impl DirectoryView {
             }
         }
 
-        eprintln!("[DirectoryView] Built aggregate detection list: {} total detections",
-            self.all_detections.len());
+        eprintln!(
+            "[DirectoryView] Built aggregate detection list: {} total detections",
+            self.all_detections.len()
+        );
     }
 
     /// Poll for progress events from background thread
@@ -270,7 +277,10 @@ impl DirectoryView {
 
         // Build aggregate list if processing just completed
         let is_processing = self.images.iter().any(|img| {
-            matches!(img.status, ProcessingStatus::Waiting | ProcessingStatus::Processing)
+            matches!(
+                img.status,
+                ProcessingStatus::Waiting | ProcessingStatus::Processing
+            )
         });
 
         if !is_processing && self.all_detections.is_empty() {
@@ -340,7 +350,12 @@ impl DirectoryView {
             // Progress bar
             ui.add(
                 egui::ProgressBar::new(progress)
-                    .text(format!("{}/{} ({:.0}%)", completed, total, progress * 100.0))
+                    .text(format!(
+                        "{}/{} ({:.0}%)",
+                        completed,
+                        total,
+                        progress * 100.0
+                    ))
                     .desired_width(600.0),
             );
 
@@ -370,22 +385,31 @@ impl DirectoryView {
             ui.label(egui::RichText::new("Images:").size(16.0));
             ui.add_space(10.0);
 
-            egui::ScrollArea::vertical().max_height(400.0).show(ui, |ui| {
-                for img in &self.images {
-                    let filename = img
-                        .path
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or("unknown");
+            egui::ScrollArea::vertical()
+                .max_height(400.0)
+                .show(ui, |ui| {
+                    for img in &self.images {
+                        let filename = img
+                            .path
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("unknown");
 
-                    ui.horizontal(|ui| {
-                        match &img.status {
+                        ui.horizontal(|ui| match &img.status {
                             ProcessingStatus::Waiting => {
-                                ui.label(egui::RichText::new("⏸").color(egui::Color32::GRAY).size(16.0));
+                                ui.label(
+                                    egui::RichText::new("⏸")
+                                        .color(egui::Color32::GRAY)
+                                        .size(16.0),
+                                );
                                 ui.label(format!("{}: Waiting...", filename));
                             }
                             ProcessingStatus::Processing => {
-                                ui.label(egui::RichText::new("⏳").color(egui::Color32::BLUE).size(16.0));
+                                ui.label(
+                                    egui::RichText::new("⏳")
+                                        .color(egui::Color32::BLUE)
+                                        .size(16.0),
+                                );
                                 ui.label(format!("{}: Processing...", filename));
                             }
                             ProcessingStatus::Success {
@@ -394,20 +418,27 @@ impl DirectoryView {
                                 unknown_count,
                                 ..
                             } => {
-                                ui.label(egui::RichText::new("✓").color(egui::Color32::GREEN).size(16.0));
+                                ui.label(
+                                    egui::RichText::new("✓")
+                                        .color(egui::Color32::GREEN)
+                                        .size(16.0),
+                                );
                                 ui.label(format!(
                                     "{}: {} detections ({} good, {} unknown)",
                                     filename, detections_count, good_count, unknown_count
                                 ));
                             }
                             ProcessingStatus::Error { message } => {
-                                ui.label(egui::RichText::new("⚠").color(egui::Color32::RED).size(16.0));
+                                ui.label(
+                                    egui::RichText::new("⚠")
+                                        .color(egui::Color32::RED)
+                                        .size(16.0),
+                                );
                                 ui.label(format!("{}: {}", filename, message));
                             }
-                        }
-                    });
-                }
-            });
+                        });
+                    }
+                });
         });
     }
 
@@ -434,9 +465,11 @@ impl DirectoryView {
         // Header
         ui.horizontal(|ui| {
             ui.heading(format!("Gallery: {}", self.directory_path.display()));
-            ui.label(format!("({} images, {} detections)",
+            ui.label(format!(
+                "({} images, {} detections)",
                 self.images.len(),
-                self.all_detections.len()));
+                self.all_detections.len()
+            ));
         });
 
         ui.add_space(10.0);
@@ -464,10 +497,9 @@ impl DirectoryView {
             ui.separator();
 
             // Right panel: Aggregate detection list
-            egui::ScrollArea::vertical()
-                .show(ui, |ui| {
-                    self.show_aggregate_detection_list(ui);
-                });
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                self.show_aggregate_detection_list(ui);
+            });
         });
     }
 
@@ -504,7 +536,9 @@ impl DirectoryView {
             let image_state = &self.images[det_ref.image_idx];
             let detection = &image_state.detections[det_ref.detection_idx];
 
-            let filename = image_state.path.file_name()
+            let filename = image_state
+                .path
+                .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("unknown");
 
@@ -538,7 +572,9 @@ impl DirectoryView {
         ui.add_space(10.0);
 
         for (idx, image_state) in self.images.iter().enumerate() {
-            let filename = image_state.path.file_name()
+            let filename = image_state
+                .path
+                .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("unknown");
 
@@ -565,7 +601,12 @@ impl DirectoryView {
 
             // Show status icon
             let status_icon = match &image_state.status {
-                ProcessingStatus::Success { good_count, unknown_count, bad_count, .. } => {
+                ProcessingStatus::Success {
+                    good_count,
+                    unknown_count,
+                    bad_count,
+                    ..
+                } => {
                     format!("  ✓{} ?{} ✗{}", good_count, unknown_count, bad_count)
                 }
                 ProcessingStatus::Error { .. } => "  ⚠ Error".to_string(),
@@ -589,7 +630,11 @@ impl DirectoryView {
                 self.navigate_previous_image();
             }
 
-            ui.label(format!("{} / {}", self.current_image_idx + 1, self.images.len()));
+            ui.label(format!(
+                "{} / {}",
+                self.current_image_idx + 1,
+                self.images.len()
+            ));
 
             if ui.button("Next →").clicked() {
                 self.navigate_next_image();
@@ -600,7 +645,9 @@ impl DirectoryView {
 
         // Get current image data (after navigation buttons which may have changed index)
         let current_image = &self.images[self.current_image_idx];
-        let filename = current_image.path.file_name()
+        let filename = current_image
+            .path
+            .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("unknown");
 
@@ -631,7 +678,9 @@ impl DirectoryView {
     }
 
     /// Load detection data from TOML file
-    fn load_detections_from_toml(toml_path: &PathBuf) -> anyhow::Result<Vec<crate::views::detection::Detection>> {
+    fn load_detections_from_toml(
+        toml_path: &PathBuf,
+    ) -> anyhow::Result<Vec<crate::views::detection::Detection>> {
         let toml_data = std::fs::read_to_string(toml_path)?;
         let toml_value: toml::Value = toml::from_str(&toml_data)?;
 
@@ -662,10 +711,22 @@ impl DirectoryView {
                         .and_then(|v| v.as_float())
                         .map(|v| v as f32);
 
-                    let x1 = det_table.get("x1").and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
-                    let y1 = det_table.get("y1").and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
-                    let x2 = det_table.get("x2").and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
-                    let y2 = det_table.get("y2").and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
+                    let x1 = det_table
+                        .get("x1")
+                        .and_then(|v| v.as_float())
+                        .unwrap_or(0.0) as f32;
+                    let y1 = det_table
+                        .get("y1")
+                        .and_then(|v| v.as_float())
+                        .unwrap_or(0.0) as f32;
+                    let x2 = det_table
+                        .get("x2")
+                        .and_then(|v| v.as_float())
+                        .unwrap_or(0.0) as f32;
+                    let y2 = det_table
+                        .get("y2")
+                        .and_then(|v| v.as_float())
+                        .unwrap_or(0.0) as f32;
 
                     detections.push(crate::views::detection::Detection {
                         class_name,
@@ -745,6 +806,7 @@ impl DirectoryView {
     }
 
     /// Jump to specific image by index
+    #[allow(dead_code)] // TODO: Expose this functionality in UI
     fn jump_to_image(&mut self, idx: usize) {
         if idx < self.images.len() {
             self.current_image_idx = idx;
@@ -838,7 +900,10 @@ mod tests {
 
         view.update_from_event(event);
 
-        assert!(matches!(view.images[0].status, ProcessingStatus::Processing));
+        assert!(matches!(
+            view.images[0].status,
+            ProcessingStatus::Processing
+        ));
     }
 
     #[test]
@@ -907,7 +972,10 @@ mod tests {
         view.poll_events();
 
         // Event should have been processed
-        assert!(matches!(view.images[0].status, ProcessingStatus::Processing));
+        assert!(matches!(
+            view.images[0].status,
+            ProcessingStatus::Processing
+        ));
     }
 
     #[test]
@@ -940,8 +1008,8 @@ mod tests {
 
     #[test]
     fn test_load_detection_data_from_toml() {
-        use tempfile::TempDir;
         use std::fs;
+        use tempfile::TempDir;
 
         let temp_dir = TempDir::new().unwrap();
         let _img_path = temp_dir.path().join("test.jpg");
@@ -965,8 +1033,8 @@ detections = [
 
     #[test]
     fn test_update_from_event_loads_detections() {
-        use tempfile::TempDir;
         use std::fs;
+        use tempfile::TempDir;
 
         let temp_dir = TempDir::new().unwrap();
         let img_path = temp_dir.path().join("test.jpg");
@@ -982,10 +1050,7 @@ detections = [
 "#;
         fs::write(&toml_path, toml_content).unwrap();
 
-        let mut view = DirectoryView::new(
-            temp_dir.path().to_path_buf(),
-            vec![img_path.clone()],
-        );
+        let mut view = DirectoryView::new(temp_dir.path().to_path_buf(), vec![img_path.clone()]);
 
         // Set output directory so we can find TOML
         view.output_dir = Some(temp_dir.path().to_path_buf());
@@ -1002,7 +1067,11 @@ detections = [
 
         // Should have correct counts
         match &view.images[0].status {
-            ProcessingStatus::Success { detections_count, good_count, .. } => {
+            ProcessingStatus::Success {
+                detections_count,
+                good_count,
+                ..
+            } => {
                 assert_eq!(*detections_count, 1);
                 assert_eq!(*good_count, 1);
             }
@@ -1019,27 +1088,34 @@ detections = [
         let mut view = DirectoryView::new(dir_path, vec![img1, img2]);
 
         // Add detections to images
-        view.images[0].detections = vec![
-            crate::views::detection::Detection {
-                class_name: "head".to_string(),
-                confidence: 0.95,
-                blur_score: Some(0.1),
-                x1: 10.0, y1: 20.0, x2: 100.0, y2: 120.0,
-            },
-        ];
+        view.images[0].detections = vec![crate::views::detection::Detection {
+            class_name: "head".to_string(),
+            confidence: 0.95,
+            blur_score: Some(0.1),
+            x1: 10.0,
+            y1: 20.0,
+            x2: 100.0,
+            y2: 120.0,
+        }];
 
         view.images[1].detections = vec![
             crate::views::detection::Detection {
                 class_name: "head".to_string(),
                 confidence: 0.85,
                 blur_score: Some(0.3),
-                x1: 15.0, y1: 25.0, x2: 105.0, y2: 125.0,
+                x1: 15.0,
+                y1: 25.0,
+                x2: 105.0,
+                y2: 125.0,
             },
             crate::views::detection::Detection {
                 class_name: "head".to_string(),
                 confidence: 0.75,
                 blur_score: Some(0.5),
-                x1: 20.0, y1: 30.0, x2: 110.0, y2: 130.0,
+                x1: 20.0,
+                y1: 30.0,
+                x2: 110.0,
+                y2: 130.0,
             },
         ];
 
@@ -1103,27 +1179,34 @@ detections = [
         let mut view = DirectoryView::new(dir_path, vec![img1.clone(), img2.clone()]);
 
         // Add detections
-        view.images[0].detections = vec![
-            crate::views::detection::Detection {
-                class_name: "head".to_string(),
-                confidence: 0.95,
-                blur_score: None,
-                x1: 0.0, y1: 0.0, x2: 10.0, y2: 10.0,
-            },
-        ];
+        view.images[0].detections = vec![crate::views::detection::Detection {
+            class_name: "head".to_string(),
+            confidence: 0.95,
+            blur_score: None,
+            x1: 0.0,
+            y1: 0.0,
+            x2: 10.0,
+            y2: 10.0,
+        }];
 
         view.images[1].detections = vec![
             crate::views::detection::Detection {
                 class_name: "head".to_string(),
                 confidence: 0.85,
                 blur_score: None,
-                x1: 0.0, y1: 0.0, x2: 10.0, y2: 10.0,
+                x1: 0.0,
+                y1: 0.0,
+                x2: 10.0,
+                y2: 10.0,
             },
             crate::views::detection::Detection {
                 class_name: "head".to_string(),
                 confidence: 0.75,
                 blur_score: None,
-                x1: 0.0, y1: 0.0, x2: 10.0, y2: 10.0,
+                x1: 0.0,
+                y1: 0.0,
+                x2: 10.0,
+                y2: 10.0,
             },
         ];
 
@@ -1155,23 +1238,25 @@ detections = [
         let mut view = DirectoryView::new(dir_path, vec![img1.clone(), img2.clone()]);
 
         // Add detections
-        view.images[0].detections = vec![
-            crate::views::detection::Detection {
-                class_name: "head".to_string(),
-                confidence: 0.95,
-                blur_score: None,
-                x1: 0.0, y1: 0.0, x2: 10.0, y2: 10.0,
-            },
-        ];
+        view.images[0].detections = vec![crate::views::detection::Detection {
+            class_name: "head".to_string(),
+            confidence: 0.95,
+            blur_score: None,
+            x1: 0.0,
+            y1: 0.0,
+            x2: 10.0,
+            y2: 10.0,
+        }];
 
-        view.images[1].detections = vec![
-            crate::views::detection::Detection {
-                class_name: "head".to_string(),
-                confidence: 0.85,
-                blur_score: None,
-                x1: 0.0, y1: 0.0, x2: 10.0, y2: 10.0,
-            },
-        ];
+        view.images[1].detections = vec![crate::views::detection::Detection {
+            class_name: "head".to_string(),
+            confidence: 0.85,
+            blur_score: None,
+            x1: 0.0,
+            y1: 0.0,
+            x2: 10.0,
+            y2: 10.0,
+        }];
 
         view.build_aggregate_detection_list();
 
