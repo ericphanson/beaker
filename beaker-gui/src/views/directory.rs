@@ -1,5 +1,12 @@
 // File: beaker-gui/src/views/directory.rs
 
+// VISUAL TEST: Gallery UI
+// - Should show directory path at top
+// - Should show grid of image thumbnails (placeholder boxes for now)
+// - Each thumbnail should show filename
+// - Should show detection count badge on each thumbnail
+// - Clicking thumbnail should update current_image_idx
+
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::Receiver;
@@ -398,7 +405,115 @@ impl DirectoryView {
     }
 
     fn show_gallery_ui(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui) {
-        ui.label("Gallery view - coming soon");
+        // Header
+        ui.horizontal(|ui| {
+            ui.heading(format!("Gallery: {}", self.directory_path.display()));
+            ui.label(format!("({} images, {} detections)",
+                self.images.len(),
+                self.all_detections.len()));
+        });
+
+        ui.add_space(10.0);
+        ui.separator();
+        ui.add_space(10.0);
+
+        // Two-panel layout: Gallery + Current Image
+        ui.horizontal(|ui| {
+            // Left panel: Thumbnail grid
+            egui::ScrollArea::vertical()
+                .max_width(300.0)
+                .show(ui, |ui| {
+                    self.show_thumbnail_grid(ui);
+                });
+
+            ui.separator();
+
+            // Right panel: Current image + detections
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                self.show_current_image(ui);
+            });
+        });
+    }
+
+    fn show_thumbnail_grid(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Images");
+        ui.add_space(10.0);
+
+        for (idx, image_state) in self.images.iter().enumerate() {
+            let filename = image_state.path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown");
+
+            let is_selected = idx == self.current_image_idx;
+
+            // Thumbnail button (placeholder for now)
+            let button_text = if is_selected {
+                format!("▶ {}", filename)
+            } else {
+                format!("  {}", filename)
+            };
+
+            let response = ui.selectable_label(is_selected, button_text);
+
+            if response.clicked() {
+                self.current_image_idx = idx;
+            }
+
+            // Show detection count badge
+            let det_count = image_state.detections.len();
+            if det_count > 0 {
+                ui.label(format!("  {} detections", det_count));
+            }
+
+            // Show status icon
+            let status_icon = match &image_state.status {
+                ProcessingStatus::Success { good_count, unknown_count, bad_count, .. } => {
+                    format!("  ✓{} ?{} ✗{}", good_count, unknown_count, bad_count)
+                }
+                ProcessingStatus::Error { .. } => "  ⚠ Error".to_string(),
+                _ => "  ...".to_string(),
+            };
+            ui.label(egui::RichText::new(status_icon).size(12.0));
+
+            ui.add_space(5.0);
+        }
+    }
+
+    fn show_current_image(&self, ui: &mut egui::Ui) {
+        if self.current_image_idx >= self.images.len() {
+            ui.label("No image selected");
+            return;
+        }
+
+        let current_image = &self.images[self.current_image_idx];
+        let filename = current_image.path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown");
+
+        ui.heading(filename);
+        ui.add_space(10.0);
+
+        // Placeholder for image display
+        ui.label("[Image will be displayed here]");
+        ui.add_space(20.0);
+
+        // Show detections list
+        ui.heading("Detections");
+        ui.add_space(10.0);
+
+        if current_image.detections.is_empty() {
+            ui.label("No detections");
+        } else {
+            for (idx, det) in current_image.detections.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.label(format!("{}.", idx + 1));
+                    ui.label(format!("{}: {:.2}", det.class_name, det.confidence));
+                    if let Some(blur) = det.blur_score {
+                        ui.label(format!("blur: {:.2}", blur));
+                    }
+                });
+            }
+        }
     }
 
     /// Load detection data from TOML file
