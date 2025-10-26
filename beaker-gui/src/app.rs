@@ -23,6 +23,7 @@ impl View for DetectionView {
 enum AppState {
     Welcome(WelcomeView),
     Detection(DetectionView),
+    Directory(crate::views::DirectoryView),
 }
 
 pub struct BeakerApp {
@@ -233,6 +234,24 @@ impl eframe::App for BeakerApp {
             AppState::Detection(detection_view) => {
                 detection_view.show(ctx, ui);
             }
+            AppState::Directory(directory_view) => {
+                directory_view.show(ctx, ui);
+            }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_app_state_supports_directory_view() {
+        let dir_view = crate::views::DirectoryView::new(
+            PathBuf::from("/tmp"),
+            vec![PathBuf::from("/tmp/img1.jpg")],
+        );
+        let _state = AppState::Directory(dir_view);
+        // If this compiles, AppState has Directory variant
     }
 }
