@@ -155,7 +155,8 @@ impl ModelProcessor for QualityProcessor {
                 .join(format!("quality_debug_images_{input_stem}"));
 
             // Load and preprocess the image for debug visualization
-            let img = image::open(image_path).context("Failed to open image for debug visualization")?;
+            let img =
+                image::open(image_path).context("Failed to open image for debug visualization")?;
             let input_array = preprocess_image_for_quality(&img)?;
 
             // Generate debug images using blur_weights_from_nchw
@@ -219,8 +220,7 @@ fn preprocess_image_for_quality(img: &image::DynamicImage) -> Result<ndarray::Ar
 
 /// Load ONNX session with default model path
 pub fn load_onnx_session_default() -> Result<Session> {
-    let model_dir = std::env::var("ONNX_MODEL_CACHE_DIR")
-        .unwrap_or_else(|_| "models".to_string());
+    let model_dir = std::env::var("ONNX_MODEL_CACHE_DIR").unwrap_or_else(|_| "models".to_string());
     let model_path = Path::new(&model_dir).join("quality_model.onnx");
 
     // Read model bytes
@@ -246,8 +246,7 @@ pub fn compute_quality_raw(
     session: &mut Session,
 ) -> Result<QualityRawData> {
     // Load and preprocess image
-    let img = image::open(path.as_ref())
-        .context("Failed to open image")?;
+    let img = image::open(path.as_ref()).context("Failed to open image")?;
 
     let input_width = img.width();
     let input_height = img.height();

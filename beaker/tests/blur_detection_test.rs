@@ -1,4 +1,6 @@
-use beaker::blur_detection::{apply_tenengrad_params, compute_raw_tenengrad, compute_weights, fuse_probabilities};
+use beaker::blur_detection::{
+    apply_tenengrad_params, compute_raw_tenengrad, compute_weights, fuse_probabilities,
+};
 use beaker::quality_types::QualityParams;
 use ndarray::{Array2, Array4};
 

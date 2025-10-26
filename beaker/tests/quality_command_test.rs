@@ -37,7 +37,7 @@ fn test_quality_command_custom_params() {
 
     // Test with stricter blur detection
     let strict_params = QualityParams {
-        tau_ten_224: 0.01,  // More sensitive to blur
+        tau_ten_224: 0.01, // More sensitive to blur
         ..Default::default()
     };
 

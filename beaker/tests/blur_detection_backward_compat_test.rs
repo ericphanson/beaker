@@ -33,7 +33,10 @@ fn test_blur_weights_from_nchw_produces_same_results() {
     let (w20, _p20, _t20, global_blur) = blur_weights_from_nchw(&img_nchw, None);
 
     // High contrast = low blur probability
-    assert!(global_blur < 0.5, "High contrast should have low blur probability");
+    assert!(
+        global_blur < 0.5,
+        "High contrast should have low blur probability"
+    );
 
     // Weights should be close to 1.0 (low blur means high weight)
     let mean_weight: f32 = w20.iter().sum::<f32>() / 400.0;

@@ -1,10 +1,12 @@
 //! Visualization layer for quality assessment
 //! Renders heatmaps and overlays from quality data
 
-use crate::quality_types::{HeatmapStyle, ColorMap, QualityVisualization, QualityRawData, QualityScores};
-use image::{ImageBuffer, Rgba, RgbaImage, DynamicImage};
-use ndarray::Array2;
+use crate::quality_types::{
+    ColorMap, HeatmapStyle, QualityRawData, QualityScores, QualityVisualization,
+};
 use anyhow::Result;
+use image::{DynamicImage, ImageBuffer, Rgba, RgbaImage};
+use ndarray::Array2;
 
 /// Bilinear interpolation for smooth upscaling
 /// Samples a 2D array at fractional coordinates (u, v)
@@ -59,12 +61,7 @@ fn viridis_colormap(t: f32) -> Rgba<u8> {
     let g = ((5.0 * t - 9.5) * t + 4.5).clamp(0.0, 1.0);
     let b = ((-1.5 * t + 1.0) * t + 0.5).clamp(0.0, 1.0);
 
-    Rgba([
-        (r * 255.0) as u8,
-        (g * 255.0) as u8,
-        (b * 255.0) as u8,
-        255,
-    ])
+    Rgba([(r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8, 255])
 }
 
 // Plasma colormap (approximation)
@@ -74,12 +71,7 @@ fn plasma_colormap(t: f32) -> Rgba<u8> {
     let g = ((-4.0 * t + 4.0) * t).clamp(0.0, 1.0);
     let b = ((-1.5 * t + 0.5) * t + 0.9).clamp(0.0, 1.0);
 
-    Rgba([
-        (r * 255.0) as u8,
-        (g * 255.0) as u8,
-        (b * 255.0) as u8,
-        255,
-    ])
+    Rgba([(r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8, 255])
 }
 
 // Inferno colormap (approximation)
@@ -90,34 +82,21 @@ fn inferno_colormap(t: f32) -> Rgba<u8> {
     let g = g.clamp(0.0, 1.0);
     let b = ((10.0 * t - 7.0) * t + 0.1).clamp(0.0, 1.0);
 
-    Rgba([
-        (r * 255.0) as u8,
-        (g * 255.0) as u8,
-        (b * 255.0) as u8,
-        255,
-    ])
+    Rgba([(r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8, 255])
 }
 
 // Turbo colormap (approximation)
 fn turbo_colormap(t: f32) -> Rgba<u8> {
     // Simplified Turbo: blue -> cyan -> green -> yellow -> red
     let r = ((6.0 * t - 3.0) * t * t).clamp(0.0, 1.0);
-    let g = ((-4.0 * (t - 0.5).powi(2) + 1.0)).clamp(0.0, 1.0);
+    let g = (-4.0 * (t - 0.5).powi(2) + 1.0).clamp(0.0, 1.0);
     let b = ((-6.0 * t + 3.0) * (1.0 - t)).clamp(0.0, 1.0);
 
-    Rgba([
-        (r * 255.0) as u8,
-        (g * 255.0) as u8,
-        (b * 255.0) as u8,
-        255,
-    ])
+    Rgba([(r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8, 255])
 }
 
 /// Render a 20x20 data grid to an image buffer with colormap
-pub fn render_heatmap_to_buffer(
-    data: &[[f32; 20]; 20],
-    style: &HeatmapStyle,
-) -> Result<RgbaImage> {
+pub fn render_heatmap_to_buffer(data: &[[f32; 20]; 20], style: &HeatmapStyle) -> Result<RgbaImage> {
     let (width, height) = style.size;
     let mut img = ImageBuffer::new(width, height);
 
@@ -208,24 +187,18 @@ impl QualityVisualization {
         style: &HeatmapStyle,
     ) -> Result<Self> {
         Ok(Self {
-            blur_probability_heatmap: Some(
-                render_heatmap_to_buffer(&scores.blur_probability, style)?
-            ),
-            blur_weights_heatmap: Some(
-                render_heatmap_to_buffer(&scores.blur_weights, style)?
-            ),
-            tenengrad_heatmap: Some(
-                render_heatmap_to_buffer(&raw.tenengrad_224, style)?
-            ),
+            blur_probability_heatmap: Some(render_heatmap_to_buffer(
+                &scores.blur_probability,
+                style,
+            )?),
+            blur_weights_heatmap: Some(render_heatmap_to_buffer(&scores.blur_weights, style)?),
+            tenengrad_heatmap: Some(render_heatmap_to_buffer(&raw.tenengrad_224, style)?),
             blur_overlay: None, // Can render lazily if needed
         })
     }
 
     /// Render only blur probability heatmap (fast: ~3-4ms)
-    pub fn render_blur_only(
-        scores: &QualityScores,
-        style: &HeatmapStyle,
-    ) -> Result<RgbaImage> {
+    pub fn render_blur_only(scores: &QualityScores, style: &HeatmapStyle) -> Result<RgbaImage> {
         render_heatmap_to_buffer(&scores.blur_probability, style)
     }
 

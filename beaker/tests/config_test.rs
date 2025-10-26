@@ -1,4 +1,4 @@
-use beaker::config::{QualityConfig, BaseModelConfig};
+use beaker::config::{BaseModelConfig, QualityConfig};
 use beaker::quality_types::QualityParams;
 
 #[test]

@@ -1,7 +1,11 @@
-use beaker::quality_visualization::{bilinear_sample, apply_colormap, render_heatmap_to_buffer, composite_with_alpha, render_overlay};
-use beaker::quality_types::{ColorMap, HeatmapStyle, QualityRawData, QualityScores, QualityParams, QualityVisualization};
+use beaker::quality_types::{
+    ColorMap, HeatmapStyle, QualityParams, QualityRawData, QualityScores, QualityVisualization,
+};
+use beaker::quality_visualization::{
+    apply_colormap, bilinear_sample, composite_with_alpha, render_heatmap_to_buffer, render_overlay,
+};
+use image::{DynamicImage, Rgba, RgbaImage};
 use ndarray::Array2;
-use image::{RgbaImage, Rgba, DynamicImage};
 use std::time::SystemTime;
 
 #[test]
@@ -58,7 +62,13 @@ fn test_apply_colormap_all_variants() {
     let value = 0.5;
 
     // Test all colormaps produce valid colors
-    for colormap in [ColorMap::Viridis, ColorMap::Plasma, ColorMap::Inferno, ColorMap::Turbo, ColorMap::Grayscale] {
+    for colormap in [
+        ColorMap::Viridis,
+        ColorMap::Plasma,
+        ColorMap::Inferno,
+        ColorMap::Turbo,
+        ColorMap::Grayscale,
+    ] {
         let color = apply_colormap(value, colormap);
 
         // Alpha should always be 255
@@ -335,7 +345,8 @@ fn test_quality_visualization_render_overlay() {
 
     let style = HeatmapStyle::default();
 
-    let overlay = QualityVisualization::render_overlay_on_image(&test_img, &scores, &style).unwrap();
+    let overlay =
+        QualityVisualization::render_overlay_on_image(&test_img, &scores, &style).unwrap();
 
     // Overlay should match original image size
     assert_eq!(overlay.dimensions(), (640, 480));

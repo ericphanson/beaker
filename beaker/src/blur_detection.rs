@@ -29,10 +29,10 @@ use anyhow::Result;
 /// Raw Tenengrad computation results (parameter-independent)
 #[derive(Clone, Debug)]
 pub struct RawTenengradData {
-    pub t224: Array2<f32>,      // 20x20 Tenengrad scores at 224x224
-    pub t112: Array2<f32>,      // 20x20 Tenengrad scores at 112x112
-    pub median_224: f32,        // Median for adaptive thresholding
-    pub scale_ratio: f32,       // Scale ratio (112/224)
+    pub t224: Array2<f32>, // 20x20 Tenengrad scores at 224x224
+    pub t112: Array2<f32>, // 20x20 Tenengrad scores at 112x112
+    pub median_224: f32,   // Median for adaptive thresholding
+    pub scale_ratio: f32,  // Scale ratio (112/224)
 }
 
 /// Compute raw Tenengrad scores without applying parameters (expensive: ~2ms)
@@ -99,10 +99,7 @@ pub fn apply_tenengrad_params(
 }
 
 /// Fuse two probability maps (probabilistic OR)
-pub fn fuse_probabilities(
-    p224: &Array2<f32>,
-    p112: &Array2<f32>,
-) -> Array2<f32> {
+pub fn fuse_probabilities(p224: &Array2<f32>, p112: &Array2<f32>) -> Array2<f32> {
     let mut p = Array2::<f32>::zeros((20, 20));
     ndarray::Zip::from(&mut p)
         .and(p224)
@@ -114,10 +111,7 @@ pub fn fuse_probabilities(
 }
 
 /// Compute blur weights from probabilities
-pub fn compute_weights(
-    blur_probability: &Array2<f32>,
-    params: &QualityParams,
-) -> Array2<f32> {
+pub fn compute_weights(blur_probability: &Array2<f32>, params: &QualityParams) -> Array2<f32> {
     blur_probability.mapv(|p| {
         let w: f32 = 1.0 - params.alpha * p;
         w.clamp(params.min_weight, 1.0)
@@ -502,8 +496,7 @@ pub fn blur_weights_from_nchw(
     out_dir: Option<PathBuf>,
 ) -> (Array2<f32>, Array2<f32>, Array2<f32>, f32) {
     // Use new layered functions internally
-    let raw = compute_raw_tenengrad(x)
-        .expect("Failed to compute raw Tenengrad");
+    let raw = compute_raw_tenengrad(x).expect("Failed to compute raw Tenengrad");
 
     // Use default parameters (matches old hardcoded constants)
     let params = QualityParams::default();

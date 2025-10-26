@@ -109,7 +109,7 @@ fn test_quality_scores_compute_no_blur() {
         input_height: 480,
         paq2piq_global: 90.0,
         paq2piq_local: [[80u8; 20]; 20],
-        tenengrad_224: [[1.0f32; 20]; 20],  // Very high gradient
+        tenengrad_224: [[1.0f32; 20]; 20], // Very high gradient
         tenengrad_112: [[0.5f32; 20]; 20],
         median_tenengrad_224: 0.8,
         scale_ratio: 0.5,
@@ -121,8 +121,14 @@ fn test_quality_scores_compute_no_blur() {
     let scores = QualityScores::compute(&raw, &params);
 
     // Low blur probability should mean blur_score is low
-    assert!(scores.blur_score < 0.5, "Sharp image should have low blur score");
+    assert!(
+        scores.blur_score < 0.5,
+        "Sharp image should have low blur score"
+    );
 
     // Low blur means high weight, so final_score should be close to paq2piq
-    assert!(scores.final_score > 85.0, "Sharp image should preserve quality score");
+    assert!(
+        scores.final_score > 85.0,
+        "Sharp image should preserve quality score"
+    );
 }

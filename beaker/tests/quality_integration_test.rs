@@ -55,7 +55,7 @@ fn test_end_to_end_with_custom_params() {
 
     // Compute scores with stricter blur detection (lower tau)
     let params_strict = QualityParams {
-        tau_ten_224: 0.01,  // Lower threshold = more sensitive to blur
+        tau_ten_224: 0.01, // Lower threshold = more sensitive to blur
         ..Default::default()
     };
     let scores_strict = QualityScores::compute(&raw, &params_strict);
@@ -66,6 +66,8 @@ fn test_end_to_end_with_custom_params() {
 
     // Stricter params should detect more blur (higher blur_score)
     // Note: This may not always be true depending on image, but generally holds
-    println!("Default blur: {}, Strict blur: {}",
-             scores_default.blur_score, scores_strict.blur_score);
+    println!(
+        "Default blur: {}, Strict blur: {}",
+        scores_default.blur_score, scores_strict.blur_score
+    );
 }

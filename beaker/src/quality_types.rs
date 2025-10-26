@@ -1,8 +1,8 @@
 //! Data structures for quality assessment
 
-use std::time::SystemTime;
-use serde::Serialize;
 use image::RgbaImage;
+use serde::Serialize;
+use std::time::SystemTime;
 
 /// Tunable parameters for quality heuristics
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -55,14 +55,14 @@ pub struct QualityRawData {
     pub input_height: u32,
 
     /// ONNX model outputs (parameter-independent)
-    pub paq2piq_global: f32,           // Global quality score (0-100)
+    pub paq2piq_global: f32, // Global quality score (0-100)
     pub paq2piq_local: [[u8; 20]; 20], // 20x20 local quality grid
 
     /// Raw blur detection (parameter-independent)
-    pub tenengrad_224: [[f32; 20]; 20],  // Raw Tenengrad at 224x224
-    pub tenengrad_112: [[f32; 20]; 20],  // Raw Tenengrad at 112x112
-    pub median_tenengrad_224: f32,       // Median for adaptive thresholding
-    pub scale_ratio: f32,                // 112/224 scale ratio
+    pub tenengrad_224: [[f32; 20]; 20], // Raw Tenengrad at 224x224
+    pub tenengrad_112: [[f32; 20]; 20], // Raw Tenengrad at 112x112
+    pub median_tenengrad_224: f32,      // Median for adaptive thresholding
+    pub scale_ratio: f32,               // 112/224 scale ratio
 
     /// Provenance
     pub model_version: String,
@@ -77,25 +77,33 @@ pub struct QualityScores {
 
     /// Component scores (for analysis)
     pub paq2piq_score: f32,
-    pub blur_score: f32,      // Global blur probability (0-1)
+    pub blur_score: f32, // Global blur probability (0-1)
 
     /// Intermediate results (20x20 grids)
-    pub blur_probability: [[f32; 20]; 20],  // Fused blur probability
-    pub blur_weights: [[f32; 20]; 20],      // Weights (1 - alpha*P)
+    pub blur_probability: [[f32; 20]; 20], // Fused blur probability
+    pub blur_weights: [[f32; 20]; 20], // Weights (1 - alpha*P)
 
     /// Parameters used to compute these scores
     pub params: QualityParams,
 }
 
-use crate::blur_detection::{apply_tenengrad_params, fuse_probabilities, compute_weights};
+use crate::blur_detection::{apply_tenengrad_params, compute_weights, fuse_probabilities};
 
 impl QualityScores {
     /// Compute scores from raw data and parameters (cheap: <0.1ms)
     pub fn compute(raw: &QualityRawData, params: &QualityParams) -> Self {
         // Convert arrays to ndarray for computation
         use ndarray::Array2;
-        let t224 = Array2::from_shape_vec((20, 20), raw.tenengrad_224.iter().flatten().copied().collect()).unwrap();
-        let t112 = Array2::from_shape_vec((20, 20), raw.tenengrad_112.iter().flatten().copied().collect()).unwrap();
+        let t224 = Array2::from_shape_vec(
+            (20, 20),
+            raw.tenengrad_224.iter().flatten().copied().collect(),
+        )
+        .unwrap();
+        let t112 = Array2::from_shape_vec(
+            (20, 20),
+            raw.tenengrad_112.iter().flatten().copied().collect(),
+        )
+        .unwrap();
 
         // Apply parameters to raw Tenengrad to get probabilities
         let (p224, p112) = apply_tenengrad_params(
@@ -123,9 +131,11 @@ impl QualityScores {
         }
 
         // Global blur score (mean probability)
-        let blur_score: f32 = blur_probability.iter()
+        let blur_score: f32 = blur_probability
+            .iter()
             .flat_map(|row| row.iter())
-            .sum::<f32>() / 400.0;
+            .sum::<f32>()
+            / 400.0;
 
         // Final combined score
         let w_mean = (1.0 - params.alpha * blur_score).clamp(params.min_weight, 1.0);
