@@ -211,10 +211,35 @@ Using subagent-driven development to implement the bulk/directory mode feature f
 
 ---
 
+## Task 10: Display Processing Progress UI ✅
+
+**Status:** COMPLETED
+**Commit:** 4ef188f497351db58cefd44fdfcc7d8b13c1fb7f
+**Pushed:** Pending
+
+### Implementation
+- Modified `beaker-gui/src/views/directory.rs`:
+  - Added `calculate_progress_stats()` helper method
+  - Added `show_processing_ui()` with progress bar and status list
+  - Added `show_gallery_ui()` placeholder
+  - Modified `show()` to branch between processing and gallery views
+  - Color-coded status icons: ⏸ waiting, ⏳ processing, ✓ success, ⚠ error
+  - Cancel button with atomic flag integration
+
+### Tests
+- Added `test_calculate_progress_stats` - PASSED
+- All 21 GUI tests passed
+
+### Notes
+- Resolved borrow checker issue by restructuring match arms
+- UI displays live progress as events arrive
+- Ready for detection data loading in next tasks
+
+---
+
 ## Next Tasks
 
-- [ ] Task 10: Display Processing Progress UI
-- [ ] Task 10: Display Processing Progress UI
+- [ ] Task 11: Load Detection Data from TOML After Processing
 - [ ] Task 11: Load Detection Data from TOML After Processing
 - [ ] Task 12: Load Detections After ImageSuccess Event
 - [ ] Task 13: Build Aggregate Detection List After Processing
