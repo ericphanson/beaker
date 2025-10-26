@@ -28,14 +28,6 @@ Each issue follows this structure:
 
 ### 🔴 CRITICAL (P0) - Must Fix Immediately
 
-#### Data Integrity
-- **[CRITICAL-02](CRITICAL-02-partial-download-corruption.md)**: Partial Downloads Leave Corrupt Files
-  - Interrupted downloads corrupt cache, must restart from 0%
-  - Wastes bandwidth on slow connections
-  - **Fix**: Atomic writes (temp file + rename)
-  - **Effort**: 0.5 day
-  - **Blocks**: Future resumable downloads enhancement
-
 #### User Experience
 - **[CRITICAL-04](CRITICAL-04-quality-command-zero-output.md)**: Quality Command Produces Zero Output
   - `beaker quality image.jpg` succeeds but creates no files
@@ -91,17 +83,12 @@ See **[MEDIUM-PRIORITY-ISSUES.md](MEDIUM-PRIORITY-ISSUES.md)** for 10 smaller is
 ### Phase 1: Critical Fixes (Week 1)
 **Goal**: Prevent data loss and corruption
 
-1. **CRITICAL-02** (partial downloads)
-   - Use atomic temp file writes
-   - **Effort**: 0.5 day
-   - **Deliverable**: Safe interrupted downloads
-
-2. **CRITICAL-04** (quality zero output)
+1. **CRITICAL-04** (quality zero output)
    - Make quality command always save metadata (simplest fix)
    - **Effort**: 0.5 day
    - **Deliverable**: Quality command produces visible results
 
-**Total Week 1**: 2 days of implementation
+**Total Week 1**: 0.5 day of implementation
 
 ### Phase 2: Validation & UX (Week 2)
 **Goal**: Consistent error handling and validation
@@ -146,7 +133,6 @@ Issues requiring maintainer decisions:
 
 | Issue | Decision | Options | Recommendation |
 |-------|----------|---------|----------------|
-| CRITICAL-02 | Temp file naming? | `.tmp` / `.{pid}.tmp` / `.{timestamp}.tmp` | `.tmp` (simple) |
 | CRITICAL-04 | Quality output? | Always metadata / Visualization / Require flag | Always metadata (simplest) |
 | CRITICAL-04 | If visualization? | Heatmap / Histogram / Side-by-side / Reuse debug | Reuse debug images |
 | UX-01 | Error type? | `String` / `anyhow::Error` / Custom enum | `String` (consistency) |
@@ -179,7 +165,7 @@ test -f image.beaker.toml || echo "FAIL"
 
 ### Phase 1 Complete When:
 - [x] Zero data corruption reports from concurrent downloads (CRITICAL-01 ✅ FIXED)
-- [x] Interrupted downloads clean up properly (CRITICAL-01 ✅ FIXED)
+- [x] Interrupted downloads clean up properly (CRITICAL-01 ✅ FIXED - CRITICAL-02 ✅ FIXED)
 - [x] Batch processing never loses files silently (CRITICAL-03 ✅ FIXED)
 - [ ] Quality command always produces output
 
