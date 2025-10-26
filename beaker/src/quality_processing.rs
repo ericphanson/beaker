@@ -1,15 +1,18 @@
+use crate::blur_detection::compute_raw_tenengrad;
 use crate::color_utils::symbols;
 use crate::config::QualityConfig;
 use crate::model_access::{ModelAccess, ModelInfo};
 use crate::onnx_session::ModelSource;
+use crate::quality_types::QualityRawData;
 use crate::shared_metadata::IoTiming;
-use anyhow::Result;
+use anyhow::{Context, Result};
+use cached::proc_macro::cached;
 use image::GenericImageView;
 use log::debug;
 use ort::{session::Session, value::Value};
 use serde::Serialize;
 use std::path::Path;
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 
 /// Quality model default model information
 pub fn get_default_quality_model_info() -> ModelInfo {
@@ -300,6 +303,102 @@ fn postprocess_quality_output(
         global_paq2piq_score,
         local_paq2piq_grid,
     ))
+}
+
+/// Load ONNX session with default model path
+pub fn load_onnx_session_default() -> Result<Session> {
+    let model_dir = std::env::var("ONNX_MODEL_CACHE_DIR")
+        .unwrap_or_else(|_| "models".to_string());
+    let model_path = Path::new(&model_dir).join("quality_model.onnx");
+
+    // Read model bytes
+    let bytes = std::fs::read(&model_path)
+        .with_context(|| format!("Failed to read model file: {}", model_path.display()))?;
+
+    // Create session from bytes
+    Session::builder()
+        .map_err(|e| anyhow::anyhow!("Failed to create session builder: {}", e))?
+        .commit_from_memory(&bytes)
+        .map_err(|e| anyhow::anyhow!("Failed to load ONNX model: {}", e))
+}
+
+/// Compute parameter-independent quality data (expensive: ~60ms, cached)
+#[cached(
+    size = 1000,
+    key = "String",
+    convert = r#"{ format!("{}", path.as_ref().display()) }"#,
+    result = true
+)]
+pub fn compute_quality_raw(
+    path: impl AsRef<Path>,
+    session: &mut Session,
+) -> Result<QualityRawData> {
+    // Load and preprocess image
+    let img = image::open(path.as_ref())
+        .context("Failed to open image")?;
+
+    let input_width = img.width();
+    let input_height = img.height();
+
+    // Preprocess for ONNX
+    let input_array = preprocess_image_for_quality(&img)?;
+
+    // Run ONNX inference
+    let input_name = session.inputs[0].name.clone();
+    let output_name = session.outputs[0].name.clone();
+    let input_value = Value::from_array(input_array.clone())
+        .map_err(|e| anyhow::anyhow!("Failed to create input value: {}", e))?;
+    let outputs = session
+        .run(ort::inputs![input_name.as_str() => &input_value])
+        .map_err(|e| anyhow::anyhow!("Failed to run inference: {}", e))?;
+
+    // Extract outputs
+    let output_view = outputs[output_name.as_str()]
+        .try_extract_array::<f32>()
+        .map_err(|e| anyhow::anyhow!("Failed to extract output array: {}", e))?;
+
+    // Parse ONNX outputs (same as current code)
+    let output_data = output_view
+        .as_slice()
+        .ok_or_else(|| anyhow::anyhow!("Failed to get output slice"))?;
+
+    let global_idx = 400;
+    let paq2piq_global = output_data[global_idx].clamp(0.0, 100.0);
+
+    let mut paq2piq_local = [[0u8; 20]; 20];
+    for i in 0..20 {
+        for j in 0..20 {
+            let idx = i * 20 + j;
+            let val = output_data[idx].clamp(0.0, 100.0);
+            paq2piq_local[i][j] = val as u8;
+        }
+    }
+
+    // Compute raw Tenengrad
+    let raw_tenengrad = compute_raw_tenengrad(&input_array)?;
+
+    // Convert ndarray to fixed array
+    let mut tenengrad_224 = [[0.0f32; 20]; 20];
+    let mut tenengrad_112 = [[0.0f32; 20]; 20];
+    for i in 0..20 {
+        for j in 0..20 {
+            tenengrad_224[i][j] = raw_tenengrad.t224[[i, j]];
+            tenengrad_112[i][j] = raw_tenengrad.t112[[i, j]];
+        }
+    }
+
+    Ok(QualityRawData {
+        input_width,
+        input_height,
+        paq2piq_global,
+        paq2piq_local,
+        tenengrad_224,
+        tenengrad_112,
+        median_tenengrad_224: raw_tenengrad.median_224,
+        scale_ratio: raw_tenengrad.scale_ratio,
+        model_version: "quality-model-v1".to_string(),
+        computed_at: SystemTime::now(),
+    })
 }
 
 #[cfg(test)]
