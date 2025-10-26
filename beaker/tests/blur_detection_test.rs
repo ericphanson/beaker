@@ -52,8 +52,8 @@ fn test_apply_tenengrad_params() {
     assert_eq!(p224.shape(), &[20, 20]);
     assert_eq!(p112.shape(), &[20, 20]);
     // All probabilities should be in [0, 1]
-    assert!(p224.iter().all(|&p| p >= 0.0 && p <= 1.0));
-    assert!(p112.iter().all(|&p| p >= 0.0 && p <= 1.0));
+    assert!(p224.iter().all(|&p| (0.0..=1.0).contains(&p)));
+    assert!(p112.iter().all(|&p| (0.0..=1.0).contains(&p)));
 }
 
 #[test]

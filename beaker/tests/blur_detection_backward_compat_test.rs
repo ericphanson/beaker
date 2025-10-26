@@ -13,7 +13,7 @@ fn test_blur_weights_from_nchw_still_works() {
     assert_eq!(w20.shape(), &[20, 20]);
     assert_eq!(p20.shape(), &[20, 20]);
     assert_eq!(t20.shape(), &[20, 20]);
-    assert!(global_blur >= 0.0 && global_blur <= 1.0);
+    assert!((0.0..=1.0).contains(&global_blur));
 }
 
 #[test]
