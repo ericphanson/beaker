@@ -221,6 +221,23 @@ impl DirectoryView {
         }
     }
 
+    /// Build flattened list of all detections across all images
+    fn build_aggregate_detection_list(&mut self) {
+        self.all_detections.clear();
+
+        for (image_idx, image_state) in self.images.iter().enumerate() {
+            for (detection_idx, _) in image_state.detections.iter().enumerate() {
+                self.all_detections.push(DetectionRef {
+                    image_idx,
+                    detection_idx,
+                });
+            }
+        }
+
+        eprintln!("[DirectoryView] Built aggregate detection list: {} total detections",
+            self.all_detections.len());
+    }
+
     /// Poll for progress events from background thread
     fn poll_events(&mut self) {
         // Collect events first to avoid borrow checker issues
@@ -235,6 +252,16 @@ impl DirectoryView {
         // Process collected events
         for event in events {
             self.update_from_event(event);
+        }
+
+        // Build aggregate list if processing just completed
+        let is_processing = self.images.iter().any(|img| {
+            matches!(img.status, ProcessingStatus::Waiting | ProcessingStatus::Processing)
+        });
+
+        if !is_processing && self.all_detections.is_empty() {
+            // Processing complete and we haven't built the list yet
+            self.build_aggregate_detection_list();
         }
     }
 
@@ -691,5 +718,46 @@ detections = [
             }
             _ => panic!("Expected Success status"),
         }
+    }
+
+    #[test]
+    fn test_build_aggregate_detection_list() {
+        let dir_path = PathBuf::from("/tmp/test");
+        let img1 = PathBuf::from("/tmp/test/img1.jpg");
+        let img2 = PathBuf::from("/tmp/test/img2.jpg");
+
+        let mut view = DirectoryView::new(dir_path, vec![img1, img2]);
+
+        // Add detections to images
+        view.images[0].detections = vec![
+            crate::views::detection::Detection {
+                class_name: "head".to_string(),
+                confidence: 0.95,
+                blur_score: Some(0.1),
+                x1: 10.0, y1: 20.0, x2: 100.0, y2: 120.0,
+            },
+        ];
+
+        view.images[1].detections = vec![
+            crate::views::detection::Detection {
+                class_name: "head".to_string(),
+                confidence: 0.85,
+                blur_score: Some(0.3),
+                x1: 15.0, y1: 25.0, x2: 105.0, y2: 125.0,
+            },
+            crate::views::detection::Detection {
+                class_name: "head".to_string(),
+                confidence: 0.75,
+                blur_score: Some(0.5),
+                x1: 20.0, y1: 30.0, x2: 110.0, y2: 130.0,
+            },
+        ];
+
+        view.build_aggregate_detection_list();
+
+        assert_eq!(view.all_detections.len(), 3);
+        assert_eq!(view.all_detections[0].image_idx, 0);
+        assert_eq!(view.all_detections[1].image_idx, 1);
+        assert_eq!(view.all_detections[2].image_idx, 1);
     }
 }
