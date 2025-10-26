@@ -152,5 +152,21 @@ test test_quality_params_default_values ... ok
 ---
 
 ### Task 10: Update quality Command to Use New API
+**Status:** ✅ Completed
+**Timestamp:** 2025-10-26
+**Commit:** 019c314096a7b6df033d8df145d8b2111b629db5
+
+**Implementation:**
+- Refactored QualityProcessor::process_single_image to use layered API
+- Created `beaker/tests/quality_command_test.rs` with 2 tests
+- Removed obsolete postprocess_quality_output() function
+- Code simplified: 82 additions, 121 deletions (net -39 lines)
+- All tests passing (2/2 for this task, 10/10 quality tests total)
+
+**Files Changed:** 2 files, 82 insertions(+), 121 deletions(-)
+
+---
+
+### Task 11: Refactor blur_weights_from_nchw() for Backward Compatibility
 **Status:** Starting
 **Timestamp:** 2025-10-26
