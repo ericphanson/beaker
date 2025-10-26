@@ -286,10 +286,33 @@ Using subagent-driven development to implement the bulk/directory mode feature f
 
 ---
 
+## Task 13: Build Aggregate Detection List After Processing ✅
+
+**Status:** COMPLETED
+**Commit:** 5b8736617ed6326cc3efc18263a8ccd7540eb4b4
+**Pushed:** Pending
+
+### Implementation
+- Modified `beaker-gui/src/views/directory.rs`:
+  - Added `build_aggregate_detection_list()` method
+  - Flattens all detections from all images into single list
+  - Modified `poll_events()` to automatically build list when processing completes
+  - Stores DetectionRef with image_idx and detection_idx
+
+### Tests
+- Added `test_build_aggregate_detection_list` - PASSED
+- All 24 GUI tests passed
+
+### Notes
+- List only builds once (checks if all_detections is empty)
+- Sets foundation for filtering and navigation in later tasks
+- Automatically triggers when no images are Waiting or Processing
+
+---
+
 ## Next Tasks
 
-- [ ] Task 13: Build Aggregate Detection List After Processing
-- [ ] Task 13: Build Aggregate Detection List After Processing
+- [ ] Task 14: Implement Basic Gallery UI
 - [ ] Task 14: Implement Basic Gallery UI
 - [ ] Task 15: Add Navigation Controls
 - [ ] Task 16: Display Aggregate Detection List Sidebar
