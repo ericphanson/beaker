@@ -441,11 +441,56 @@ Using subagent-driven development to implement the bulk/directory mode feature f
 
 ---
 
+## Task 19: Manual Integration Test ⏸
+
+**Status:** SKIPPED (requires user interaction)
+**Commit:** N/A
+**Pushed:** N/A
+
+### Notes
+This task requires manual testing with the GUI application:
+1. Create test folder with sample images
+2. Run `just build-release && ./target/release/beaker-gui`
+3. Open folder and verify:
+   - Progress UI displays with live updates
+   - Processing completes successfully
+   - Gallery UI appears with thumbnails
+   - Navigation works (buttons and keyboard)
+   - Detection list displays correctly
+   - Detection navigation works (J/K keys)
+
+**User can perform this test after the feature is merged.**
+
+---
+
+## Task 20: Commit Final Changes and Create Documentation ✅
+
+**Status:** COMPLETED
+**Commit:** aad6709218078b7ad08713ab180b0e43740eae1f
+**Pushed:** Pending
+
+### Implementation
+- Updated `beaker-gui/README.md`:
+  - Added Bulk/Directory Mode to Features section
+  - Added usage instructions for folder opening
+  - Added Keyboard Shortcuts section (←/→ for images, J/K for detections)
+  - Updated Architecture section with DirectoryView details
+  - Documented background thread architecture and progress channels
+
+### Documentation Highlights
+- Step-by-step folder mode usage
+- Complete keyboard shortcut reference
+- Technical architecture notes about DirectoryView
+
+### Notes
+- README already existed, updated with new feature documentation
+- Comprehensive documentation of all bulk mode functionality
+
+---
+
 ## Next Tasks
 
-- [ ] Task 19: Manual Integration Test
-- [ ] Task 19: Manual Integration Test
-- [ ] Task 20: Create Documentation
+- [ ] Task 21: Final Push
 - [ ] Task 21: Final Push
 
 ---
