@@ -27,8 +27,6 @@ pub enum MetadataCheck {
     DeviceUsed(&'static str, &'static str), // tool, device
     /// Verify configuration value
     ConfigValue(&'static str, &'static str, Value), // tool, field_path, expected_value
-    /// Verify timing is within bounds
-    TimingBound(&'static str, &'static str, f64, f64), // tool, field, min_ms, max_ms
     /// Verify output file was created
     OutputCreated(&'static str), // filename
     /// Verify execution provider
@@ -237,52 +235,6 @@ pub fn validate_metadata_check(metadata: &BeakerMetadata, check: &MetadataCheck,
                     }
                 }
             }
-        }
-
-        MetadataCheck::TimingBound(tool, field, min_ms, max_ms) => {
-            let timing_value = match *tool {
-                "detect" => {
-                    let detect_sections = metadata.detect.as_ref().unwrap_or_else(|| {
-                        panic!("Detect sections should exist for test {test_name}")
-                    });
-                    match *field {
-                        "execution.model_processing_time_ms" => detect_sections
-                            .execution
-                            .as_ref()
-                            .and_then(|e| e.model_processing_time_ms),
-                        "system.model_load_time_ms" => detect_sections
-                            .system
-                            .as_ref()
-                            .and_then(|s| s.model_load_time_ms),
-                        _ => panic!("Unknown timing field: {field}"),
-                    }
-                }
-                "cutout" => {
-                    let cutout_sections = metadata.cutout.as_ref().unwrap_or_else(|| {
-                        panic!("Cutout sections should exist for test {test_name}")
-                    });
-                    match *field {
-                        "execution.model_processing_time_ms" => cutout_sections
-                            .execution
-                            .as_ref()
-                            .and_then(|e| e.model_processing_time_ms),
-                        "system.model_load_time_ms" => cutout_sections
-                            .system
-                            .as_ref()
-                            .and_then(|s| s.model_load_time_ms),
-                        _ => panic!("Unknown timing field: {field}"),
-                    }
-                }
-                _ => panic!("Unknown tool: {tool}"),
-            };
-
-            assert!(
-                timing_value.is_some(),
-                "Timing field {field} should exist for {tool} in test {test_name}"
-            );
-            let actual_time = timing_value.unwrap();
-            assert!(actual_time >= *min_ms && actual_time <= *max_ms,
-                "Timing {field} should be between {min_ms} ms and {max_ms} ms for {tool} in test {test_name}, got {actual_time} ms");
         }
 
         MetadataCheck::OutputCreated(_filename) => {

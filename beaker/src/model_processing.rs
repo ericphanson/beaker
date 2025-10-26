@@ -11,7 +11,10 @@ use colored::Colorize;
 use log::warn;
 use ort::session::Session;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::Sender;
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::config::BaseModelConfig;
@@ -20,6 +23,41 @@ use crate::onnx_session::{create_onnx_session, ModelSource, SessionConfig};
 
 use crate::color_utils::maybe_dim_stderr;
 use crate::shared_metadata::{InputProcessing, SystemInfo};
+
+/// Progress events emitted during processing
+#[derive(Debug, Clone)]
+#[allow(dead_code)] // Public API for GUI consumption
+pub enum ProcessingEvent {
+    /// Processing started for an image
+    ImageStart {
+        path: PathBuf,
+        index: usize,
+        total: usize,
+        stage: ProcessingStage,
+    },
+
+    /// Image processing completed successfully
+    ImageSuccess { path: PathBuf, index: usize },
+
+    /// Image processing failed
+    ImageError {
+        path: PathBuf,
+        index: usize,
+        error: String,
+    },
+
+    /// Stage transition (quality → detection)
+    StageChange {
+        stage: ProcessingStage,
+        images_total: usize,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessingStage {
+    Quality,
+    Detection,
+}
 
 /// Configuration trait for models that can be processed generically
 pub trait ModelConfig: std::any::Any {
@@ -86,7 +124,16 @@ pub trait ModelProcessor {
 }
 
 pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usize> {
-    match run_model_processing_with_quality_outputs::<P>(config) {
+    run_model_processing_with_options::<P>(config, None, None, None)
+}
+
+pub fn run_model_processing_with_options<P: ModelProcessor>(
+    config: P::Config,
+    progress_tx: Option<Sender<ProcessingEvent>>,
+    cancel_flag: Option<Arc<AtomicBool>>,
+    stage: Option<ProcessingStage>,
+) -> Result<usize> {
+    match run_model_processing_with_quality_outputs::<P>(config, progress_tx, cancel_flag, stage) {
         Ok((successful_count, _quality_results)) => {
             // Process successful results
             // Do something with _quality_results
@@ -101,6 +148,9 @@ pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usiz
 /// Generic batch processing function that works with any model
 pub fn run_model_processing_with_quality_outputs<P: ModelProcessor>(
     config: P::Config,
+    progress_tx: Option<Sender<ProcessingEvent>>,
+    cancel_flag: Option<Arc<AtomicBool>>,
+    stage: Option<ProcessingStage>,
 ) -> Result<(usize, HashMap<String, QualityResult>)> {
     use crate::onnx_session::determine_optimal_device;
     use chrono::Utc;
@@ -241,6 +291,25 @@ pub fn run_model_processing_with_quality_outputs<P: ModelProcessor>(
     let mut failed_images = Vec::new();
 
     for (index, (image_path, (source_type, source_string))) in image_files.iter().enumerate() {
+        // Check for cancellation
+        if let Some(ref flag) = cancel_flag {
+            if flag.load(Ordering::Relaxed) {
+                log::info!("Processing cancelled by user");
+                return Ok((successful_count, quality_results));
+            }
+        }
+
+        // Emit ImageStart event
+        if let Some(ref tx) = progress_tx {
+            let current_stage = stage.unwrap_or(ProcessingStage::Detection);
+            let _ = tx.send(ProcessingEvent::ImageStart {
+                path: image_path.clone(),
+                index,
+                total: image_files.len(),
+                stage: current_stage,
+            });
+        }
+
         // Create input processing info
         let input = InputProcessing {
             image_path: image_path.to_string_lossy().to_string(),
@@ -281,6 +350,15 @@ pub fn run_model_processing_with_quality_outputs<P: ModelProcessor>(
                 if let Some(quality) = result.get_quality_result() {
                     quality_results.insert(image_path.to_string_lossy().to_string(), quality);
                 };
+
+                // Emit ImageSuccess event
+                if let Some(ref tx) = progress_tx {
+                    let _ = tx.send(ProcessingEvent::ImageSuccess {
+                        path: image_path.clone(),
+                        index,
+                    });
+                }
+
                 if !config.base().skip_metadata {
                     save_enhanced_metadata_for_file::<P>(
                         &result,
@@ -311,6 +389,15 @@ pub fn run_model_processing_with_quality_outputs<P: ModelProcessor>(
                 failed_count += 1;
 
                 failed_images.push(image_path.to_str().unwrap_or_default().to_string());
+
+                // Emit ImageError event
+                if let Some(ref tx) = progress_tx {
+                    let _ = tx.send(ProcessingEvent::ImageError {
+                        path: image_path.clone(),
+                        index,
+                        error: e.to_string(),
+                    });
+                }
 
                 let colored_error = crate::color_utils::colors::error_level(&e.to_string());
                 warn!(
@@ -443,4 +530,134 @@ fn save_enhanced_metadata_for_file<P: ModelProcessor>(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_processing_event_types() {
+        // Test that we can create processing events
+        let event = ProcessingEvent::ImageStart {
+            path: PathBuf::from("test.jpg"),
+            index: 0,
+            total: 10,
+            stage: ProcessingStage::Quality,
+        };
+
+        match event {
+            ProcessingEvent::ImageStart {
+                path,
+                index,
+                total,
+                stage,
+            } => {
+                assert_eq!(path, PathBuf::from("test.jpg"));
+                assert_eq!(index, 0);
+                assert_eq!(total, 10);
+                assert_eq!(stage, ProcessingStage::Quality);
+            }
+            _ => panic!("Wrong event type"),
+        }
+    }
+
+    #[test]
+    fn test_processing_stage_equality() {
+        assert_eq!(ProcessingStage::Quality, ProcessingStage::Quality);
+        assert_eq!(ProcessingStage::Detection, ProcessingStage::Detection);
+        assert_ne!(ProcessingStage::Quality, ProcessingStage::Detection);
+    }
+
+    #[test]
+    fn test_image_success_event() {
+        let event = ProcessingEvent::ImageSuccess {
+            path: PathBuf::from("test.jpg"),
+            index: 0,
+        };
+
+        match event {
+            ProcessingEvent::ImageSuccess { path, index } => {
+                assert_eq!(path, PathBuf::from("test.jpg"));
+                assert_eq!(index, 0);
+            }
+            _ => panic!("Wrong event type"),
+        }
+    }
+
+    #[test]
+    fn test_image_error_event() {
+        let event = ProcessingEvent::ImageError {
+            path: PathBuf::from("test.jpg"),
+            index: 0,
+            error: "Test error".to_string(),
+        };
+
+        match event {
+            ProcessingEvent::ImageError { path, index, error } => {
+                assert_eq!(path, PathBuf::from("test.jpg"));
+                assert_eq!(index, 0);
+                assert_eq!(error, "Test error");
+            }
+            _ => panic!("Wrong event type"),
+        }
+    }
+
+    #[test]
+    fn test_cancellation_flag() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        assert!(!cancel_flag.load(Ordering::Relaxed));
+
+        cancel_flag.store(true, Ordering::Relaxed);
+        assert!(cancel_flag.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn test_channel_send_events() {
+        use std::sync::mpsc::channel;
+
+        let (tx, rx) = channel();
+
+        // Send an event
+        let event = ProcessingEvent::ImageStart {
+            path: PathBuf::from("test.jpg"),
+            index: 0,
+            total: 1,
+            stage: ProcessingStage::Quality,
+        };
+
+        tx.send(event.clone()).unwrap();
+
+        // Receive the event
+        let received = rx.recv().unwrap();
+
+        match received {
+            ProcessingEvent::ImageStart { path, .. } => {
+                assert_eq!(path, PathBuf::from("test.jpg"));
+            }
+            _ => panic!("Wrong event type received"),
+        }
+    }
+
+    #[test]
+    fn test_stage_change_event() {
+        let event = ProcessingEvent::StageChange {
+            stage: ProcessingStage::Detection,
+            images_total: 42,
+        };
+
+        match event {
+            ProcessingEvent::StageChange {
+                stage,
+                images_total,
+            } => {
+                assert_eq!(stage, ProcessingStage::Detection);
+                assert_eq!(images_total, 42);
+            }
+            _ => panic!("Wrong event type"),
+        }
+    }
 }
