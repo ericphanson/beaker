@@ -3,7 +3,9 @@ pub mod directory;
 pub mod welcome;
 
 pub use detection::DetectionView;
-pub use directory::{DirectoryView, ProcessingStatus};
+pub use directory::DirectoryView;
+#[allow(unused_imports)] // Re-exported for tests
+pub use directory::ProcessingStatus;
 pub use welcome::{WelcomeAction, WelcomeView};
 
 #[cfg(test)]

@@ -334,6 +334,7 @@ impl DirectoryView {
     }
 
     /// Calculate progress statistics
+    #[allow(dead_code)] // May be useful for future features
     fn calculate_progress_stats(&self) -> (usize, usize, Option<usize>) {
         let completed = self
             .images
@@ -382,7 +383,7 @@ impl DirectoryView {
     fn show_processing_ui(&self, ui: &mut egui::Ui) {
         // Define color palette
         let color_success = egui::Color32::from_rgb(76, 175, 80); // Green
-        let color_warning = egui::Color32::from_rgb(255, 152, 0); // Orange
+        let _color_warning = egui::Color32::from_rgb(255, 152, 0); // Orange
         let color_error = egui::Color32::from_rgb(244, 67, 54); // Red
         let color_processing = egui::Color32::from_rgb(33, 150, 243); // Blue
         let color_waiting = egui::Color32::from_rgb(158, 158, 158); // Gray
