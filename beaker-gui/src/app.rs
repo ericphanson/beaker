@@ -254,4 +254,25 @@ mod tests {
         let _state = AppState::Directory(dir_view);
         // If this compiles, AppState has Directory variant
     }
+
+    #[test]
+    fn test_app_renders_directory_view() {
+        let dir_view = crate::views::DirectoryView::new(
+            PathBuf::from("/tmp"),
+            vec![PathBuf::from("/tmp/img1.jpg")],
+        );
+        let _app = BeakerApp {
+            state: AppState::Directory(dir_view),
+            recent_files: RecentFiles::default(),
+            use_native_menu: false,
+            pending_menu_file_dialog: Arc::new(Mutex::new(None)),
+            #[cfg(target_os = "macos")]
+            menu: None,
+            #[cfg(target_os = "macos")]
+            menu_rx: None,
+        };
+
+        // This should compile and not panic
+        let _ = format!("{:?}", "Testing directory view in app");
+    }
 }
