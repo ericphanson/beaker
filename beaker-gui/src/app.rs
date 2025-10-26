@@ -230,20 +230,65 @@ impl BeakerApp {
     fn open_paths(&mut self, paths: Vec<PathBuf>) {
         eprintln!("[BeakerApp] Opening {} path(s)", paths.len());
 
-        // For now, handle each path individually
-        // In the future, we can implement batch processing for multiple files
-        for path in paths {
+        if paths.is_empty() {
+            return;
+        }
+
+        // If single path, handle based on type
+        if paths.len() == 1 {
+            let path = &paths[0];
             if path.is_file() {
-                eprintln!("[BeakerApp] Opening file: {:?}", path);
-                self.open_image(path);
-                // For now, just open the first file
-                break;
+                eprintln!("[BeakerApp] Opening single file: {:?}", path);
+                self.open_image(path.clone());
             } else if path.is_dir() {
                 eprintln!("[BeakerApp] Opening folder: {:?}", path);
-                self.open_folder(path);
-                break;
+                self.open_folder(path.clone());
             }
+            return;
         }
+
+        // Multiple paths - use bulk workflow
+        // Filter to only image files
+        let mut image_files: Vec<PathBuf> = paths
+            .into_iter()
+            .filter(|p| {
+                if p.is_file() {
+                    if let Some(ext) = p.extension() {
+                        let ext_lower = ext.to_string_lossy().to_lowercase();
+                        ext_lower == "jpg" || ext_lower == "jpeg" || ext_lower == "png"
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            })
+            .collect();
+
+        if image_files.is_empty() {
+            eprintln!("[BeakerApp] WARNING: No valid image files selected");
+            return;
+        }
+
+        // Sort for consistent ordering
+        image_files.sort();
+
+        eprintln!(
+            "[BeakerApp] Opening {} image(s) in bulk mode",
+            image_files.len()
+        );
+
+        // Get parent directory for display purposes
+        let parent_dir = image_files[0]
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("Selected Files"));
+
+        // Create DirectoryView with the selected files
+        let mut dir_view = crate::views::DirectoryView::new(parent_dir.clone(), image_files);
+        dir_view.start_processing();
+        let _ = self.recent_files.add(parent_dir, RecentItemType::Folder);
+        self.state = AppState::Directory(dir_view);
     }
 }
 
@@ -356,6 +401,7 @@ mod tests {
             recent_files: RecentFiles::default(),
             use_native_menu: false,
             pending_menu_file_dialog: Arc::new(Mutex::new(None)),
+            pending_menu_folder_dialog: Arc::new(Mutex::new(None)),
             #[cfg(target_os = "macos")]
             menu: None,
             #[cfg(target_os = "macos")]
