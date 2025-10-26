@@ -1,5 +1,6 @@
 use crate::recent_files::{RecentFiles, RecentItemType};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 /// Action to be taken based on user interaction
 #[derive(Debug, Clone)]
@@ -12,6 +13,10 @@ pub enum WelcomeAction {
 pub struct WelcomeView {
     recent_files: RecentFiles,
     drag_hover: bool,
+    /// Pending file dialog result (None = no dialog, Some(None) = cancelled, Some(Some(path)) = selected)
+    pending_file_dialog: Arc<Mutex<Option<Option<PathBuf>>>>,
+    /// Pending folder dialog result
+    pending_folder_dialog: Arc<Mutex<Option<Option<PathBuf>>>>,
 }
 
 impl WelcomeView {
@@ -19,12 +24,41 @@ impl WelcomeView {
         Self {
             recent_files: RecentFiles::default(),
             drag_hover: false,
+            pending_file_dialog: Arc::new(Mutex::new(None)),
+            pending_folder_dialog: Arc::new(Mutex::new(None)),
         }
     }
 
     /// Show the welcome view and return an action if user clicked something
     pub fn show(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) -> WelcomeAction {
         let mut action = WelcomeAction::None;
+
+        // Check for completed file dialogs (non-blocking)
+        if let Ok(mut result) = self.pending_file_dialog.try_lock() {
+            if let Some(path_option) = result.take() {
+                if let Some(path) = path_option {
+                    eprintln!("[WelcomeView] File dialog completed with path: {:?}", path);
+                    action = WelcomeAction::OpenImage(path);
+                } else {
+                    eprintln!("[WelcomeView] File dialog cancelled");
+                }
+            }
+        }
+
+        // Check for completed folder dialogs (non-blocking)
+        if let Ok(mut result) = self.pending_folder_dialog.try_lock() {
+            if let Some(path_option) = result.take() {
+                if let Some(path) = path_option {
+                    eprintln!(
+                        "[WelcomeView] Folder dialog completed with path: {:?}",
+                        path
+                    );
+                    action = WelcomeAction::OpenFolder(path);
+                } else {
+                    eprintln!("[WelcomeView] Folder dialog cancelled");
+                }
+            }
+        }
 
         // Check for dropped files
         ctx.input(|i| {
@@ -127,12 +161,7 @@ impl WelcomeView {
             // Handle click on drop zone
             if drop_zone_response.clicked() {
                 eprintln!("[WelcomeView] Drop zone clicked, opening file dialog...");
-                if let Some(path) = Self::open_file_dialog() {
-                    eprintln!("[WelcomeView] File selected from dialog: {:?}", path);
-                    action = WelcomeAction::OpenImage(path);
-                } else {
-                    eprintln!("[WelcomeView] File dialog cancelled or returned None");
-                }
+                self.spawn_file_dialog();
             }
 
             ui.add_space(drop_zone_height + 20.0);
@@ -149,12 +178,7 @@ impl WelcomeView {
                     .clicked()
                 {
                     eprintln!("[WelcomeView] 'Open Image' button clicked");
-                    if let Some(path) = Self::open_file_dialog() {
-                        eprintln!("[WelcomeView] Image selected: {:?}", path);
-                        action = WelcomeAction::OpenImage(path);
-                    } else {
-                        eprintln!("[WelcomeView] Image dialog cancelled");
-                    }
+                    self.spawn_file_dialog();
                 }
 
                 ui.add_space(20.0);
@@ -167,12 +191,7 @@ impl WelcomeView {
                     .clicked()
                 {
                     eprintln!("[WelcomeView] 'Open Folder' button clicked");
-                    if let Some(path) = Self::open_folder_dialog() {
-                        eprintln!("[WelcomeView] Folder selected: {:?}", path);
-                        action = WelcomeAction::OpenFolder(path);
-                    } else {
-                        eprintln!("[WelcomeView] Folder dialog cancelled");
-                    }
+                    self.spawn_folder_dialog();
                 }
             });
 
@@ -289,25 +308,29 @@ impl WelcomeView {
         }
     }
 
-    fn open_file_dialog() -> Option<PathBuf> {
-        eprintln!("[WelcomeView] Opening file dialog (async)...");
-        // Use async dialogs for consistency across all platforms
-        let future = rfd::AsyncFileDialog::new()
-            .add_filter("Images", &["jpg", "jpeg", "png"])
-            .add_filter("Beaker metadata", &["toml"])
-            .pick_file();
-        let result = pollster::block_on(future).map(|f| f.path().to_path_buf());
-        eprintln!("[WelcomeView] File dialog result: {:?}", result);
-        result
+    /// Spawn a file dialog in a separate thread to avoid blocking the UI
+    fn spawn_file_dialog(&self) {
+        let dialog_result = Arc::clone(&self.pending_file_dialog);
+        std::thread::spawn(move || {
+            eprintln!("[WelcomeView] File dialog thread started");
+            let path = rfd::FileDialog::new()
+                .add_filter("Images", &["jpg", "jpeg", "png"])
+                .add_filter("Beaker metadata", &["toml"])
+                .pick_file();
+            eprintln!("[WelcomeView] File dialog result: {:?}", path);
+            *dialog_result.lock().unwrap() = Some(path);
+        });
     }
 
-    fn open_folder_dialog() -> Option<PathBuf> {
-        eprintln!("[WelcomeView] Opening folder dialog (async)...");
-        // Use async dialogs for consistency across all platforms
-        let future = rfd::AsyncFileDialog::new().pick_folder();
-        let result = pollster::block_on(future).map(|f| f.path().to_path_buf());
-        eprintln!("[WelcomeView] Folder dialog result: {:?}", result);
-        result
+    /// Spawn a folder dialog in a separate thread to avoid blocking the UI
+    fn spawn_folder_dialog(&self) {
+        let dialog_result = Arc::clone(&self.pending_folder_dialog);
+        std::thread::spawn(move || {
+            eprintln!("[WelcomeView] Folder dialog thread started");
+            let path = rfd::FileDialog::new().pick_folder();
+            eprintln!("[WelcomeView] Folder dialog result: {:?}", path);
+            *dialog_result.lock().unwrap() = Some(path);
+        });
     }
 
     /// Add a file to recent files list

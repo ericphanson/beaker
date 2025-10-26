@@ -1,6 +1,7 @@
 use crate::recent_files::{RecentFiles, RecentItemType};
 use crate::views::{DetectionView, WelcomeAction, WelcomeView};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 pub trait View {
     #[allow(dead_code)]
@@ -28,6 +29,10 @@ pub struct BeakerApp {
     state: AppState,
     recent_files: RecentFiles,
     use_native_menu: bool,
+    /// Pending file dialog result from menu (None = no dialog, Some(None) = cancelled, Some(Some(path)) = selected)
+    pending_menu_file_dialog: Arc<Mutex<Option<Option<PathBuf>>>>,
+    /// Pending folder dialog result from menu
+    pending_menu_folder_dialog: Arc<Mutex<Option<Option<PathBuf>>>>,
     #[cfg(target_os = "macos")]
     menu: Option<muda::Menu>,
     #[cfg(target_os = "macos")]
@@ -58,6 +63,8 @@ impl BeakerApp {
             state,
             recent_files,
             use_native_menu,
+            pending_menu_file_dialog: Arc::new(Mutex::new(None)),
+            pending_menu_folder_dialog: Arc::new(Mutex::new(None)),
             #[cfg(target_os = "macos")]
             menu: None,
             #[cfg(target_os = "macos")]
@@ -88,23 +95,17 @@ impl BeakerApp {
                 ui.menu_button("File", |ui| {
                     if ui.button("Open...").clicked() {
                         eprintln!("[BeakerApp] Menu: Open... clicked");
-                        if let Some(path) = Self::open_file_dialog() {
-                            self.open_image(path);
-                        }
+                        self.spawn_menu_file_dialog();
                         ui.close_menu();
                     }
                     if ui.button("Open Image...").clicked() {
                         eprintln!("[BeakerApp] Menu: Open Image... clicked");
-                        if let Some(path) = Self::open_file_dialog() {
-                            self.open_image(path);
-                        }
+                        self.spawn_menu_file_dialog();
                         ui.close_menu();
                     }
                     if ui.button("Open Folder...").clicked() {
                         eprintln!("[BeakerApp] Menu: Open Folder... clicked");
-                        if let Some(path) = Self::open_folder_dialog() {
-                            self.open_folder(path);
-                        }
+                        self.spawn_menu_folder_dialog();
                         ui.close_menu();
                     }
                     ui.separator();
@@ -126,25 +127,29 @@ impl BeakerApp {
         });
     }
 
-    fn open_file_dialog() -> Option<PathBuf> {
-        eprintln!("[BeakerApp] Opening file dialog from menu...");
-        // Use async dialogs for consistency across all platforms
-        let future = rfd::AsyncFileDialog::new()
-            .add_filter("Images", &["jpg", "jpeg", "png"])
-            .add_filter("Beaker metadata", &["toml"])
-            .pick_file();
-        let result = pollster::block_on(future).map(|f| f.path().to_path_buf());
-        eprintln!("[BeakerApp] Menu file dialog result: {:?}", result);
-        result
+    /// Spawn a file dialog from menu in a separate thread to avoid blocking the UI
+    fn spawn_menu_file_dialog(&self) {
+        let dialog_result = Arc::clone(&self.pending_menu_file_dialog);
+        std::thread::spawn(move || {
+            eprintln!("[BeakerApp] Menu file dialog thread started");
+            let path = rfd::FileDialog::new()
+                .add_filter("Images", &["jpg", "jpeg", "png"])
+                .add_filter("Beaker metadata", &["toml"])
+                .pick_file();
+            eprintln!("[BeakerApp] Menu file dialog result: {:?}", path);
+            *dialog_result.lock().unwrap() = Some(path);
+        });
     }
 
-    fn open_folder_dialog() -> Option<PathBuf> {
-        eprintln!("[BeakerApp] Opening folder dialog from menu...");
-        // Use async dialogs for consistency across all platforms
-        let future = rfd::AsyncFileDialog::new().pick_folder();
-        let result = pollster::block_on(future).map(|f| f.path().to_path_buf());
-        eprintln!("[BeakerApp] Menu folder dialog result: {:?}", result);
-        result
+    /// Spawn a folder dialog from menu in a separate thread to avoid blocking the UI
+    fn spawn_menu_folder_dialog(&self) {
+        let dialog_result = Arc::clone(&self.pending_menu_folder_dialog);
+        std::thread::spawn(move || {
+            eprintln!("[BeakerApp] Menu folder dialog thread started");
+            let path = rfd::FileDialog::new().pick_folder();
+            eprintln!("[BeakerApp] Menu folder dialog result: {:?}", path);
+            *dialog_result.lock().unwrap() = Some(path);
+        });
     }
 
     fn open_image(&mut self, path: PathBuf) {
@@ -171,6 +176,55 @@ impl BeakerApp {
 
 impl eframe::App for BeakerApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Check for completed menu dialogs (non-blocking)
+        // Extract paths first, then process after releasing the lock
+        let file_path = if let Ok(mut result) = self.pending_menu_file_dialog.try_lock() {
+            if let Some(path_option) = result.take() {
+                if let Some(path) = path_option {
+                    eprintln!(
+                        "[BeakerApp] Menu file dialog completed with path: {:?}",
+                        path
+                    );
+                    Some(path)
+                } else {
+                    eprintln!("[BeakerApp] Menu file dialog cancelled");
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let folder_path = if let Ok(mut result) = self.pending_menu_folder_dialog.try_lock() {
+            if let Some(path_option) = result.take() {
+                if let Some(path) = path_option {
+                    eprintln!(
+                        "[BeakerApp] Menu folder dialog completed with path: {:?}",
+                        path
+                    );
+                    Some(path)
+                } else {
+                    eprintln!("[BeakerApp] Menu folder dialog cancelled");
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // Process paths after releasing locks
+        if let Some(path) = file_path {
+            self.open_image(path);
+        }
+
+        if let Some(path) = folder_path {
+            self.open_folder(path);
+        }
+
         // Handle native menu events on macOS
         #[cfg(target_os = "macos")]
         self.poll_menu_events(ctx);
