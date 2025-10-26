@@ -20,5 +20,6 @@ pub mod onnx_session;
 pub mod output_manager;
 pub mod progress;
 pub mod quality_processing;
+pub mod quality_types;
 pub mod rfdetr;
 pub mod shared_metadata;
