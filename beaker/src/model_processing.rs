@@ -95,6 +95,16 @@ pub trait ModelResult {
     fn get_quality_result(&self) -> Option<QualityResult> {
         None
     }
+
+    /// Optional count of detections for metadata index rows.
+    fn metadata_index_detection_count(&self) -> Option<usize> {
+        None
+    }
+
+    /// Optional aggregate quality score for metadata index rows.
+    fn metadata_index_quality_score(&self) -> Option<f32> {
+        None
+    }
 }
 
 /// Core trait that all models must implement
@@ -134,6 +144,8 @@ struct MetadataIndexRow {
     source_type: String,
     strict_mode: bool,
     metadata_path: Option<String>,
+    detection_count: Option<usize>,
+    quality_score: Option<f32>,
     success: bool,
     error: Option<String>,
 }
@@ -457,6 +469,8 @@ pub fn run_model_processing_with_quality_outputs<P: ModelProcessor>(
                     source_type: source_type.to_string(),
                     strict_mode: config.base().strict,
                     metadata_path,
+                    detection_count: result.metadata_index_detection_count(),
+                    quality_score: result.metadata_index_quality_score(),
                     success: true,
                     error: None,
                 });
@@ -490,6 +504,8 @@ pub fn run_model_processing_with_quality_outputs<P: ModelProcessor>(
                     source_type: source_type.to_string(),
                     strict_mode: config.base().strict,
                     metadata_path,
+                    detection_count: None,
+                    quality_score: None,
                     success: false,
                     error: Some(e.to_string()),
                 });
@@ -765,6 +781,8 @@ mod tests {
                 source_type: "directory".to_string(),
                 strict_mode: true,
                 metadata_path: Some("/tmp/image-1.beaker.toml".to_string()),
+                detection_count: Some(3),
+                quality_score: None,
                 success: true,
                 error: None,
             },
@@ -775,6 +793,8 @@ mod tests {
                 source_type: "directory".to_string(),
                 strict_mode: false,
                 metadata_path: None,
+                detection_count: None,
+                quality_score: Some(0.87),
                 success: false,
                 error: Some("failed".to_string()),
             },
@@ -790,8 +810,10 @@ mod tests {
         let second: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
         assert_eq!(first["tool"], "detect");
         assert_eq!(first["success"], true);
+        assert_eq!(first["detection_count"], 3);
         assert_eq!(second["tool"], "quality");
         assert_eq!(second["success"], false);
+        assert_eq!(second["quality_score"], 0.87);
     }
 
     #[test]
@@ -803,6 +825,8 @@ mod tests {
             source_type: "directory".to_string(),
             strict_mode: true,
             metadata_path: Some("/tmp/image.beaker.toml".to_string()),
+            detection_count: Some(1),
+            quality_score: None,
             success: true,
             error: None,
         }];

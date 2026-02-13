@@ -187,6 +187,10 @@ impl ModelResult for DetectionResult {
     fn get_io_timing(&self) -> crate::shared_metadata::IoTiming {
         self.io_timing.clone()
     }
+
+    fn metadata_index_detection_count(&self) -> Option<usize> {
+        Some(self.detections.len())
+    }
 }
 
 /// Get the appropriate output extension based on input file

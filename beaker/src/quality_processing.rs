@@ -100,6 +100,10 @@ impl ModelResult for QualityResult {
     fn get_quality_result(&self) -> Option<QualityResult> {
         Some(self.clone())
     }
+
+    fn metadata_index_quality_score(&self) -> Option<f32> {
+        Some(self.global_quality_score)
+    }
 }
 
 /// Quality processor implementing the generic ModelProcessor trait
