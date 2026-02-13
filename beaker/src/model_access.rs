@@ -1398,7 +1398,7 @@ mod tests {
             Ok(())
         }();
 
-        assert!(result.is_ok(), "Download should succeed: {:?}", result);
+        assert!(result.is_ok(), "Download should succeed: {result:?}");
         assert!(
             !tmp_path.exists(),
             "Temp file should not exist after success"

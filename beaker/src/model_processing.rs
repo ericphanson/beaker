@@ -16,6 +16,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::time::Duration;
+use std::{fs::OpenOptions, io::Write};
+
+use serde::Serialize;
 
 use crate::config::BaseModelConfig;
 use crate::image_input::{collect_images_from_sources, ImageInputConfig};
@@ -123,6 +126,45 @@ pub trait ModelProcessor {
     fn serialize_config(config: &Self::Config) -> Result<toml::Value>;
 }
 
+#[derive(Debug, Serialize)]
+struct MetadataIndexRow {
+    tool: String,
+    image_path: String,
+    source: String,
+    source_type: String,
+    strict_mode: bool,
+    metadata_path: Option<String>,
+    success: bool,
+    error: Option<String>,
+}
+
+fn append_metadata_index_rows(path: &Path, rows: &[MetadataIndexRow]) -> Result<()> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+    for row in rows {
+        serde_json::to_writer(&mut file, row)?;
+        writeln!(file)?;
+    }
+    Ok(())
+}
+
+fn flush_metadata_index_if_configured(
+    metadata_index_path: Option<&str>,
+    rows: &[MetadataIndexRow],
+) -> Result<()> {
+    if let Some(path) = metadata_index_path {
+        append_metadata_index_rows(Path::new(path), rows)?;
+    }
+    Ok(())
+}
+
 pub fn run_model_processing<P: ModelProcessor>(config: P::Config) -> Result<usize> {
     run_model_processing_with_options::<P>(config, None, None, None)
 }
@@ -166,7 +208,7 @@ pub fn run_model_processing_with_quality_outputs<P: ModelProcessor>(
     let command_line: Vec<String> = std::env::args().collect();
 
     // Create image input configuration from model config
-    let image_config = ImageInputConfig::from_strict_flag(config.base().strict);
+    let image_config = ImageInputConfig::from_flags(config.base().strict, config.base().recursive);
 
     // Collect images from input sources
     let image_files = collect_images_from_sources(&config.base().sources, &image_config)?;
@@ -290,10 +332,20 @@ pub fn run_model_processing_with_quality_outputs<P: ModelProcessor>(
     // Create vector to contain failed image paths
     let mut failed_images = Vec::new();
 
+    let mut metadata_index_rows: Vec<MetadataIndexRow> = Vec::new();
+
     for (index, (image_path, (source_type, source_string))) in image_files.iter().enumerate() {
         // Check for cancellation
         if let Some(ref flag) = cancel_flag {
             if flag.load(Ordering::Relaxed) {
+                flush_metadata_index_if_configured(
+                    config.base().metadata_index.as_deref(),
+                    &metadata_index_rows,
+                )?;
+                if let Some(ref pb) = progress_bar {
+                    pb.finish_and_clear();
+                    remove_progress_bar(pb);
+                }
                 log::info!("Processing cancelled by user");
                 return Ok((successful_count, quality_results));
             }
@@ -316,6 +368,19 @@ pub fn run_model_processing_with_quality_outputs<P: ModelProcessor>(
             source: source_string.to_string(),
             source_type: source_type.to_string(),
             strict_mode: config.base().strict,
+        };
+
+        let metadata_path = if config.base().skip_metadata {
+            None
+        } else {
+            Some(
+                crate::shared_metadata::get_metadata_path(
+                    image_path,
+                    config.base().output_dir.as_deref(),
+                )?
+                .to_string_lossy()
+                .to_string(),
+            )
         };
 
         // Create OutputManager for this image
@@ -384,6 +449,17 @@ pub fn run_model_processing_with_quality_outputs<P: ModelProcessor>(
                         result.output_summary()
                     );
                 }
+
+                metadata_index_rows.push(MetadataIndexRow {
+                    tool: config.tool_name().to_string(),
+                    image_path: image_path.to_string_lossy().to_string(),
+                    source: source_string.to_string(),
+                    source_type: source_type.to_string(),
+                    strict_mode: config.base().strict,
+                    metadata_path,
+                    success: true,
+                    error: None,
+                });
             }
             Err(e) => {
                 failed_count += 1;
@@ -406,6 +482,17 @@ pub fn run_model_processing_with_quality_outputs<P: ModelProcessor>(
                     image_path.display(),
                     colored_error
                 );
+
+                metadata_index_rows.push(MetadataIndexRow {
+                    tool: config.tool_name().to_string(),
+                    image_path: image_path.to_string_lossy().to_string(),
+                    source: source_string.to_string(),
+                    source_type: source_type.to_string(),
+                    strict_mode: config.base().strict,
+                    metadata_path,
+                    success: false,
+                    error: Some(e.to_string()),
+                });
             }
         }
         if let Some(ref pb) = progress_bar {
@@ -450,6 +537,11 @@ pub fn run_model_processing_with_quality_outputs<P: ModelProcessor>(
             );
         }
     }
+
+    flush_metadata_index_if_configured(
+        config.base().metadata_index.as_deref(),
+        &metadata_index_rows,
+    )?;
 
     // If strict mode is enabled, fail if any images failed
     if config.base().strict && failed_count > 0 {
@@ -659,5 +751,63 @@ mod tests {
             }
             _ => panic!("Wrong event type"),
         }
+    }
+
+    #[test]
+    fn test_flush_metadata_index_if_configured_writes_jsonl_rows() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let index_path = temp_dir.path().join("metadata-index.jsonl");
+        let rows = vec![
+            MetadataIndexRow {
+                tool: "detect".to_string(),
+                image_path: "/tmp/image-1.jpg".to_string(),
+                source: "/tmp".to_string(),
+                source_type: "directory".to_string(),
+                strict_mode: true,
+                metadata_path: Some("/tmp/image-1.beaker.toml".to_string()),
+                success: true,
+                error: None,
+            },
+            MetadataIndexRow {
+                tool: "quality".to_string(),
+                image_path: "/tmp/image-2.jpg".to_string(),
+                source: "/tmp".to_string(),
+                source_type: "directory".to_string(),
+                strict_mode: false,
+                metadata_path: None,
+                success: false,
+                error: Some("failed".to_string()),
+            },
+        ];
+
+        flush_metadata_index_if_configured(index_path.to_str(), &rows).unwrap();
+
+        let content = std::fs::read_to_string(&index_path).unwrap();
+        let lines: Vec<&str> = content.lines().collect();
+        assert_eq!(lines.len(), 2);
+
+        let first: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+        let second: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+        assert_eq!(first["tool"], "detect");
+        assert_eq!(first["success"], true);
+        assert_eq!(second["tool"], "quality");
+        assert_eq!(second["success"], false);
+    }
+
+    #[test]
+    fn test_flush_metadata_index_if_configured_none_is_noop() {
+        let rows = vec![MetadataIndexRow {
+            tool: "detect".to_string(),
+            image_path: "/tmp/image.jpg".to_string(),
+            source: "/tmp".to_string(),
+            source_type: "directory".to_string(),
+            strict_mode: true,
+            metadata_path: Some("/tmp/image.beaker.toml".to_string()),
+            success: true,
+            error: None,
+        }];
+
+        let result = flush_metadata_index_if_configured(None, &rows);
+        assert!(result.is_ok());
     }
 }

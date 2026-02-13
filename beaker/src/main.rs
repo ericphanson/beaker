@@ -87,6 +87,17 @@ fn get_log_level_from_verbosity(
     }
 }
 
+fn quality_has_output_target(global: &GlobalArgs) -> bool {
+    global.metadata || global.metadata_index.is_some()
+}
+
+fn detect_has_output_target(detect_cmd: &DetectCommand, global: &GlobalArgs) -> bool {
+    detect_cmd.crop.is_some()
+        || detect_cmd.bounding_box
+        || global.metadata
+        || global.metadata_index.is_some()
+}
+
 fn main() {
     let cli = Cli::parse();
 
@@ -147,6 +158,9 @@ fn main() {
             if cli.global.metadata {
                 outputs.push("metadata");
             }
+            if cli.global.metadata_index.is_some() {
+                outputs.push("metadata-index");
+            }
 
             let output_str = if outputs.is_empty() {
                 "".to_string()
@@ -162,8 +176,10 @@ fn main() {
                 output_str
             );
 
-            if outputs.is_empty() {
-                error!("No outputs requested! Pass at least one of `--metadata`, `--crop`, or `--bounding-box`.");
+            if !detect_has_output_target(detect_cmd, &cli.global) {
+                error!(
+                    "No outputs requested! Pass at least one of `--metadata-index`, `--metadata`, `--crop`, or `--bounding-box`."
+                );
                 std::process::exit(1);
             } else {
                 let internal_config =
@@ -242,18 +258,24 @@ fn main() {
             }
         }
         Some(Commands::Quality(quality_cmd)) => {
-            // Validate that metadata is requested
-            if !cli.global.metadata {
+            // Validate that at least one quality output target is requested
+            if !quality_has_output_target(&cli.global) {
                 error!(
-                    "{} Quality assessment requires --metadata flag to save results\n\
-                     Hint: Run with --metadata to save quality scores to .beaker.toml",
+                    "{} Quality assessment requires at least one output target\n\
+                     Hint: pass --metadata for .beaker.toml sidecars and/or --metadata-index <path> for JSONL output",
                     symbols::operation_failed()
                 );
                 std::process::exit(1);
             }
 
             // Build outputs list
-            let outputs = ["metadata"];
+            let mut outputs = Vec::new();
+            if cli.global.metadata {
+                outputs.push("metadata");
+            }
+            if cli.global.metadata_index.is_some() {
+                outputs.push("metadata-index");
+            }
 
             let feature_str = ""; // No special features for quality assessment
 
@@ -326,5 +348,69 @@ fn main() {
             let mut cmd = Cli::command();
             cmd.print_help().unwrap();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap_verbosity_flag::Verbosity;
+
+    fn global_args(metadata: bool, metadata_index: Option<&str>) -> GlobalArgs {
+        GlobalArgs {
+            output_dir: None,
+            metadata,
+            recursive: false,
+            metadata_index: metadata_index.map(str::to_string),
+            verbosity: Verbosity::new(0, 0),
+            permissive: false,
+            device: "auto".to_string(),
+            no_color: false,
+            force: false,
+        }
+    }
+
+    fn detect_command(crop: Option<&str>, bounding_box: bool) -> DetectCommand {
+        DetectCommand {
+            sources: vec!["test.jpg".to_string()],
+            confidence: 0.5,
+            crop: crop.map(str::to_string),
+            bounding_box,
+            model_path: None,
+            model_url: None,
+            model_checksum: None,
+        }
+    }
+
+    #[test]
+    fn test_detect_has_output_target_with_metadata_index_only() {
+        let args = global_args(false, Some("detect-index.jsonl"));
+        let cmd = detect_command(None, false);
+        assert!(detect_has_output_target(&cmd, &args));
+    }
+
+    #[test]
+    fn test_detect_has_output_target_without_outputs() {
+        let args = global_args(false, None);
+        let cmd = detect_command(None, false);
+        assert!(!detect_has_output_target(&cmd, &args));
+    }
+
+    #[test]
+    fn test_quality_has_output_target_with_metadata() {
+        let args = global_args(true, None);
+        assert!(quality_has_output_target(&args));
+    }
+
+    #[test]
+    fn test_quality_has_output_target_with_metadata_index() {
+        let args = global_args(false, Some("quality-index.jsonl"));
+        assert!(quality_has_output_target(&args));
+    }
+
+    #[test]
+    fn test_quality_has_output_target_without_outputs() {
+        let args = global_args(false, None);
+        assert!(!quality_has_output_target(&args));
     }
 }

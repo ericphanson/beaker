@@ -630,6 +630,8 @@ where
         let cutout_exit = run_beaker_command(&[
             "cutout",
             example_jpg.to_str().unwrap(),
+            "--device",
+            "cpu",
             "--save-mask",
             "--metadata",
             "--output-dir",

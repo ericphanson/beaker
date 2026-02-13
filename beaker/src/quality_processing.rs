@@ -193,7 +193,7 @@ impl ModelProcessor for QualityProcessor {
             // Save heatmap to file
             heatmap_img
                 .save(heatmap_path)
-                .with_context(|| format!("Failed to save heatmap to {}", heatmap_path))?;
+                .with_context(|| format!("Failed to save heatmap to {heatmap_path}"))?;
 
             debug!(
                 "{} Saved heatmap to {}",

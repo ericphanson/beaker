@@ -36,8 +36,7 @@ fn test_quality_debug_images_not_created_without_flag() {
     let debug_dir_pattern = temp_dir.path().join("quality_debug_images_test");
     assert!(
         !debug_dir_pattern.exists(),
-        "Debug directory should not exist without --debug-dump-images flag: {:?}",
-        debug_dir_pattern
+        "Debug directory should not exist without --debug-dump-images flag: {debug_dir_pattern:?}"
     );
 }
 
@@ -77,8 +76,7 @@ fn test_quality_debug_images_created_with_flag() {
     let debug_dir_pattern = temp_dir.path().join("quality_debug_images_test");
     assert!(
         debug_dir_pattern.exists(),
-        "Debug directory should exist with --debug-dump-images flag: {:?}",
-        debug_dir_pattern
+        "Debug directory should exist with --debug-dump-images flag: {debug_dir_pattern:?}"
     );
 
     // Verify that debug images were actually saved
@@ -94,8 +92,7 @@ fn test_quality_debug_images_created_with_flag() {
         let file_path = debug_dir_pattern.join(file);
         assert!(
             file_path.exists(),
-            "Expected debug file should exist: {:?}",
-            file_path
+            "Expected debug file should exist: {file_path:?}"
         );
     }
 }

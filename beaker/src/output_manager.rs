@@ -270,6 +270,8 @@ mod tests {
                 device: "cpu".to_string(),
                 output_dir: output_dir.clone(),
                 skip_metadata: false,
+                recursive: false,
+                metadata_index: None,
                 strict: true,
                 force: false,
             },

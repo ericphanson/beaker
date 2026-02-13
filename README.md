@@ -39,6 +39,13 @@ beaker detect --bounding-box example.jpg
 beaker detect --crop=head --device cpu example.jpg
 beaker detect --crop=head *.jpg
 beaker detect --crop=head my_folder
+beaker --recursive detect --crop=head my_folder
+
+# Optional metadata index JSONL for bulk runs
+beaker --metadata-index beaker-index.jsonl detect my_folder
+beaker --metadata-index beaker-index.jsonl quality my_folder
+# Add --metadata if you also want per-image .beaker.toml sidecars
+beaker --metadata --metadata-index beaker-index.jsonl detect my_folder
 
 # Multi-class detection and cropping
 beaker detect --crop=head,bird example.jpg

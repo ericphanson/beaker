@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 pub struct ImageInputConfig {
     pub require_glob_matches: bool,
     pub strict_mode: bool,
+    pub recursive: bool,
 }
 
 impl Default for ImageInputConfig {
@@ -15,6 +16,7 @@ impl Default for ImageInputConfig {
         Self {
             strict_mode: true,
             require_glob_matches: true,
+            recursive: false,
         }
     }
 }
@@ -25,6 +27,7 @@ impl ImageInputConfig {
         Self {
             strict_mode: true,
             require_glob_matches: true,
+            recursive: false,
         }
     }
 
@@ -33,6 +36,7 @@ impl ImageInputConfig {
         Self {
             strict_mode: false,
             require_glob_matches: false,
+            recursive: false,
         }
     }
 
@@ -44,6 +48,13 @@ impl ImageInputConfig {
         } else {
             Self::permissive()
         }
+    }
+
+    /// Create a configuration based on strict and recursive flags
+    pub fn from_flags(strict: bool, recursive: bool) -> Self {
+        let mut config = Self::from_strict_flag(strict);
+        config.recursive = recursive;
+        config
     }
 }
 
@@ -61,16 +72,38 @@ pub fn is_supported_image_file(path: &Path) -> bool {
     }
 }
 
-/// Find all image files in a directory (non-recursive)
-pub fn find_images_in_directory(dir_path: &Path) -> Result<Vec<PathBuf>> {
+/// Find all image files in a directory
+pub fn find_images_in_directory(dir_path: &Path, recursive: bool) -> Result<Vec<PathBuf>> {
     let mut image_files = Vec::new();
 
-    for entry in fs::read_dir(dir_path)? {
-        let entry = entry?;
-        let path = entry.path();
+    if recursive {
+        let mut dirs_to_visit = vec![dir_path.to_path_buf()];
+        while let Some(dir) = dirs_to_visit.pop() {
+            for entry in fs::read_dir(&dir)? {
+                let entry = entry?;
+                let path = entry.path();
+                let file_type = entry.file_type()?;
 
-        if path.is_file() && is_supported_image_file(&path) {
-            image_files.push(path);
+                if file_type.is_dir() {
+                    dirs_to_visit.push(path);
+                } else if file_type.is_file() && is_supported_image_file(&path) {
+                    image_files.push(path);
+                } else if file_type.is_symlink() && path.is_file() && is_supported_image_file(&path)
+                {
+                    // Follow symlinks to files but never recurse into symlinked directories.
+                    // This prevents infinite traversal on cyclic directory links.
+                    image_files.push(path);
+                }
+            }
+        }
+    } else {
+        for entry in fs::read_dir(dir_path)? {
+            let entry = entry?;
+            let path = entry.path();
+
+            if path.is_file() && is_supported_image_file(&path) {
+                image_files.push(path);
+            }
         }
     }
 
@@ -124,7 +157,7 @@ pub fn collect_images_from_sources(
             // In permissive mode, silently skip unsupported files
         } else if source_path.is_dir() {
             // Directory - find all images inside
-            let dir_images = find_images_in_directory(source_path)?;
+            let dir_images = find_images_in_directory(source_path, config.recursive)?;
             for img in dir_images {
                 image_map.insert(img, (ImageSourceType::Directory, source.clone()));
             }
@@ -233,12 +266,57 @@ mod tests {
         fs::write(dir_path.join("image2.png"), b"fake image").unwrap();
         fs::write(dir_path.join("not_image.txt"), b"text file").unwrap();
 
-        let images = find_images_in_directory(dir_path).unwrap();
+        let images = find_images_in_directory(dir_path, false).unwrap();
         assert_eq!(images.len(), 2);
         assert!(images
             .iter()
             .any(|p| p.file_name().unwrap() == "image1.jpg"));
         assert!(images
+            .iter()
+            .any(|p| p.file_name().unwrap() == "image2.png"));
+    }
+
+    #[test]
+    fn test_find_images_in_directory_recursive() {
+        let temp_dir = tempdir().unwrap();
+        let dir_path = temp_dir.path();
+        let nested = dir_path.join("nested");
+        fs::create_dir_all(&nested).unwrap();
+
+        fs::write(dir_path.join("image1.jpg"), b"fake image").unwrap();
+        fs::write(nested.join("image2.png"), b"fake image").unwrap();
+
+        let non_recursive = find_images_in_directory(dir_path, false).unwrap();
+        assert_eq!(non_recursive.len(), 1);
+
+        let recursive = find_images_in_directory(dir_path, true).unwrap();
+        assert_eq!(recursive.len(), 2);
+        assert!(recursive
+            .iter()
+            .any(|p| p.file_name().unwrap() == "image2.png"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_find_images_in_directory_recursive_skips_symlinked_directories() {
+        use std::os::unix::fs::symlink;
+
+        let temp_dir = tempdir().unwrap();
+        let root = temp_dir.path().join("root");
+        let external = temp_dir.path().join("external");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&external).unwrap();
+
+        fs::write(root.join("image1.jpg"), b"fake image").unwrap();
+        fs::write(external.join("image2.png"), b"fake image").unwrap();
+        symlink(&external, root.join("linked_external")).unwrap();
+
+        let recursive = find_images_in_directory(&root, true).unwrap();
+        assert_eq!(recursive.len(), 1);
+        assert!(recursive
+            .iter()
+            .any(|p| p.file_name().unwrap() == "image1.jpg"));
+        assert!(!recursive
             .iter()
             .any(|p| p.file_name().unwrap() == "image2.png"));
     }
@@ -302,5 +380,14 @@ mod tests {
         let permissive_config = ImageInputConfig::from_strict_flag(false);
         assert!(!permissive_config.strict_mode);
         assert!(!permissive_config.require_glob_matches);
+        assert!(!permissive_config.recursive);
+    }
+
+    #[test]
+    fn test_from_flags() {
+        let config = ImageInputConfig::from_flags(true, true);
+        assert!(config.strict_mode);
+        assert!(config.require_glob_matches);
+        assert!(config.recursive);
     }
 }

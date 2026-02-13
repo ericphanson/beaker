@@ -134,7 +134,13 @@ fn get_test_scenarios() -> Vec<TestScenario> {
         TestScenario {
             name: "cutout_with_alpha_matting_and_mask",
             tool: "cutout",
-            args: vec!["../example.jpg", "--alpha-matting", "--save-mask"],
+            args: vec![
+                "../example.jpg",
+                "--device",
+                "cpu",
+                "--alpha-matting",
+                "--save-mask",
+            ],
             expected_files: vec![
                 "example.beaker.toml",
                 "example_cutout.png",
@@ -170,7 +176,7 @@ fn get_test_scenarios() -> Vec<TestScenario> {
         TestScenario {
             name: "cutout_with_env_vars_and_metadata",
             tool: "cutout",
-            args: vec!["../example.jpg"],
+            args: vec!["../example.jpg", "--device", "cpu"],
             expected_files: vec!["example.beaker.toml", "example_cutout.png"],
             metadata_checks: vec![
                 MetadataCheck::ExitCode("cutout", 0),

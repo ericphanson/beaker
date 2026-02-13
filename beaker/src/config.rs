@@ -137,6 +137,14 @@ pub struct GlobalArgs {
     #[arg(long, global = true)]
     pub metadata: bool,
 
+    /// Recursively scan directories passed as input sources
+    #[arg(long, global = true)]
+    pub recursive: bool,
+
+    /// Optional JSONL path to append one metadata-index row per processed image
+    #[arg(long, global = true)]
+    pub metadata_index: Option<String>,
+
     /// Verbosity level (-q/--quiet, -v/-vv/-vvv/-vvvv for info/debug/trace)
     #[command(flatten)]
     pub verbosity: Verbosity,
@@ -170,6 +178,11 @@ pub struct BaseModelConfig {
     pub output_dir: Option<String>,
     /// Whether to skip metadata generation
     pub skip_metadata: bool,
+    /// Recursively scan directories passed as input sources
+    pub recursive: bool,
+    /// Optional JSONL path to append one metadata-index row per processed image
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata_index: Option<String>,
     /// Use strict mode (fail if files are not found or are unsupported). Opposite of `--permissive`.
     pub strict: bool,
     /// Allow overwriting outputs when basename collisions are detected
@@ -437,7 +450,9 @@ impl From<GlobalArgs> for BaseModelConfig {
             device: global.device,
             output_dir: global.output_dir,
             skip_metadata: !global.metadata, // Note: CLI uses metadata flag, internal uses skip_metadata
-            strict: !global.permissive,      // Note: CLI uses permissive, internal uses strict
+            recursive: global.recursive,
+            metadata_index: global.metadata_index,
+            strict: !global.permissive, // Note: CLI uses permissive, internal uses strict
             force: global.force,
         }
     }
@@ -620,6 +635,8 @@ mod tests {
             device: "cpu".to_string(),
             output_dir: Some("/tmp".to_string()),
             metadata: false,
+            recursive: true,
+            metadata_index: Some("/tmp/beaker-index.jsonl".to_string()),
             verbosity: Verbosity::new(2, 0), // -vv level (info level enables verbose)
             permissive: true,
             no_color: false,
@@ -632,7 +649,12 @@ mod tests {
         assert_eq!(config.device, "cpu");
         assert_eq!(config.output_dir, Some("/tmp".to_string()));
         assert!(config.skip_metadata); // metadata=false -> skip_metadata=true
-                                       // Note: verbosity is now handled directly by the logging system via env_logger
+        assert!(config.recursive);
+        assert_eq!(
+            config.metadata_index,
+            Some("/tmp/beaker-index.jsonl".to_string())
+        );
+        // Note: verbosity is now handled directly by the logging system via env_logger
         assert!(!config.strict); // permissive=true -> strict=false
         assert!(!config.force);
     }
@@ -643,6 +665,8 @@ mod tests {
             device: "auto".to_string(),
             output_dir: None,
             metadata: false,
+            recursive: false,
+            metadata_index: None,
             verbosity: Verbosity::new(0, 0), // Default level (warnings and errors only)
             permissive: false,
             no_color: false,
@@ -682,6 +706,8 @@ mod tests {
             device: "coreml".to_string(),
             output_dir: Some("/output".to_string()),
             metadata: false,
+            recursive: false,
+            metadata_index: None,
             verbosity: Verbosity::new(1, 0), // -v level (info)
             permissive: false,
             no_color: false,
@@ -722,6 +748,8 @@ mod tests {
                 sources: vec!["test.jpg".to_string()],
                 device: "cpu".to_string(),
                 output_dir: Some("/tmp".to_string()),
+                recursive: false,
+                metadata_index: None,
                 skip_metadata: true,
                 strict: true,
                 force: false,
@@ -751,6 +779,8 @@ mod tests {
             device: "auto".to_string(),
             output_dir: Some("/quality_output".to_string()),
             metadata: true,
+            recursive: false,
+            metadata_index: None,
             verbosity: Verbosity::new(0, 0), // Default level
             permissive: false,
             no_color: false,
@@ -798,6 +828,8 @@ mod tests {
             device: "auto".to_string(),
             output_dir: None,
             metadata: false,
+            recursive: false,
+            metadata_index: None,
             verbosity: Verbosity::new(0, 0),
             permissive: false,
             no_color: false,
@@ -829,6 +861,8 @@ mod tests {
             device: "auto".to_string(),
             output_dir: None,
             metadata: false,
+            recursive: false,
+            metadata_index: None,
             verbosity: Verbosity::new(0, 0),
             permissive: false,
             no_color: false,

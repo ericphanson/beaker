@@ -8,6 +8,8 @@ fn test_quality_config_default_params() {
         device: "cpu".to_string(),
         output_dir: None,
         skip_metadata: true,
+        recursive: false,
+        metadata_index: None,
         strict: true,
         force: false,
     };
@@ -43,6 +45,8 @@ fn test_quality_config_custom_params() {
         device: "cpu".to_string(),
         output_dir: None,
         skip_metadata: true,
+        recursive: false,
+        metadata_index: None,
         strict: true,
         force: false,
     };
