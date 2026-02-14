@@ -272,14 +272,20 @@ pub fn compute_quality_raw(
     path: impl AsRef<Path>,
     session: &mut Session,
 ) -> Result<QualityRawData> {
-    // Load and preprocess image
     let img = image::open(path.as_ref()).context("Failed to open image")?;
+    compute_quality_raw_from_image(&img, session)
+}
 
+/// Compute parameter-independent quality data directly from a loaded image.
+pub fn compute_quality_raw_from_image(
+    img: &image::DynamicImage,
+    session: &mut Session,
+) -> Result<QualityRawData> {
     let input_width = img.width();
     let input_height = img.height();
 
     // Preprocess for ONNX
-    let input_array = preprocess_image_for_quality(&img)?;
+    let input_array = preprocess_image_for_quality(img)?;
 
     // Run ONNX inference
     let input_name = session.inputs[0].name.clone();

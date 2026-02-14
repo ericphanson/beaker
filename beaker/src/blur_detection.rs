@@ -161,6 +161,18 @@ pub struct DetectionQuality {
 
     /// Tenengrad mean in the ring (bbox minus core).
     pub tenengrad_ring_mean: f32,
+
+    /// Global PaQ-2-PiQ score (0..100) for the refined crop.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub crop_paq2piq_global: Option<f32>,
+
+    /// Global blur score (0..1) for the refined crop.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub crop_blur_score: Option<f32>,
+
+    /// Final fused quality score (0..100) for the refined crop.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub crop_final_quality_score: Option<f32>,
 }
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -872,5 +884,8 @@ pub fn detection_quality(
         core_ring_sharpness_ratio: r_core_ring,
         tenengrad_core_mean: t_core,
         tenengrad_ring_mean: t_ring,
+        crop_paq2piq_global: None,
+        crop_blur_score: None,
+        crop_final_quality_score: None,
     }
 }

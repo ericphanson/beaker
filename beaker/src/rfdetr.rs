@@ -225,6 +225,7 @@ pub fn postprocess_output(
                     class_id: class_idx as u32,
                     class_name,
                     quality: None,
+                    quality_refined: None,
                 });
             }
         }

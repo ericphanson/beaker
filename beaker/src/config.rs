@@ -209,6 +209,18 @@ pub struct DetectCommand {
     #[arg(long)]
     pub bounding_box: bool,
 
+    /// Re-run quality on padded bird/head crops and store results in `quality_refined`
+    #[arg(long)]
+    pub refine_detection_quality: bool,
+
+    /// Extra padding fraction used for quality refinement crops
+    #[arg(long, default_value = "0.25")]
+    pub refine_detection_padding: f32,
+
+    /// Max number of detections per image to refine
+    #[arg(long, default_value = "8")]
+    pub refine_detection_max_per_image: usize,
+
     /// Path to custom head detection model file
     #[arg(long)]
     pub model_path: Option<String>,
@@ -245,6 +257,12 @@ pub struct DetectionConfig {
     /// Triage decision parameters
     #[serde(skip_serializing_if = "Option::is_none")]
     pub triage_params: Option<crate::quality_types::TriageParams>,
+    /// Whether to re-run quality on selected detections
+    pub refine_detection_quality: bool,
+    /// Extra padding fraction for detection quality refinement
+    pub refine_detection_padding: f32,
+    /// Max selected detections per image for quality refinement
+    pub refine_detection_max_per_image: usize,
 }
 
 /// CLI command for cutout processing (only command-specific arguments)
@@ -461,6 +479,13 @@ impl From<GlobalArgs> for BaseModelConfig {
 impl DetectionConfig {
     /// Create configuration from global args and command-specific args
     pub fn from_args(global: GlobalArgs, cmd: DetectCommand) -> Result<Self, String> {
+        if cmd.refine_detection_padding < 0.0 {
+            return Err(format!(
+                "--refine-detection-padding must be >= 0.0, got {}",
+                cmd.refine_detection_padding
+            ));
+        }
+
         let mut base: BaseModelConfig = global.into();
         base.sources = cmd.sources; // Add sources from command
 
@@ -479,6 +504,9 @@ impl DetectionConfig {
             model_checksum: cmd.model_checksum,
             quality_results: None,
             triage_params: None, // Use defaults
+            refine_detection_quality: cmd.refine_detection_quality,
+            refine_detection_padding: cmd.refine_detection_padding,
+            refine_detection_max_per_image: cmd.refine_detection_max_per_image,
         })
     }
 }
@@ -678,6 +706,9 @@ mod tests {
             confidence: 0.8,
             crop: Some("head,bird".to_string()),
             bounding_box: false,
+            refine_detection_quality: false,
+            refine_detection_padding: 0.25,
+            refine_detection_max_per_image: 8,
             model_path: None,
             model_url: None,
             model_checksum: None,
@@ -698,6 +729,9 @@ mod tests {
         assert_eq!(config.model_path, None);
         assert_eq!(config.model_url, None);
         assert_eq!(config.model_checksum, None);
+        assert!(!config.refine_detection_quality);
+        assert_eq!(config.refine_detection_padding, 0.25);
+        assert_eq!(config.refine_detection_max_per_image, 8);
     }
 
     #[test]
@@ -742,6 +776,37 @@ mod tests {
     }
 
     #[test]
+    fn test_detect_refine_padding_validation() {
+        let global_args = GlobalArgs {
+            device: "auto".to_string(),
+            output_dir: None,
+            metadata: false,
+            recursive: false,
+            metadata_index: None,
+            verbosity: Verbosity::new(0, 0),
+            permissive: false,
+            no_color: false,
+            force: false,
+        };
+
+        let detect_cmd = DetectCommand {
+            sources: vec!["bird.jpg".to_string()],
+            confidence: 0.8,
+            crop: None,
+            bounding_box: false,
+            refine_detection_quality: true,
+            refine_detection_padding: -0.1,
+            refine_detection_max_per_image: 8,
+            model_path: None,
+            model_url: None,
+            model_checksum: None,
+        };
+
+        let err = DetectionConfig::from_args(global_args, detect_cmd).unwrap_err();
+        assert!(err.contains("--refine-detection-padding must be >= 0.0"));
+    }
+
+    #[test]
     fn test_backward_compatibility_methods() {
         let config = DetectionConfig {
             base: BaseModelConfig {
@@ -762,6 +827,9 @@ mod tests {
             model_checksum: None,
             quality_results: None,
             triage_params: None,
+            refine_detection_quality: false,
+            refine_detection_padding: 0.25,
+            refine_detection_max_per_image: 8,
         };
 
         // Test field access through base config

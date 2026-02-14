@@ -283,6 +283,9 @@ mod tests {
             model_checksum: None,
             quality_results: None,
             triage_params: None,
+            refine_detection_quality: false,
+            refine_detection_padding: 0.25,
+            refine_detection_max_per_image: 8,
         }
     }
 

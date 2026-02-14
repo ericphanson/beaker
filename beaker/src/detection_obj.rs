@@ -16,4 +16,6 @@ pub struct Detection {
     pub class_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quality: Option<DetectionQuality>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality_refined: Option<DetectionQuality>,
 }

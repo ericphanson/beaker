@@ -2,21 +2,25 @@ use crate::blur_detection::{detection_quality, BBoxF};
 use crate::color_utils::symbols;
 use crate::config::DetectionConfig;
 use crate::detection_obj::Detection;
-use crate::model_access::{ModelAccess, ModelInfo};
+use crate::model_access::{CliModelInfo, ModelAccess, ModelInfo};
 use crate::model_processing::{ModelConfig, ModelProcessor, ModelResult};
-use crate::onnx_session::ModelSource;
+use crate::onnx_session::{
+    create_onnx_session, determine_optimal_device, ModelSource, SessionConfig,
+};
 use crate::output_manager::OutputManager;
-use crate::quality_processing::QualityProcessor;
+use crate::quality_processing::{compute_quality_raw_from_image, QualityAccess, QualityProcessor};
 use crate::rfdetr;
 use crate::shared_metadata::IoTiming;
 use ab_glyph::{FontRef, PxScale};
 use anyhow::Result;
-use image::{DynamicImage, GenericImageView};
+use image::{DynamicImage, GenericImageView, RgbImage};
 use imageproc::drawing::{draw_hollow_rect_mut, draw_line_segment_mut, draw_text_mut, text_size};
-use log::debug;
+use log::{debug, warn};
 use ndarray::Array;
 use ort::{session::Session, value::Value};
 use serde::Serialize;
+use std::cell::RefCell;
+use std::cmp::Ordering;
 use std::path::Path;
 use std::time::Instant;
 
@@ -328,6 +332,375 @@ fn handle_image_outputs_with_timing(
     Ok((bounding_box_path, detections_with_paths))
 }
 
+const MIN_REFINEMENT_SIDE_PX: f32 = 64.0;
+
+#[derive(Debug)]
+enum RefinementSessionState {
+    Uninitialized,
+    Ready(Session),
+    Disabled,
+}
+
+thread_local! {
+    static QUALITY_REFINEMENT_SESSION: RefCell<RefinementSessionState> =
+        const { RefCell::new(RefinementSessionState::Uninitialized) };
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CropWindow {
+    x0: u32,
+    y0: u32,
+    x1: u32,
+    y1: u32,
+}
+
+fn is_refinement_class(class_name: &str) -> bool {
+    class_name == "bird" || class_name == "head"
+}
+
+fn class_priority(class_name: &str) -> u8 {
+    if class_name == "bird" {
+        0
+    } else if class_name == "head" {
+        1
+    } else {
+        2
+    }
+}
+
+fn detection_dims(detection: &Detection) -> (f32, f32) {
+    (
+        (detection.x2 - detection.x1).max(0.0),
+        (detection.y2 - detection.y1).max(0.0),
+    )
+}
+
+fn eligible_for_refinement(detection: &Detection) -> bool {
+    if !is_refinement_class(&detection.class_name) {
+        return false;
+    }
+
+    let (w, h) = detection_dims(detection);
+    w >= MIN_REFINEMENT_SIDE_PX && h >= MIN_REFINEMENT_SIDE_PX
+}
+
+fn select_refinement_indices(detections: &[Detection], max_per_image: usize) -> Vec<usize> {
+    if max_per_image == 0 {
+        return Vec::new();
+    }
+
+    let mut indices: Vec<usize> = detections
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, detection)| {
+            if eligible_for_refinement(detection) {
+                Some(idx)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Select by confidence first, break ties preferring bird over head.
+    indices.sort_by(|a, b| {
+        let left = &detections[*a];
+        let right = &detections[*b];
+        right
+            .confidence
+            .partial_cmp(&left.confidence)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| class_priority(&left.class_name).cmp(&class_priority(&right.class_name)))
+            .then_with(|| a.cmp(b))
+    });
+
+    indices.truncate(max_per_image);
+
+    // Process selected detections with bird before head.
+    indices.sort_by(|a, b| {
+        let left = &detections[*a];
+        let right = &detections[*b];
+        class_priority(&left.class_name)
+            .cmp(&class_priority(&right.class_name))
+            .then_with(|| {
+                right
+                    .confidence
+                    .partial_cmp(&left.confidence)
+                    .unwrap_or(Ordering::Equal)
+            })
+            .then_with(|| a.cmp(b))
+    });
+
+    indices
+}
+
+fn to_bbox(detection: &Detection) -> BBoxF {
+    BBoxF {
+        x0: detection.x1,
+        y0: detection.y1,
+        x1: detection.x2,
+        y1: detection.y2,
+    }
+}
+
+fn compute_detection_quality_from_maps(
+    q20: &[[u8; 20]; 20],
+    w20: &[[f32; 20]; 20],
+    p20: &[[f32; 20]; 20],
+    bbox: BBoxF,
+    image: &RgbImage,
+    triage_params: &crate::quality_types::TriageParams,
+) -> crate::blur_detection::DetectionQuality {
+    let q20 = ndarray::Array2::from_shape_fn((20, 20), |(y, x)| q20[y][x] as f32);
+    let w20 = ndarray::Array2::from_shape_fn((20, 20), |(y, x)| w20[y][x]);
+    let p20 = ndarray::Array2::from_shape_fn((20, 20), |(y, x)| p20[y][x]);
+
+    let quality_maps = crate::quality_types::QualityMaps {
+        q20: &q20,
+        w20: &w20,
+        p20: &p20,
+    };
+
+    detection_quality(&quality_maps, bbox, image, triage_params)
+}
+
+fn attach_baseline_quality(
+    detections: &mut [Detection],
+    quality_result: &crate::quality_processing::QualityResult,
+    image: &RgbImage,
+    triage_params: &crate::quality_types::TriageParams,
+) {
+    for detection in detections.iter_mut() {
+        let dq = compute_detection_quality_from_maps(
+            &quality_result.local_paq2piq_grid,
+            &quality_result.local_blur_weights,
+            &quality_result.local_fused_probability,
+            to_bbox(detection),
+            image,
+            triage_params,
+        );
+        debug!("Baseline detection quality: {dq:?}");
+        detection.quality = Some(dq);
+    }
+}
+
+fn create_quality_refinement_session(config: &DetectionConfig) -> Result<Session> {
+    let quality_cli_model_info = CliModelInfo {
+        model_path: None,
+        model_url: None,
+        model_checksum: None,
+    };
+    let (model_source, _) = QualityAccess::get_model_source_with_cli(&quality_cli_model_info)?;
+    let selection = determine_optimal_device(&config.base.device, "quality");
+    let session_config = SessionConfig {
+        device: &selection.device,
+    };
+    let (session, _, _) = create_onnx_session(model_source, &session_config)?;
+    Ok(session)
+}
+
+fn with_quality_refinement_session<R>(
+    config: &DetectionConfig,
+    f: impl FnOnce(&mut Session) -> Result<R>,
+) -> Result<Option<R>> {
+    QUALITY_REFINEMENT_SESSION.with(|state| {
+        let mut state = state.borrow_mut();
+        if matches!(*state, RefinementSessionState::Uninitialized) {
+            match create_quality_refinement_session(config) {
+                Ok(session) => {
+                    *state = RefinementSessionState::Ready(session);
+                }
+                Err(err) => {
+                    warn!("Failed to initialize quality refinement session: {err}");
+                    *state = RefinementSessionState::Disabled;
+                    return Ok(None);
+                }
+            }
+        }
+
+        match &mut *state {
+            RefinementSessionState::Ready(session) => f(session).map(Some),
+            RefinementSessionState::Disabled => Ok(None),
+            RefinementSessionState::Uninitialized => Ok(None),
+        }
+    })
+}
+
+fn compute_padded_square_crop_window(
+    bbox: BBoxF,
+    image_width: u32,
+    image_height: u32,
+    padding: f32,
+) -> Option<CropWindow> {
+    if image_width == 0 || image_height == 0 {
+        return None;
+    }
+
+    let image_width_f = image_width as f32;
+    let image_height_f = image_height as f32;
+
+    let x0 = bbox.x0.clamp(0.0, image_width_f);
+    let y0 = bbox.y0.clamp(0.0, image_height_f);
+    let x1 = bbox.x1.clamp(0.0, image_width_f);
+    let y1 = bbox.y1.clamp(0.0, image_height_f);
+
+    if x1 <= x0 || y1 <= y0 {
+        return None;
+    }
+
+    let bbox_w = x1 - x0;
+    let bbox_h = y1 - y0;
+    let cx = (x0 + x1) * 0.5;
+    let cy = (y0 + y1) * 0.5;
+    let side = (bbox_w * (1.0 + 2.0 * padding)).max(bbox_h * (1.0 + 2.0 * padding));
+
+    let mut crop_x0 = cx - side * 0.5;
+    let mut crop_y0 = cy - side * 0.5;
+    let mut crop_x1 = cx + side * 0.5;
+    let mut crop_y1 = cy + side * 0.5;
+
+    if crop_x0 < 0.0 {
+        crop_x1 -= crop_x0;
+        crop_x0 = 0.0;
+    }
+    if crop_y0 < 0.0 {
+        crop_y1 -= crop_y0;
+        crop_y0 = 0.0;
+    }
+    if crop_x1 > image_width_f {
+        let shift = crop_x1 - image_width_f;
+        crop_x0 = (crop_x0 - shift).max(0.0);
+        crop_x1 = image_width_f;
+    }
+    if crop_y1 > image_height_f {
+        let shift = crop_y1 - image_height_f;
+        crop_y0 = (crop_y0 - shift).max(0.0);
+        crop_y1 = image_height_f;
+    }
+
+    let x0_u = crop_x0.floor() as u32;
+    let y0_u = crop_y0.floor() as u32;
+    let x1_u = crop_x1.ceil() as u32;
+    let y1_u = crop_y1.ceil() as u32;
+
+    if x1_u <= x0_u || y1_u <= y0_u {
+        return None;
+    }
+
+    Some(CropWindow {
+        x0: x0_u,
+        y0: y0_u,
+        x1: x1_u.min(image_width),
+        y1: y1_u.min(image_height),
+    })
+}
+
+fn build_refinement_crop(
+    image: &DynamicImage,
+    detection: &Detection,
+    padding: f32,
+) -> Option<(DynamicImage, BBoxF)> {
+    let window = compute_padded_square_crop_window(
+        to_bbox(detection),
+        image.width(),
+        image.height(),
+        padding,
+    )?;
+    let crop_w = window.x1 - window.x0;
+    let crop_h = window.y1 - window.y0;
+    if crop_w == 0 || crop_h == 0 {
+        return None;
+    }
+
+    let crop = image::imageops::crop_imm(image, window.x0, window.y0, crop_w, crop_h).to_image();
+    let crop_img = DynamicImage::ImageRgba8(crop);
+
+    let mapped_x0 =
+        (detection.x1.max(window.x0 as f32) - window.x0 as f32).clamp(0.0, crop_w as f32);
+    let mapped_y0 =
+        (detection.y1.max(window.y0 as f32) - window.y0 as f32).clamp(0.0, crop_h as f32);
+    let mapped_x1 =
+        (detection.x2.min(window.x1 as f32) - window.x0 as f32).clamp(0.0, crop_w as f32);
+    let mapped_y1 =
+        (detection.y2.min(window.y1 as f32) - window.y0 as f32).clamp(0.0, crop_h as f32);
+
+    if mapped_x1 <= mapped_x0 || mapped_y1 <= mapped_y0 {
+        return None;
+    }
+
+    Some((
+        crop_img,
+        BBoxF {
+            x0: mapped_x0,
+            y0: mapped_y0,
+            x1: mapped_x1,
+            y1: mapped_y1,
+        },
+    ))
+}
+
+fn attach_refined_quality(
+    detections: &mut [Detection],
+    image: &DynamicImage,
+    config: &DetectionConfig,
+    triage_params: &crate::quality_types::TriageParams,
+    image_path: &Path,
+) -> Result<()> {
+    let selected = select_refinement_indices(detections, config.refine_detection_max_per_image);
+    if selected.is_empty() {
+        return Ok(());
+    }
+
+    debug!(
+        "Refining quality for {} selected detections in {}",
+        selected.len(),
+        image_path.display()
+    );
+
+    let _ = with_quality_refinement_session(config, |session| {
+        let quality_params = crate::quality_types::QualityParams::default();
+        for idx in selected.iter().copied() {
+            let detection = &detections[idx];
+            let Some((crop_img, mapped_bbox)) =
+                build_refinement_crop(image, detection, config.refine_detection_padding)
+            else {
+                debug!("Skipping refinement for invalid crop geometry: {detection:?}");
+                continue;
+            };
+
+            let raw = match compute_quality_raw_from_image(&crop_img, session) {
+                Ok(raw) => raw,
+                Err(err) => {
+                    warn!(
+                        "Refinement inference failed for detection {} in {}: {err}",
+                        idx,
+                        image_path.display()
+                    );
+                    continue;
+                }
+            };
+            let scores = crate::quality_types::QualityScores::compute(&raw, &quality_params);
+            let crop_rgb = crop_img.to_rgb8();
+
+            let mut dq = compute_detection_quality_from_maps(
+                &raw.paq2piq_local,
+                &scores.blur_weights,
+                &scores.blur_probability,
+                mapped_bbox,
+                &crop_rgb,
+                triage_params,
+            );
+            dq.crop_paq2piq_global = Some(raw.paq2piq_global);
+            dq.crop_blur_score = Some(scores.blur_score);
+            dq.crop_final_quality_score = Some(scores.final_score);
+            debug!("Refined detection quality: {dq:?}");
+            detections[idx].quality_refined = Some(dq);
+        }
+        Ok(())
+    })?;
+
+    Ok(())
+}
+
 /// Detection processor implementing the generic ModelProcessor trait
 pub struct DetectionProcessor;
 
@@ -457,70 +830,33 @@ impl ModelProcessor for DetectionProcessor {
             inference_time.as_secs_f64() * 1000.0
         );
 
-        // Now we want to populate quality for each detection
-        let detections = if let Some(grids) = &config.quality_results {
+        // Populate baseline per-detection quality from full-image quality maps.
+        let mut detections = detections;
+        let orig_img_rgb = img.to_rgb8();
+        let default_triage_params = crate::quality_types::TriageParams::default();
+        let triage_params = config
+            .triage_params
+            .as_ref()
+            .unwrap_or(&default_triage_params);
+
+        if let Some(grids) = &config.quality_results {
             if let Some(result) = grids.get(image_path.to_string_lossy().as_ref()) {
-                let mut detections_with_quality = Vec::new();
-
-                for mut detection in detections {
-                    let bbox = BBoxF {
-                        x0: detection.x1,
-                        y0: detection.y1,
-                        x1: detection.x2,
-                        y1: detection.y2,
-                    };
-                    let q20 = ndarray::Array2::from_shape_fn((20, 20), |(y, x)| {
-                        result.local_paq2piq_grid[y][x] as f32
-                    });
-
-                    let w20 = ndarray::Array2::from_shape_fn((20, 20), |(y, x)| {
-                        result.local_blur_weights[y][x]
-                    });
-
-                    let p20 = ndarray::Array2::from_shape_fn((20, 20), |(y, x)| {
-                        result.local_fused_probability[y][x]
-                    });
-
-                    let orig_img_wrapped = img.as_rgb8();
-                    let orig_img = match orig_img_wrapped {
-                        Some(img) => img,
-                        None => {
-                            let img_rgba = img.as_rgba8().unwrap();
-                            // Convert to RGB instead of RGBA:
-                            &DynamicImage::ImageRgba8(img_rgba.clone()).to_rgb8()
-                        }
-                    };
-                    // Use triage params from config, or default if not provided
-                    let default_triage_params = crate::quality_types::TriageParams::default();
-                    let triage_params = config
-                        .triage_params
-                        .as_ref()
-                        .unwrap_or(&default_triage_params);
-
-                    let quality_maps = crate::quality_types::QualityMaps {
-                        q20: &q20,
-                        w20: &w20,
-                        p20: &p20,
-                    };
-
-                    let dq = detection_quality(
-                        &quality_maps,
-                        bbox,     // in native image pixels
-                        orig_img, // native frame
-                        triage_params,
-                    );
-                    debug!("Detection quality: {dq:?}");
-                    detection.quality = Some(dq);
-                    detections_with_quality.push(detection);
-                }
-                detections_with_quality
+                attach_baseline_quality(&mut detections, result, &orig_img_rgb, triage_params);
             } else {
-                log::debug!("No grid found for {}", image_path.to_string_lossy());
-                detections
+                log::debug!("No quality grid found for {}", image_path.to_string_lossy());
             }
-        } else {
-            detections
-        };
+        }
+
+        if config.refine_detection_quality {
+            if let Err(err) =
+                attach_refined_quality(&mut detections, &img, config, triage_params, image_path)
+            {
+                warn!(
+                    "Skipping quality refinement for {}: {err}",
+                    image_path.display()
+                );
+            }
+        }
 
         let total_processing_time = processing_start.elapsed().as_secs_f64() * 1000.0;
 
@@ -896,6 +1232,28 @@ mod tests {
     use super::*;
     // Environment variable tests are now in integration tests to avoid race conditions
 
+    fn make_detection(
+        class_name: &str,
+        confidence: f32,
+        x1: f32,
+        y1: f32,
+        x2: f32,
+        y2: f32,
+    ) -> Detection {
+        Detection {
+            angle_radians: 0.0,
+            x1,
+            y1,
+            x2,
+            y2,
+            confidence,
+            class_id: 0,
+            class_name: class_name.to_string(),
+            quality: None,
+            quality_refined: None,
+        }
+    }
+
     #[test]
     fn test_head_access_env_var_name() {
         assert_eq!(HeadAccess::get_env_var_name(), "BEAKER_DETECT_MODEL_PATH");
@@ -916,5 +1274,46 @@ mod tests {
             preprocess_image_for_model(&DetectionModelVariants::Orientation, &dynamic_img, 640)
                 .unwrap();
         assert_eq!(rfdetr_result.shape(), &[1, 3, 640, 640]);
+    }
+
+    #[test]
+    fn test_eligible_for_refinement_min_size_and_class() {
+        let bird_small = make_detection("bird", 0.9, 0.0, 0.0, 63.0, 100.0);
+        let bird_ok = make_detection("bird", 0.9, 0.0, 0.0, 64.0, 100.0);
+        let head_ok = make_detection("head", 0.9, 0.0, 0.0, 120.0, 64.0);
+        let eye_ok_size = make_detection("eye", 0.9, 0.0, 0.0, 200.0, 200.0);
+
+        assert!(!eligible_for_refinement(&bird_small));
+        assert!(eligible_for_refinement(&bird_ok));
+        assert!(eligible_for_refinement(&head_ok));
+        assert!(!eligible_for_refinement(&eye_ok_size));
+    }
+
+    #[test]
+    fn test_select_refinement_indices_top_k_and_bird_first_processing() {
+        let detections = vec![
+            make_detection("bird", 0.90, 0.0, 0.0, 120.0, 120.0), // idx 0 eligible
+            make_detection("head", 0.95, 0.0, 0.0, 120.0, 120.0), // idx 1 eligible
+            make_detection("bird", 0.80, 0.0, 0.0, 50.0, 120.0),  // idx 2 too small
+            make_detection("eye", 0.99, 0.0, 0.0, 120.0, 120.0),  // idx 3 wrong class
+            make_detection("head", 0.70, 0.0, 0.0, 120.0, 120.0), // idx 4 eligible
+        ];
+
+        let selected = select_refinement_indices(&detections, 2);
+
+        // Top-K by confidence among eligible is idx 1 (head, 0.95) and idx 0 (bird, 0.90).
+        // Processing order is bird before head.
+        assert_eq!(selected, vec![0, 1]);
+    }
+
+    #[test]
+    fn test_select_refinement_indices_zero_limit() {
+        let detections = vec![
+            make_detection("bird", 0.90, 0.0, 0.0, 120.0, 120.0),
+            make_detection("head", 0.95, 0.0, 0.0, 120.0, 120.0),
+        ];
+
+        let selected = select_refinement_indices(&detections, 0);
+        assert!(selected.is_empty());
     }
 }
