@@ -75,6 +75,7 @@ impl DetectionView {
             model_url: None,
             model_checksum: None,
             quality_results: None,
+            triage_params: None,
         };
 
         // Run detection

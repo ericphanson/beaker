@@ -4,10 +4,22 @@ A graphical user interface for the Beaker bird image analysis toolkit, built wit
 
 ## Features
 
+### Single Image Mode
 - **Detection View**: Visualize bird detections with bounding boxes
+- **CLI Integration**: Launch with specific images via command-line flags
+
+### Bulk/Directory Mode
+- Process entire directories of images
+- Live progress tracking with per-image status
+- Gallery view with thumbnails
+- Aggregate detection list across all images
+- Navigation: Next/Previous image (← →)
+- Detection navigation: J/K to jump between detections
+- Automatic processing on folder open
+
+### General
 - **High-DPI Support**: Optimized for retina displays with 2x pixel scaling
 - **Native macOS Menu**: Full macOS menu bar integration
-- **CLI Integration**: Launch with specific images via command-line flags
 - **Runtime Asserts**: Comprehensive validation for reliability
 
 ## Building
@@ -30,13 +42,26 @@ cargo run --release -- --image path/to/bird.jpg
 cargo run --release
 ```
 
-Then use File > Open to load an image (coming soon).
+Then use File > Open to load an image or folder.
+
+### Open Folder (Bulk Mode)
+
+1. Launch GUI: `beaker-gui` or `cargo run --release`
+2. Click "Open..." or drag & drop folder
+3. Wait for processing to complete
+4. Browse results in gallery view
 
 ### Specify view
 
 ```bash
 cargo run --release -- --image path/to/bird.jpg --view detection
 ```
+
+## Keyboard Shortcuts
+
+- `←` / `→`: Navigate between images (in bulk mode)
+- `J` / `K`: Navigate between detections (across all images in bulk mode)
+- `Cmd+O` (macOS) or `Ctrl+O`: Open file dialog
 
 ## Testing
 
@@ -70,7 +95,12 @@ pub trait View {
 ```
 
 Currently implemented views:
+- **WelcomeView**: Welcome screen with file/folder opening
 - **DetectionView**: Displays images with bird detection bounding boxes
+- **DirectoryView**: Bulk processing with gallery view
+  - Background thread runs beaker detection
+  - Progress events via `std::sync::mpsc` channels
+  - Aggregate detection list across all images
 
 ### Testing Strategy
 
