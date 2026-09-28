@@ -193,7 +193,7 @@ mod tests {
         for i in 0..15 {
             recent_files
                 .add(
-                    PathBuf::from(format!("/test/image{}.jpg", i)),
+                    PathBuf::from(format!("/test/image{i}.jpg")),
                     RecentItemType::Image,
                 )
                 .unwrap();

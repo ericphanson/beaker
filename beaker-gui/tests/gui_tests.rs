@@ -30,9 +30,11 @@ fn test_style_setup() {
 #[test]
 fn test_constants() {
     // Test that style constants are reasonable
-    assert!(crate::style::MIN_WINDOW_WIDTH > 0.0);
-    assert!(crate::style::MIN_WINDOW_HEIGHT > 0.0);
-    assert!(crate::style::DETECTION_PANEL_WIDTH > 0.0);
+    const {
+        assert!(crate::style::MIN_WINDOW_WIDTH > 0.0);
+        assert!(crate::style::MIN_WINDOW_HEIGHT > 0.0);
+        assert!(crate::style::DETECTION_PANEL_WIDTH > 0.0);
+    }
 }
 
 #[test]
@@ -57,7 +59,7 @@ fn test_detection_with_real_image() {
 
     // Verify we got at least 1 detection
     assert!(
-        view.detections().len() >= 1,
+        !view.detections().is_empty(),
         "Expected at least 1 detection in example.jpg, got {}",
         view.detections().len()
     );
@@ -66,8 +68,7 @@ fn test_detection_with_real_image() {
     for (idx, detection) in view.detections().iter().enumerate() {
         assert!(
             !detection.class_name.is_empty(),
-            "Detection {} has empty class name",
-            idx
+            "Detection {idx} has empty class name"
         );
         assert!(
             detection.confidence >= 0.0 && detection.confidence <= 1.0,
