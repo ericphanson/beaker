@@ -22,7 +22,7 @@ gui-fmt-check:
 
 # Lint GUI code
 gui-lint:
-    cd beaker-gui && cargo clippy -- -D warnings
+    cd beaker-gui && cargo clippy --all-targets -- -D warnings
 
 # Run GUI with test image
 gui-run:

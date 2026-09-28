@@ -72,4 +72,4 @@ jobs:
 
       - name: Clippy
         working-directory: beaker-gui
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
