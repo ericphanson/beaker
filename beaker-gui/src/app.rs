@@ -49,7 +49,7 @@ impl BeakerApp {
                     AppState::Detection(view)
                 }
                 Err(e) => {
-                    eprintln!("Failed to load image: {}", e);
+                    eprintln!("Failed to load image: {e}");
                     AppState::Welcome(WelcomeView::new())
                 }
             }
@@ -139,7 +139,7 @@ impl BeakerApp {
     }
 
     fn open_image(&mut self, path: PathBuf) {
-        eprintln!("[BeakerApp] Opening image: {:?}", path);
+        eprintln!("[BeakerApp] Opening image: {path:?}");
         match DetectionView::new(path.to_str().unwrap()) {
             Ok(view) => {
                 eprintln!("[BeakerApp] Image loaded successfully, switching to Detection view");
@@ -147,13 +147,13 @@ impl BeakerApp {
                 self.state = AppState::Detection(view);
             }
             Err(e) => {
-                eprintln!("[BeakerApp] ERROR: Failed to load image: {}", e);
+                eprintln!("[BeakerApp] ERROR: Failed to load image: {e}");
             }
         }
     }
 
     fn open_folder(&mut self, path: PathBuf) {
-        eprintln!("[BeakerApp] Opening folder: {:?}", path);
+        eprintln!("[BeakerApp] Opening folder: {path:?}");
         // TODO: Implement folder/bulk mode in future (Proposal A)
         let _ = self.recent_files.add(path.clone(), RecentItemType::Folder);
         eprintln!("[BeakerApp] WARNING: Folder mode not yet implemented");
@@ -166,12 +166,12 @@ impl BeakerApp {
         // In the future, we can implement batch processing for multiple files
         for path in paths {
             if path.is_file() {
-                eprintln!("[BeakerApp] Opening file: {:?}", path);
+                eprintln!("[BeakerApp] Opening file: {path:?}");
                 self.open_image(path);
                 // For now, just open the first file
                 break;
             } else if path.is_dir() {
-                eprintln!("[BeakerApp] Opening folder: {:?}", path);
+                eprintln!("[BeakerApp] Opening folder: {path:?}");
                 self.open_folder(path);
                 break;
             }

@@ -50,7 +50,7 @@ impl WelcomeView {
                 let mut paths = Vec::new();
                 for dropped_file in &i.raw.dropped_files {
                     if let Some(path) = &dropped_file.path {
-                        eprintln!("[WelcomeView] File dropped: {:?}", path);
+                        eprintln!("[WelcomeView] File dropped: {path:?}");
                         paths.push(path.clone());
                     }
                 }
@@ -214,7 +214,7 @@ impl WelcomeView {
 
                 let path_str = item.path.to_str().unwrap_or("Unknown path").to_string();
 
-                let button_text = format!("{} {}", icon, path_str);
+                let button_text = format!("{icon} {path_str}");
 
                 if ui
                     .add_sized(
@@ -228,7 +228,7 @@ impl WelcomeView {
                 }
 
                 ui.label(
-                    egui::RichText::new(format!("({})", time_ago))
+                    egui::RichText::new(format!("({time_ago})"))
                         .size(12.0)
                         .color(egui::Color32::from_rgb(150, 150, 150)),
                 );
