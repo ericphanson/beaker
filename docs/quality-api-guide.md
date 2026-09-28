@@ -31,7 +31,7 @@ pub struct QualityRawData {
     pub input_width: u32,
     pub input_height: u32,
     pub paq2piq_global: f32,           // 0-100 quality score from model
-    pub paq2piq_local: [[u8; 20]; 20], // 20x20 local quality grid
+    pub paq2piq_local: [[u8; 20]; 20], // 20x20 local quality grid (TOML key: local_paq2piq_grid)
     pub tenengrad_224: [[f32; 20]; 20], // Raw gradient at 224x224
     pub tenengrad_112: [[f32; 20]; 20], // Raw gradient at 112x112
     pub median_tenengrad_224: f32,      // For adaptive thresholding
@@ -40,6 +40,8 @@ pub struct QualityRawData {
     pub computed_at: SystemTime,
 }
 ```
+
+At the 224×224 model input, the bottom row and right column of `paq2piq_local` are constant (about 50): RoIPool rounds those blocks to a region outside the 7×7 ResNet feature map, so they pool nothing. The upstream PaQ-2-PiQ model behaves the same way.
 
 ### QualityParams
 

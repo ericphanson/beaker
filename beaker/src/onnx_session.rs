@@ -77,6 +77,8 @@ fn ort_level_from_log(level: Level) -> LogLevel {
 /// Configuration for creating ONNX sessions
 pub struct SessionConfig<'a> {
     pub device: &'a str,
+    /// Intra-op thread count; None lets ONNX Runtime use all cores
+    pub threads: Option<u16>,
 }
 
 /// Model source for loading ONNX models
@@ -304,8 +306,14 @@ pub fn create_onnx_session(
 
     let mut build_session_with_retry = |bytes: &[u8]| -> Result<Session> {
         for retry_count in 0..=3 {
-            let result = Session::builder()
-                .map_err(|e| anyhow::anyhow!("Failed to create session builder: {}", e))?
+            let mut builder = Session::builder()
+                .map_err(|e| anyhow::anyhow!("Failed to create session builder: {}", e))?;
+            if let Some(threads) = config.threads {
+                builder = builder
+                    .with_intra_threads(threads.into())
+                    .map_err(|e| anyhow::anyhow!("Failed to set intra-op threads: {}", e))?;
+            }
+            let result = builder
                 .with_logger(Box::new(|level, _, _, _, msg| {
                     // we will just relog to our standard logger with `log!`
                     // after choosing the appropriate log level

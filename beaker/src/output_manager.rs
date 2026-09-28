@@ -268,6 +268,7 @@ mod tests {
             base: BaseModelConfig {
                 sources: vec!["test.jpg".to_string()],
                 device: "cpu".to_string(),
+                threads: None,
                 output_dir: output_dir.clone(),
                 skip_metadata: false,
                 recursive: false,

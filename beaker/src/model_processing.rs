@@ -257,6 +257,7 @@ pub fn run_model_processing_with_quality_outputs<P: ModelProcessor>(
 
     let session_config = SessionConfig {
         device: &device_selected,
+        threads: config.base().threads,
     };
     let (mut session, model_info, coreml_cache_stats) =
         create_onnx_session(model_source, &session_config)?;

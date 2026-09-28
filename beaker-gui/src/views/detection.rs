@@ -54,14 +54,17 @@ impl DetectionView {
         let temp_dir = std::env::temp_dir().join(format!("beaker-gui-{}", std::process::id()));
         std::fs::create_dir_all(&temp_dir)?;
 
-        eprintln!("Running detection for: {}", image_path);
+        eprintln!("Running detection for: {image_path}");
         eprintln!("Output directory: {}", temp_dir.display());
 
         let base_config = beaker::config::BaseModelConfig {
             sources: vec![image_path.to_string()],
             device: "auto".to_string(),
+            threads: None,
             output_dir: Some(temp_dir.to_str().unwrap().to_string()),
             skip_metadata: false,
+            recursive: false,
+            metadata_index: None,
             strict: true,
             force: true,
         };
@@ -75,6 +78,10 @@ impl DetectionView {
             model_url: None,
             model_checksum: None,
             quality_results: None,
+            triage_params: None,
+            refine_detection_quality: false,
+            refine_detection_padding: 0.25,
+            refine_detection_max_per_image: 8,
         };
 
         // Run detection
@@ -96,7 +103,7 @@ impl DetectionView {
             .unwrap();
 
         // Try to find the actual bounding box file
-        let bbox_image_path = temp_dir.join(format!("{}_bounding-box.jpg", image_stem));
+        let bbox_image_path = temp_dir.join(format!("{image_stem}_bounding-box.jpg"));
         eprintln!(
             "Looking for bounding box image: {}",
             bbox_image_path.display()
@@ -110,7 +117,7 @@ impl DetectionView {
         }
 
         // Read the TOML metadata to get detection info
-        let toml_path = temp_dir.join(format!("{}.beaker.toml", image_stem));
+        let toml_path = temp_dir.join(format!("{image_stem}.beaker.toml"));
         eprintln!("Looking for TOML: {}", toml_path.display());
 
         let toml_data = std::fs::read_to_string(&toml_path)?;
@@ -238,7 +245,7 @@ impl DetectionView {
                     }
                     ui.label(format!("Confidence: {:.2}", det.confidence));
                     if let Some(blur) = det.blur_score {
-                        ui.label(format!("Blur: {:.2}", blur));
+                        ui.label(format!("Blur: {blur:.2}"));
                     }
                 });
 

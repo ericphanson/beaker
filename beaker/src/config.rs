@@ -157,6 +157,10 @@ pub struct GlobalArgs {
     #[arg(long, default_value = "auto", global = true)]
     pub device: String,
 
+    /// Number of threads ONNX Runtime uses within an operator (default: all cores)
+    #[arg(long, global = true, value_parser = clap::value_parser!(u16).range(1..))]
+    pub threads: Option<u16>,
+
     /// Disable colored output (also respects NO_COLOR and BEAKER_NO_COLOR env vars)
     #[arg(long, global = true)]
     pub no_color: bool,
@@ -173,6 +177,9 @@ pub struct BaseModelConfig {
     pub sources: Vec<String>,
     /// Device for inference
     pub device: String,
+    /// ONNX Runtime intra-op thread count (None: all cores)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub threads: Option<u16>,
     /// Optional output directory override
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_dir: Option<String>,
@@ -466,6 +473,7 @@ impl From<GlobalArgs> for BaseModelConfig {
         Self {
             sources: Vec::new(), // Sources come from command, not global args
             device: global.device,
+            threads: global.threads,
             output_dir: global.output_dir,
             skip_metadata: !global.metadata, // Note: CLI uses metadata flag, internal uses skip_metadata
             recursive: global.recursive,
@@ -661,6 +669,7 @@ mod tests {
     fn test_global_args_conversion() {
         let global_args = GlobalArgs {
             device: "cpu".to_string(),
+            threads: None,
             output_dir: Some("/tmp".to_string()),
             metadata: false,
             recursive: true,
@@ -691,6 +700,7 @@ mod tests {
     fn test_detect_command_conversion() {
         let global_args = GlobalArgs {
             device: "auto".to_string(),
+            threads: None,
             output_dir: None,
             metadata: false,
             recursive: false,
@@ -738,6 +748,7 @@ mod tests {
     fn test_cutout_command_conversion() {
         let global_args = GlobalArgs {
             device: "coreml".to_string(),
+            threads: None,
             output_dir: Some("/output".to_string()),
             metadata: false,
             recursive: false,
@@ -779,6 +790,7 @@ mod tests {
     fn test_detect_refine_padding_validation() {
         let global_args = GlobalArgs {
             device: "auto".to_string(),
+            threads: None,
             output_dir: None,
             metadata: false,
             recursive: false,
@@ -812,6 +824,7 @@ mod tests {
             base: BaseModelConfig {
                 sources: vec!["test.jpg".to_string()],
                 device: "cpu".to_string(),
+                threads: None,
                 output_dir: Some("/tmp".to_string()),
                 recursive: false,
                 metadata_index: None,
@@ -845,6 +858,7 @@ mod tests {
     fn test_quality_command_conversion() {
         let global_args = GlobalArgs {
             device: "auto".to_string(),
+            threads: None,
             output_dir: Some("/quality_output".to_string()),
             metadata: true,
             recursive: false,
@@ -894,6 +908,7 @@ mod tests {
     fn test_cutout_conflicting_flags_validation() {
         let global_args = GlobalArgs {
             device: "auto".to_string(),
+            threads: None,
             output_dir: None,
             metadata: false,
             recursive: false,
@@ -927,6 +942,7 @@ mod tests {
     fn test_cutout_valid_alpha_matting() {
         let global_args = GlobalArgs {
             device: "auto".to_string(),
+            threads: None,
             output_dir: None,
             metadata: false,
             recursive: false,

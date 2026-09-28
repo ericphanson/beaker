@@ -306,13 +306,13 @@ pub fn compute_quality_raw_from_image(
         .as_slice()
         .ok_or_else(|| anyhow::anyhow!("Failed to get output slice"))?;
 
-    let global_idx = 400;
-    let paq2piq_global = output_data[global_idx].clamp(0.0, 100.0);
+    // Output layout (401 values): [global, block(0,0), block(0,1), ..., block(19,19)]
+    let paq2piq_global = output_data[0].clamp(0.0, 100.0);
 
     let mut paq2piq_local = [[0u8; 20]; 20];
     for (i, row) in paq2piq_local.iter_mut().enumerate() {
         for (j, cell) in row.iter_mut().enumerate() {
-            let idx = i * 20 + j;
+            let idx = 1 + i * 20 + j;
             let val = output_data[idx].clamp(0.0, 100.0);
             *cell = val as u8;
         }

@@ -37,6 +37,7 @@ beaker version
 beaker detect --crop=head example.jpg
 beaker detect --bounding-box example.jpg
 beaker detect --crop=head --device cpu example.jpg
+beaker detect --crop=head --threads 4 example.jpg  # cap ONNX Runtime at 4 threads
 beaker detect --crop=head *.jpg
 beaker detect --crop=head my_folder
 beaker --recursive detect --crop=head my_folder

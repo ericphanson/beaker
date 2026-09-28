@@ -6,6 +6,7 @@ fn test_quality_config_default_params() {
     let base = BaseModelConfig {
         sources: vec!["test.jpg".into()],
         device: "cpu".to_string(),
+        threads: None,
         output_dir: None,
         skip_metadata: true,
         recursive: false,
@@ -43,6 +44,7 @@ fn test_quality_config_custom_params() {
     let base = BaseModelConfig {
         sources: vec!["test.jpg".into()],
         device: "cpu".to_string(),
+        threads: None,
         output_dir: None,
         skip_metadata: true,
         recursive: false,

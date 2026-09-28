@@ -365,6 +365,7 @@ mod tests {
             verbosity: Verbosity::new(0, 0),
             permissive: false,
             device: "auto".to_string(),
+            threads: None,
             no_color: false,
             force: false,
         }

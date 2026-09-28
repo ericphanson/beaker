@@ -493,6 +493,7 @@ fn create_quality_refinement_session(config: &DetectionConfig) -> Result<Session
     let selection = determine_optimal_device(&config.base.device, "quality");
     let session_config = SessionConfig {
         device: &selection.device,
+        threads: config.base.threads,
     };
     let (session, _, _) = create_onnx_session(model_source, &session_config)?;
     Ok(session)

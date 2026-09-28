@@ -79,7 +79,10 @@ fn test_model_basic_functionality(model_path: &Path) -> Result<()> {
     })?;
 
     let model_source = ModelSource::FilePath(path_str.to_string());
-    let config = SessionConfig { device: "cpu" };
+    let config = SessionConfig {
+        device: "cpu",
+        threads: None,
+    };
 
     match create_onnx_session(model_source, &config) {
         Ok((_session, model_info, _cache_stats)) => {
