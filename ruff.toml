@@ -1,2 +1,8 @@
 # ruff.toml
-exclude = ["beaker/line_counts.md", "pose_model"]
+exclude = [
+    "beaker/line_counts.md",
+    "pose_model",
+    # Vendored upstream code (see detect_rfdetr/README.md and quality_model/README.md)
+    "detect_rfdetr/rfdetr",
+    "quality_model/paq2piq",
+]

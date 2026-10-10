@@ -388,28 +388,6 @@ def visualize_sample(
             print(f"  Predicted labels: {predictions['labels']}")
             print(f"  Predicted orientations: {predictions['orients']}")
 
-            # Analyze class mapping by comparing bounding boxes
-            if predictions["num_predictions"] > 0:
-                # Handle boxes - convert list to numpy array
-                if isinstance(predictions["boxes"], list):
-                    pred_boxes_np = np.array(predictions["boxes"])
-                else:
-                    pred_boxes_np = (
-                        predictions["boxes"].cpu().numpy()
-                        if hasattr(predictions["boxes"], "cpu")
-                        else predictions["boxes"]
-                    )
-                pred_labels_np = (
-                    predictions["labels"].cpu().numpy()
-                    if hasattr(predictions["labels"], "cpu")
-                    else predictions["labels"]
-                )
-
-                # Find class mapping based on IoU for debugging/analysis
-                # find_class_mapping(
-                # boxes, labels, pred_boxes_np, pred_labels_np
-                # )  # Both GT and pred labels are now 0-indexed
-
     # Create the plot
     print(f"Creating plot with {len(boxes)} GT boxes...")
     fig, ax = plt.subplots(1, 1, figsize=(12, 8))
