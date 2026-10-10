@@ -11,7 +11,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -19,7 +19,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: Install just
-        uses: extractions/setup-just@v2
+        uses: extractions/setup-just@v4
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -43,7 +43,7 @@ jobs:
         run: pre-commit install || echo "pre-commit install failed, continuing..."
 
       - name: Cache ONNX models
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/onnx-models
           key: onnx-models-setup-v1
