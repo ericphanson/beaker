@@ -28,7 +28,7 @@ pub fn setup_custom_style(ctx: &egui::Context) {
     // Accent colors (blue for science/analysis)
     style.visuals.selection.bg_fill = egui::Color32::from_rgb(70, 130, 200);
     style.visuals.widgets.hovered.bg_stroke =
-        egui::Stroke::new(2.0, egui::Color32::from_rgb(100, 150, 220));
+        egui::Stroke::new(2.0_f32, egui::Color32::from_rgb(100, 150, 220));
 
     // Subtle shadows
     style.visuals.window_shadow = egui::epaint::Shadow {

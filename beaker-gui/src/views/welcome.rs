@@ -100,7 +100,7 @@ impl WelcomeView {
                 drop_zone_rect,
                 6.0,
                 fill_color,
-                egui::Stroke::new(2.0, egui::Color32::from_rgb(200, 200, 200)),
+                egui::Stroke::new(2.0_f32, egui::Color32::from_rgb(200, 200, 200)),
             );
 
             // Drop zone text
@@ -137,7 +137,7 @@ impl WelcomeView {
                     drop_zone_rect,
                     6.0,
                     egui::Color32::TRANSPARENT,
-                    egui::Stroke::new(3.0, egui::Color32::from_rgb(100, 149, 237)),
+                    egui::Stroke::new(3.0_f32, egui::Color32::from_rgb(100, 149, 237)),
                 );
             }
 

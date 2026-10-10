@@ -238,7 +238,7 @@ impl DetectionView {
                 })
                 .rounding(6.0)
                 .inner_margin(12.0)
-                .stroke(egui::Stroke::new(1.0, egui::Color32::from_gray(200)))
+                .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_gray(200)))
                 .show(ui, |ui| {
                     if ui.selectable_label(false, &det.class_name).clicked() {
                         self.selected_detection = Some(idx);

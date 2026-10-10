@@ -60,70 +60,47 @@ fn build_inline_rows_f32(mat: &[[f32; 20]; 20]) -> Value {
 
 /// Extract a 20x20 u8 array from TOML value
 fn extract_u8_grid(grid_value: &toml::Value) -> Option<[[u8; 20]; 20]> {
-    if let Some(grid_array) = grid_value.as_array() {
-        if grid_array.len() == 20 {
-            let mut grid: [[u8; 20]; 20] = [[0; 20]; 20];
-
-            for (i, row) in grid_array.iter().enumerate() {
-                if let Some(row_array) = row.as_array() {
-                    if row_array.len() == 20 {
-                        for (j, val) in row_array.iter().enumerate() {
-                            if let Some(num) = val.as_integer() {
-                                grid[i][j] = num as u8;
-                            } else {
-                                return None;
-                            }
-                        }
-                    } else {
-                        return None;
-                    }
-                } else {
-                    return None;
-                }
-            }
-
-            Some(grid)
-        } else {
-            None
-        }
-    } else {
-        None
+    let grid_array = grid_value.as_array()?;
+    if grid_array.len() != 20 {
+        return None;
     }
+    let mut grid: [[u8; 20]; 20] = [[0; 20]; 20];
+
+    for (i, row) in grid_array.iter().enumerate() {
+        let row_array = row.as_array()?;
+        if row_array.len() != 20 {
+            return None;
+        }
+        for (j, val) in row_array.iter().enumerate() {
+            grid[i][j] = val.as_integer()? as u8;
+        }
+    }
+
+    Some(grid)
 }
 
 /// Extract a 20x20 f32 array from TOML value
 fn extract_f32_grid(grid_value: &toml::Value) -> Option<[[f32; 20]; 20]> {
-    if let Some(grid_array) = grid_value.as_array() {
-        if grid_array.len() == 20 {
-            let mut grid: [[f32; 20]; 20] = [[0.0; 20]; 20];
-
-            for (i, row) in grid_array.iter().enumerate() {
-                if let Some(row_array) = row.as_array() {
-                    if row_array.len() == 20 {
-                        for (j, val) in row_array.iter().enumerate() {
-                            if let Some(num) = val.as_float() {
-                                grid[i][j] = num as f32;
-                            } else if let Some(num) = val.as_integer() {
-                                grid[i][j] = num as f32;
-                            } else {
-                                return None;
-                            }
-                        }
-                    } else {
-                        return None;
-                    }
-                } else {
-                    return None;
-                }
-            }
-
-            Some(grid)
-        } else {
-            None
-        }
-    } else {
-        None
+    let grid_array = grid_value.as_array()?;
+    if grid_array.len() != 20 {
+        return None;
     }
+    let mut grid: [[f32; 20]; 20] = [[0.0; 20]; 20];
+
+    for (i, row) in grid_array.iter().enumerate() {
+        let row_array = row.as_array()?;
+        if row_array.len() != 20 {
+            return None;
+        }
+        for (j, val) in row_array.iter().enumerate() {
+            grid[i][j] = match val.as_float() {
+                Some(num) => num as f32,
+                None => val.as_integer()? as f32,
+            };
+        }
+    }
+
+    Some(grid)
 }
 
 /// ONNX download cache statistics
@@ -594,6 +571,40 @@ mod tests {
         assert!(parsed.detect.as_ref().unwrap().config.is_some());
         assert!(parsed.detect.as_ref().unwrap().execution.is_some());
         assert!(parsed.detect.as_ref().unwrap().system.is_some());
+    }
+
+    #[test]
+    fn test_extract_grids() {
+        let grid = |cell: toml::Value, rows: usize, cols: usize| {
+            toml::Value::Array(vec![toml::Value::Array(vec![cell; cols]); rows])
+        };
+        let int = toml::Value::Integer(7);
+        let float = toml::Value::Float(0.5);
+
+        assert_eq!(
+            extract_u8_grid(&grid(int.clone(), 20, 20)),
+            Some([[7; 20]; 20])
+        );
+        assert_eq!(extract_u8_grid(&grid(int.clone(), 19, 20)), None);
+        assert_eq!(extract_u8_grid(&grid(int.clone(), 20, 19)), None);
+        assert_eq!(extract_u8_grid(&grid(float.clone(), 20, 20)), None);
+        assert_eq!(extract_u8_grid(&int), None);
+
+        // f32 grids accept integers as well as floats
+        assert_eq!(
+            extract_f32_grid(&grid(float.clone(), 20, 20)),
+            Some([[0.5; 20]; 20])
+        );
+        assert_eq!(
+            extract_f32_grid(&grid(int.clone(), 20, 20)),
+            Some([[7.0; 20]; 20])
+        );
+        assert_eq!(extract_f32_grid(&grid(float.clone(), 20, 21)), None);
+        assert_eq!(extract_f32_grid(&grid(float, 21, 20)), None);
+        assert_eq!(
+            extract_f32_grid(&grid(toml::Value::String("x".into()), 20, 20)),
+            None
+        );
     }
 
     #[test]

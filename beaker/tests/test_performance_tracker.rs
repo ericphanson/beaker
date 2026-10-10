@@ -57,7 +57,7 @@ impl TestPerformanceTracker {
 
         // Track slowest tests (keep top 5)
         self.slowest_tests.push((test_name.to_string(), duration));
-        self.slowest_tests.sort_by(|a, b| b.1.cmp(&a.1));
+        self.slowest_tests.sort_by_key(|t| std::cmp::Reverse(t.1));
         if self.slowest_tests.len() > 5 {
             self.slowest_tests.truncate(5);
         }
