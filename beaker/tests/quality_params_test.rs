@@ -38,6 +38,7 @@ fn test_quality_raw_data_creation() {
         tenengrad_112: [[0.05f32; 20]; 20],
         median_tenengrad_224: 0.08,
         scale_ratio: 0.5,
+        relative_blur: 0.3,
         model_version: "quality-model-v1".to_string(),
     };
 
@@ -58,6 +59,7 @@ fn test_quality_scores_compute_from_raw() {
         tenengrad_112: [[0.025f32; 20]; 20],
         median_tenengrad_224: 0.04,
         scale_ratio: 0.5,
+        relative_blur: 0.3,
         model_version: "quality-model-v1".to_string(),
     };
 
@@ -70,7 +72,7 @@ fn test_quality_scores_compute_from_raw() {
 
     // Verify component scores
     assert_eq!(scores.paq2piq_score, 80.0);
-    assert!(scores.blur_score >= 0.0 && scores.blur_score <= 1.0);
+    assert!(scores.blur_score >= 0.0 && scores.blur_score <= 100.0);
 
     // Verify grids have correct shape
     assert_eq!(scores.blur_probability.len(), 20);
@@ -78,34 +80,46 @@ fn test_quality_scores_compute_from_raw() {
 }
 
 #[test]
-fn test_quality_scores_compute_no_blur() {
-    // High Tenengrad = sharp = low blur probability
-    let raw = QualityRawData {
+fn test_quality_scores_blur_score_from_relative_blur() {
+    let raw_with = |relative_blur: f32, tenengrad: f32| QualityRawData {
         input_width: 640,
         input_height: 480,
         paq2piq_global: 90.0,
         paq2piq_local: [[80u8; 20]; 20],
-        tenengrad_224: [[1.0f32; 20]; 20], // Very high gradient
-        tenengrad_112: [[0.5f32; 20]; 20],
-        median_tenengrad_224: 0.8,
+        tenengrad_224: [[tenengrad; 20]; 20],
+        tenengrad_112: [[tenengrad / 2.0; 20]; 20],
+        median_tenengrad_224: tenengrad,
         scale_ratio: 0.5,
+        relative_blur,
         model_version: "quality-model-v1".to_string(),
     };
-
     let params = QualityParams::default();
-    let scores = QualityScores::compute(&raw, &params);
 
-    // Low blur probability should mean blur_score is low
-    assert!(
-        scores.blur_score < 0.5,
-        "Sharp image should have low blur score"
-    );
+    // At or below the sharp anchor: no blur penalty, final score equals PaQ-2-PiQ
+    let sharp = QualityScores::compute(&raw_with(0.15, 1.0), &params);
+    assert_eq!(sharp.blur_score, 0.0);
+    assert_eq!(sharp.final_score, 90.0);
 
-    // Low blur means high weight, so final_score should be close to paq2piq
-    assert!(
-        scores.final_score > 85.0,
-        "Sharp image should preserve quality score"
-    );
+    // Nothing lost on re-blurring: full blur score, weight 1 - alpha
+    let blurry = QualityScores::compute(&raw_with(1.0, 1.0), &params);
+    assert_eq!(blurry.blur_score, 100.0);
+    assert!((blurry.final_score - 90.0 * (1.0 - params.alpha)).abs() < 1e-3);
+
+    // The blur weight never drops below min_weight
+    let strong = QualityParams {
+        alpha: 1.0,
+        ..Default::default()
+    };
+    let floored = QualityScores::compute(&raw_with(1.0, 1.0), &strong);
+    assert!((floored.final_score - 90.0 * strong.min_weight).abs() < 1e-3);
+
+    // The Tenengrad grids change the local maps but not the blur score
+    let high_energy = QualityScores::compute(&raw_with(0.575, 1.0), &params);
+    let low_energy = QualityScores::compute(&raw_with(0.575, 0.001), &params);
+    assert!((high_energy.blur_score - 50.0).abs() < 1e-3);
+    assert_eq!(high_energy.blur_score, low_energy.blur_score);
+    assert_eq!(high_energy.final_score, low_energy.final_score);
+    assert!(low_energy.blur_probability[0][0] > high_energy.blur_probability[0][0] + 0.5);
 }
 
 #[test]

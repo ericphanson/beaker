@@ -268,6 +268,7 @@ fn test_quality_visualization_render() {
         tenengrad_112: [[0.025f32; 20]; 20],
         median_tenengrad_224: 0.04,
         scale_ratio: 0.5,
+        relative_blur: 0.3,
         model_version: "quality-model-v1".to_string(),
     };
 
@@ -303,6 +304,7 @@ fn test_quality_visualization_render_blur_only() {
         tenengrad_112: [[0.025f32; 20]; 20],
         median_tenengrad_224: 0.04,
         scale_ratio: 0.5,
+        relative_blur: 0.3,
         model_version: "quality-model-v1".to_string(),
     };
 
@@ -329,6 +331,7 @@ fn test_quality_visualization_render_overlay() {
         tenengrad_112: [[0.025f32; 20]; 20],
         median_tenengrad_224: 0.04,
         scale_ratio: 0.5,
+        relative_blur: 0.3,
         model_version: "quality-model-v1".to_string(),
     };
 

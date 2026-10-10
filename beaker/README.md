@@ -123,7 +123,7 @@ Refinement behavior:
 `quality_refined` includes all fields listed in `quality`, recomputed on the refined crop context, plus crop-level scalar quality outputs:
 
 - `crop_paq2piq_global`: This is the refined crop's global PaQ-2-PiQ score (`0..100`). Source: **PaQ-2-PiQ model output** (global scalar).
-- `crop_blur_score`: This is the refined crop's global blur score (`0..1`), computed as the mean fused blur probability over the full crop. Source: **direct numerical calculation**.
+- `crop_blur_score`: This is the refined crop's global blur score (`0..100`; 0 = sharp, 100 = no fine detail), computed on the crop at its native resolution in the same way as `global_blur_score`. Source: **direct numerical calculation**.
 - `crop_final_quality_score`: This is the refined crop's final fused quality score (`0..100`) after applying blur-based weighting to the PaQ-2-PiQ score. Source: **hybrid** (PaQ-2-PiQ model output + direct numerical fusion).
 
 Notes:
@@ -279,11 +279,11 @@ Field semantics are the same as `detect.input`:
 - `input_img_width`: Original image width in pixels.
 - `input_img_height`: Original image height in pixels.
 - `global_paq2piq_score`: Global PaQ-2-PiQ score (`0..100`).
-- `global_blur_score`: Global fused blur score (`0..1`).
-- `global_quality_score`: Final fused quality score (`0..100`) after blur weighting.
+- `global_blur_score`: Global blur score (`0..100`; 0 = sharp, 100 = no fine detail). It is the share of the image's edge energy that survives blurring the image again, measured at native resolution and rescaled. See [docs/blur-score](../docs/blur-score/README.md).
+- `global_quality_score`: Final quality score (`0..100`): `global_paq2piq_score * max(1 - alpha * global_blur_score / 100, 0.2)`.
 - `local_paq2piq_grid`: 20x20 local PaQ-2-PiQ quality grid (`0..100` values).
-- `local_blur_weights`: 20x20 blur-weight grid (`0..1` values).
-- `local_fused_probability`: 20x20 fused blur-probability grid (`0..1` values).
+- `local_blur_weights`: 20x20 blur-weight grid (`0..1` values), from the 224 px grid measure below.
+- `local_fused_probability`: 20x20 fused blur-probability grid (`0..1` values), computed from edge energy per cell on the 224 px resize. `global_blur_score` does not use this grid.
 
 ### Quality config (`[quality.config]`)
 
@@ -375,24 +375,24 @@ beaker quality --metadata image.jpg
 
 ### Parameter Tuning
 
-Quality assessment uses several tunable parameters for blur detection:
+`--alpha` sets how much the blur score lowers the final quality score. `--beta` and `--tau` shape the 20x20 local blur grids (`local_fused_probability`, `local_blur_weights`) and the heatmaps drawn from them. They do not change `global_blur_score`. These options exist on `beaker quality` only; `beaker detect` computes its grids, and the per-detection `roi_blur_probability_mean` and `roi_blur_weight_mean` taken from them, with the defaults.
 
 ```bash
-# Adjust blur sensitivity (lower = more sensitive)
-beaker quality --tau 0.01 image.jpg
-
 # Adjust blur weight impact (higher = more penalty for blur)
 beaker quality --alpha 0.8 image.jpg
 
-# Adjust probability curve steepness
+# Adjust the local grid's blur threshold (lower = fewer cells flagged)
+beaker quality --tau 0.01 image.jpg
+
+# Adjust the local grid's probability curve steepness
 beaker quality --beta 1.5 image.jpg
 ```
 
 **Parameter Reference:**
 
-- `--alpha` (0.0-1.0, default 0.7): Weight coefficient - how much blur reduces quality score
-- `--beta` (0.5-2.0, default 1.2): Probability curve exponent - steeper = more aggressive blur detection
-- `--tau` (0.001-0.1, default 0.02): Tenengrad threshold - lower = more sensitive to blur
+- `--alpha` (0.0-1.0, default 0.7): Weight coefficient - how much blur reduces the quality score and the local weights. The weight never drops below 0.2
+- `--beta` (0.5-2.0, default 1.2): Local grid probability curve exponent - steeper = cells flagged more sharply
+- `--tau` (0.001-0.1, default 0.02): Local grid Tenengrad threshold - edge energy below which a cell counts as blurry
 
 ### Programmatic API
 
@@ -422,7 +422,7 @@ let strict_scores = QualityScores::compute(&raw, &strict_params);
 
 ### Performance
 
-- First run: ~60ms per image (preprocessing + ONNX inference + blur detection)
+- First run: ~60ms per image (preprocessing + ONNX inference + local blur grids), plus the full-resolution blur score, which grows with image size (about 0.1s for a 20 megapixel photo; see [docs/blur-score](../docs/blur-score/README.md#cost))
 - Cached run: <1ms per image (cache hit for raw computation)
 - Parameter adjustment: <0.1ms per image (recomputes scores from cached raw data)
 

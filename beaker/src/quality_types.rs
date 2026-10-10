@@ -97,7 +97,8 @@ pub struct QualityMaps<'a> {
     pub p20: &'a ndarray::Array2<f32>,
 }
 
-/// Parameter-independent computation results (expensive to compute, ~60ms)
+/// Parameter-independent computation results (expensive to compute: ~60ms plus the
+/// native-resolution blur measure, which grows with image size)
 #[derive(Clone, Debug)]
 pub struct QualityRawData {
     /// Original image dimensions
@@ -114,6 +115,9 @@ pub struct QualityRawData {
     pub median_tenengrad_224: f32,      // Median for adaptive thresholding
     pub scale_ratio: f32,               // 112/224 scale ratio
 
+    /// Share of edge energy that survives re-blurring, at native resolution (0-1)
+    pub relative_blur: f32,
+
     /// Provenance
     pub model_version: String,
 }
@@ -126,14 +130,16 @@ pub struct QualityScores {
 
     /// Component scores (for analysis)
     pub paq2piq_score: f32,
-    pub blur_score: f32, // Global blur probability (0-1)
+    pub blur_score: f32, // Global blur score (0 = sharp, 100 = no fine detail)
 
     /// Intermediate results (20x20 grids)
     pub blur_probability: [[f32; 20]; 20], // Fused blur probability
     pub blur_weights: [[f32; 20]; 20], // Weights (1 - alpha*P)
 }
 
-use crate::blur_detection::{apply_tenengrad_params, compute_weights, fuse_probabilities};
+use crate::blur_detection::{
+    apply_tenengrad_params, blur_score_from_ratio, compute_weights, fuse_probabilities,
+};
 
 impl QualityScores {
     /// Compute scores from raw data and parameters (cheap: <0.1ms)
@@ -176,15 +182,11 @@ impl QualityScores {
             }
         }
 
-        // Global blur score (mean probability)
-        let blur_score: f32 = blur_probability
-            .iter()
-            .flat_map(|row| row.iter())
-            .sum::<f32>()
-            / 400.0;
+        // Global blur score from the native-resolution relative measure
+        let blur_score = blur_score_from_ratio(raw.relative_blur);
 
         // Final combined score
-        let w_mean = (1.0 - params.alpha * blur_score).clamp(params.min_weight, 1.0);
+        let w_mean = (1.0 - params.alpha * blur_score / 100.0).clamp(params.min_weight, 1.0);
         let final_score = raw.paq2piq_global * w_mean;
 
         Self {

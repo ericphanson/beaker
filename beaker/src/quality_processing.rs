@@ -1,4 +1,4 @@
-use crate::blur_detection::compute_raw_tenengrad;
+use crate::blur_detection::{compute_raw_tenengrad, relative_blur_ratio};
 use crate::color_utils::symbols;
 use crate::config::QualityConfig;
 use crate::model_access::{ModelAccess, ModelInfo};
@@ -261,7 +261,8 @@ fn preprocess_image_for_quality(img: &image::DynamicImage) -> Result<ndarray::Ar
     Ok(array)
 }
 
-/// Compute parameter-independent quality data (expensive: ~60ms, cached)
+/// Compute parameter-independent quality data (expensive, cached): ~60ms plus the
+/// native-resolution blur measure, which grows with image size
 #[cached(
     size = 1000,
     key = "String",
@@ -340,6 +341,7 @@ pub fn compute_quality_raw_from_image(
         tenengrad_112,
         median_tenengrad_224: raw_tenengrad.median_224,
         scale_ratio: raw_tenengrad.scale_ratio,
+        relative_blur: relative_blur_ratio(img),
         model_version: "quality-model-v1".to_string(),
     })
 }

@@ -355,15 +355,15 @@ pub struct QualityCommand {
     #[arg(long)]
     pub overlay: bool,
 
-    /// Override alpha parameter (weight coefficient)
+    /// Override alpha parameter (how much blur lowers the quality score)
     #[arg(long)]
     pub alpha: Option<f32>,
 
-    /// Override beta parameter (blur probability exponent)
+    /// Override beta parameter (blur probability exponent of the local 20x20 grid)
     #[arg(long)]
     pub beta: Option<f32>,
 
-    /// Override tau parameter (Tenengrad threshold)
+    /// Override tau parameter (Tenengrad threshold of the local 20x20 grid)
     #[arg(long)]
     pub tau: Option<f32>,
 

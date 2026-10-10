@@ -112,6 +112,125 @@ pub fn compute_weights(blur_probability: &Array2<f32>, params: &QualityParams) -
     })
 }
 
+// ---------------- relative blur (global blur score) ----------------
+// See docs/blur-score/README.md for how this measure was chosen and tested.
+
+/// Gaussian widths (px, native resolution): a light denoise, then the re-blur.
+const REL_DENOISE_SIGMA: f32 = 1.0;
+const REL_REBLUR_SIGMA: f32 = 2.0;
+/// Raw ratio that maps to a blur score of 0. No test image scored below 0.17.
+const REL_RATIO_SHARP: f32 = 0.15;
+/// Mean squared gradient far below any real edge; keeps a featureless image from dividing 0 by 0.
+const REL_EPS_PER_PIXEL: f64 = 1e-7;
+
+/// Normalised 1-D Gaussian kernel truncated at 3 sigma.
+fn gaussian_kernel(sigma: f32) -> Vec<f32> {
+    let r = (3.0 * sigma).round() as i32;
+    let mut k: Vec<f32> = (-r..=r)
+        .map(|i| (-0.5 * (i as f32 / sigma).powi(2)).exp())
+        .collect();
+    let sum: f32 = k.iter().sum();
+    k.iter_mut().for_each(|w| *w /= sum);
+    k
+}
+
+/// Separable Gaussian blur of a row-major `w`x`h` buffer with replicated edges.
+/// `tmp` is scratch space of the same size; the result overwrites `buf`.
+fn gaussian_blur_in_place(buf: &mut [f32], tmp: &mut [f32], w: usize, h: usize, sigma: f32) {
+    let k = gaussian_kernel(sigma);
+    let r = k.len() / 2;
+
+    // Horizontal pass: buf -> tmp
+    for (src, dst) in buf.chunks_exact(w).zip(tmp.chunks_exact_mut(w)) {
+        dst.fill(0.0);
+        // Pixels at least `r` from both edges need no clamping (none if the row is too short)
+        let interior = if w > 2 * r { r..w - r } else { 0..0 };
+        for (i, &kw) in k.iter().enumerate() {
+            if !interior.is_empty() {
+                for (d, s) in dst[interior.clone()].iter_mut().zip(&src[i..]) {
+                    *d += kw * s;
+                }
+            }
+            for x in (0..interior.start).chain(interior.end..w) {
+                dst[x] += kw * src[(x + i).saturating_sub(r).min(w - 1)];
+            }
+        }
+    }
+
+    // Vertical pass: tmp -> buf, one whole row at a time
+    for (y, dst) in buf.chunks_exact_mut(w).enumerate() {
+        dst.fill(0.0);
+        for (i, &kw) in k.iter().enumerate() {
+            let yy = (y + i).saturating_sub(r).min(h - 1);
+            for (d, s) in dst.iter_mut().zip(&tmp[yy * w..(yy + 1) * w]) {
+                *d += kw * s;
+            }
+        }
+    }
+}
+
+/// Sum of squared Sobel gradients over a row-major `w`x`h` buffer with replicated edges.
+fn sobel_energy(buf: &[f32], w: usize, h: usize) -> f64 {
+    let row = |y: usize| &buf[y * w..(y + 1) * w];
+    let mut total = 0f64;
+    for y in 0..h {
+        let (up, mid, down) = (row(y.saturating_sub(1)), row(y), row((y + 1).min(h - 1)));
+        let g2 = |l: usize, x: usize, r: usize| {
+            let gx = (up[r] + 2.0 * mid[r] + down[r]) - (up[l] + 2.0 * mid[l] + down[l]);
+            let gy = (down[l] + 2.0 * down[x] + down[r]) - (up[l] + 2.0 * up[x] + up[r]);
+            gx * gx + gy * gy
+        };
+        // First and last columns clamp to the edge; the rest use plain 3-wide windows
+        let mut row_sum = g2(0, 0, 1.min(w - 1));
+        if w > 1 {
+            row_sum += g2(w - 2, w - 1, w - 1);
+        }
+        for ((u, m), d) in up.windows(3).zip(mid.windows(3)).zip(down.windows(3)) {
+            let gx = (u[2] + 2.0 * m[2] + d[2]) - (u[0] + 2.0 * m[0] + d[0]);
+            let gy = (d[0] + 2.0 * d[1] + d[2]) - (u[0] + 2.0 * u[1] + u[2]);
+            row_sum += gx * gx + gy * gy;
+        }
+        total += row_sum as f64;
+    }
+    total
+}
+
+/// Share of an image's edge energy that survives blurring it again (0..1), at native resolution.
+///
+/// A sharp image loses most of its edge energy when blurred; an image that is already blurry
+/// loses little. Both energies scale with how much edge content the scene has, so the ratio
+/// depends on sharpness far more than on content.
+pub fn relative_blur_ratio(img: &image::DynamicImage) -> f32 {
+    let (w, h) = (img.width() as usize, img.height() as usize);
+    if w == 0 || h == 0 {
+        return 1.0;
+    }
+
+    let luma =
+        |p: &Rgb<u8>| (0.299 * p[0] as f32 + 0.587 * p[1] as f32 + 0.114 * p[2] as f32) / 255.0;
+    // Other pixel formats are converted (alpha is ignored); that copy is freed
+    // before the scratch buffer below is allocated
+    let mut buf: Vec<f32> = match img.as_rgb8() {
+        Some(rgb) => rgb.pixels().map(luma).collect(),
+        None => img.to_rgb8().pixels().map(luma).collect(),
+    };
+    let mut tmp = vec![0f32; buf.len()];
+
+    gaussian_blur_in_place(&mut buf, &mut tmp, w, h, REL_DENOISE_SIGMA);
+    let energy = sobel_energy(&buf, w, h);
+    gaussian_blur_in_place(&mut buf, &mut tmp, w, h, REL_REBLUR_SIGMA);
+    let energy_reblurred = sobel_energy(&buf, w, h);
+
+    // With no edges at all there is no detail to lose, so the image reads as fully blurred
+    let eps = REL_EPS_PER_PIXEL * (w * h) as f64;
+    ((energy_reblurred + eps) / (energy + eps)).min(1.0) as f32
+}
+
+/// Map the raw ratio to the 0-100 blur score: 0 = sharp, 100 = no fine detail left.
+pub fn blur_score_from_ratio(ratio: f32) -> f32 {
+    100.0 * ((ratio - REL_RATIO_SHARP) / (1.0 - REL_RATIO_SHARP)).clamp(0.0, 1.0)
+}
+
 type GrayF32 = ImageBuffer<Luma<f32>, Vec<f32>>;
 
 #[derive(Copy, Clone, Debug)]
@@ -166,7 +285,7 @@ pub struct DetectionQuality {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub crop_paq2piq_global: Option<f32>,
 
-    /// Global blur score (0..1) for the refined crop.
+    /// Global blur score (0 = sharp, 100 = no fine detail) for the refined crop.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub crop_blur_score: Option<f32>,
 
@@ -494,7 +613,8 @@ fn tenengrad_mean_grid_20(gray: &GrayF32) -> Array2<f32> {
 
 // ---------------- multi-scale blur weights (224 + 112, fused) ----------------
 
-/// Returns: (weights_20x20, fused_blur_prob_20x20, t224_20x20, blur_global)
+/// Returns: (weights_20x20, fused_blur_prob_20x20, t224_20x20, mean of the fused grid).
+/// The grid mean (0..1) is not the global blur score; that comes from `relative_blur_ratio`.
 ///
 /// This is a backward-compatible wrapper that internally uses the new layered functions.
 pub fn blur_weights_from_nchw(
@@ -536,8 +656,8 @@ pub fn blur_weights_from_nchw(
     // Compute weights
     let blur_weights = compute_weights(&blur_probability, &params);
 
-    // Global blur score
-    let global_blur_score = blur_probability.sum() / 400.0;
+    // Mean of the fused grid
+    let grid_mean = blur_probability.sum() / 400.0;
 
     // Optional debug output (if out_dir provided)
     if let Some(out) = out_dir {
@@ -559,8 +679,8 @@ pub fn blur_weights_from_nchw(
         log::debug!("Finished dumping debug heatmaps in {:?}", start.elapsed());
     }
 
-    // Return in old format: (weights, probability, tenengrad_224, global_blur)
-    (blur_weights, blur_probability, raw.t224, global_blur_score)
+    // Return in old format: (weights, probability, tenengrad_224, grid mean)
+    (blur_weights, blur_probability, raw.t224, grid_mean)
 }
 
 /// Bilinear sample of a 20x20 field at (u,v) in "cell" coordinates, where 0..20 maps across the image.

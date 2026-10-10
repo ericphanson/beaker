@@ -142,6 +142,19 @@ fn test_refinement_adds_quality_refined_with_crop_scores() {
                 "quality_refined should include numeric field '{field}'"
             );
         }
+
+        let paq = read_number(refined_table, "crop_paq2piq_global");
+        let blur = read_number(refined_table, "crop_blur_score");
+        let quality = read_number(refined_table, "crop_final_quality_score");
+        assert!(
+            (0.0..=100.0).contains(&blur),
+            "crop_blur_score should be on the 0..100 scale, got {blur}"
+        );
+        let expected = paq * (1.0 - 0.7 * blur / 100.0).max(0.2);
+        assert!(
+            (quality - expected).abs() < 1e-3,
+            "Expected crop_final_quality_score {expected}, got {quality}"
+        );
     }
 
     assert!(

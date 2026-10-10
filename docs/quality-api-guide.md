@@ -7,7 +7,8 @@ Quality assessment is split into three layers:
 1. **Layer 1: Raw Computation** (expensive, parameter-independent)
    - Image preprocessing and ONNX inference (~30ms)
    - Raw Tenengrad gradient computation (~2ms)
-   - Total: ~60ms per image
+   - Relative blur at native resolution (grows with image size; about 0.1s for 20 megapixels, measured in [blur-score/README.md](blur-score/README.md#cost))
+   - Total: ~60ms per image plus the relative blur
    - Cached automatically with `#[cached]` annotation
 
 2. **Layer 2: Scoring** (cheap, parameter-dependent)
@@ -36,8 +37,8 @@ pub struct QualityRawData {
     pub tenengrad_112: [[f32; 20]; 20], // Raw gradient at 112x112
     pub median_tenengrad_224: f32,      // For adaptive thresholding
     pub scale_ratio: f32,               // Scale factor
+    pub relative_blur: f32,             // Share of edge energy surviving a re-blur, native resolution (0-1)
     pub model_version: String,
-    pub computed_at: SystemTime,
 }
 ```
 
@@ -66,12 +67,13 @@ Parameter-dependent results computed from raw data.
 pub struct QualityScores {
     pub final_score: f32,                   // Combined quality score
     pub paq2piq_score: f32,                 // ML model score
-    pub blur_score: f32,                    // Global blur probability
+    pub blur_score: f32,                    // Global blur score (0 = sharp, 100 = no fine detail)
     pub blur_probability: [[f32; 20]; 20],  // Local blur probabilities
     pub blur_weights: [[f32; 20]; 20],      // Quality weights
-    pub params: QualityParams,              // Parameters used
 }
 ```
+
+`blur_score` comes from `relative_blur` alone; `final_score` is `paq2piq_score * max(1 - alpha * blur_score / 100, min_weight)`. The two grids come from the Tenengrad fields and the `beta`, `tau_ten_224`, `p_floor`, `alpha` and `min_weight` parameters. [blur-score/README.md](blur-score/README.md) describes the blur score and how it was tested.
 
 ## Usage Patterns
 
@@ -209,4 +211,4 @@ let blur_prob = fuse_probabilities(&p224, &p112);
 let weights = compute_weights(&blur_prob, &params);
 ```
 
-The old function still works and now uses the new layered functions internally.
+The old function still works and now uses the new layered functions internally. Its fourth return value is the mean of the fused grid (0..1), which is no longer the global blur score.
