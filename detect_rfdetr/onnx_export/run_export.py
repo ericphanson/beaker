@@ -1,6 +1,7 @@
 from rfdetr import RFDETRMedium
 import torch
 import os
+import onnxruntime as ort
 from rfdetr.deploy.export import (
     no_batch_norm,
     make_infer_image,
@@ -128,8 +129,6 @@ output_file = onnx_simplify(output_file, input_names, input_tensors)
 
 # Run ONNX inference with `output_file`
 print("Testing running inference")
-import onnxruntime as ort
-
 ort_session = ort.InferenceSession(output_file)
 
 # Add batch dimension to input_tensors

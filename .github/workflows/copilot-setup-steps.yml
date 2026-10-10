@@ -26,13 +26,20 @@ jobs:
         with:
           shared-key: "setup"
 
+      # The cargo-warloc pre-commit hook runs `cargo warloc`. Pinned because
+      # scripts/summarize.py parses the 0.1.0 output format; 0.1.1 changed it.
+      - name: Install cargo-warloc
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-warloc@0.1.0
+
       - name: Install UV
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v10.3.0
         with:
           enable-cache: true
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
