@@ -23,7 +23,7 @@ Commercial use would require **separate rights to the images**.
 
 To install, you'll need [`cargo`](https://doc.rust-lang.org/cargo/getting-started/installation.html). Then run
 ```bash
-cargo install --git https://github.com/ericphanson/beaker
+cargo install --git https://github.com/ericphanson/beaker beaker
 ```
 
 to compile and install the binary. I don't have an apple developer account so I can't codesign binaries, so this seems like the most reliable way to get a working binary.
