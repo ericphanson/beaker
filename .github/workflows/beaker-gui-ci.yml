@@ -2,13 +2,21 @@ name: Beaker GUI CI
 
 on:
   push:
+    branches: [ main ]
     paths:
       - 'beaker-gui/**'
       - '.github/workflows/beaker-gui-ci.yml'
   pull_request:
+    branches: [ main ]
     paths:
       - 'beaker-gui/**'
       - '.github/workflows/beaker-gui-ci.yml'
+  workflow_dispatch:
+
+# Cancel old runs when new commits are pushed to the same PR/branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
