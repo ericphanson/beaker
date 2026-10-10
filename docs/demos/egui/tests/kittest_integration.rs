@@ -1,4 +1,5 @@
 use eframe::egui;
+#[cfg(not(target_os = "macos"))]
 use egui_kittest::Harness;
 
 #[derive(Default)]
@@ -97,7 +98,7 @@ impl eframe::App for HelloWorldApp {
                     .inner_margin(egui::Margin::symmetric(24.0, 16.0))
                     .rounding(10.0)
                     .fill(egui::Color32::WHITE)
-                    .stroke(egui::Stroke::new(1.5, egui::Color32::from_gray(220)))
+                    .stroke(egui::Stroke::new(1.5_f32, egui::Color32::from_gray(220)))
                     .shadow(egui::epaint::Shadow {
                         offset: egui::vec2(0.0, 2.0),
                         blur: 8.0,
@@ -138,6 +139,7 @@ impl eframe::App for HelloWorldApp {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 fn apply_custom_style(ctx: &egui::Context) {
     let mut style = (*ctx.style()).clone();
 
@@ -152,13 +154,13 @@ fn apply_custom_style(ctx: &egui::Context) {
     style.visuals.widgets.active.rounding = egui::Rounding::same(6.0);
 
     style.visuals.widgets.noninteractive.bg_stroke =
-        egui::Stroke::new(1.0, egui::Color32::from_gray(180));
+        egui::Stroke::new(1.0_f32, egui::Color32::from_gray(180));
     style.visuals.widgets.inactive.bg_stroke =
-        egui::Stroke::new(1.5, egui::Color32::from_gray(160));
+        egui::Stroke::new(1.5_f32, egui::Color32::from_gray(160));
     style.visuals.widgets.hovered.bg_stroke =
-        egui::Stroke::new(2.0, egui::Color32::from_rgb(100, 150, 220));
+        egui::Stroke::new(2.0_f32, egui::Color32::from_rgb(100, 150, 220));
     style.visuals.widgets.active.bg_stroke =
-        egui::Stroke::new(2.5, egui::Color32::from_rgb(80, 130, 200));
+        egui::Stroke::new(2.5_f32, egui::Color32::from_rgb(80, 130, 200));
 
     style.visuals.window_fill = egui::Color32::from_gray(248);
     style.visuals.panel_fill = egui::Color32::from_gray(248);
@@ -205,7 +207,7 @@ fn test_styled_card() {
             .inner_margin(egui::Margin::same(20.0))
             .rounding(8.0)
             .fill(egui::Color32::WHITE)
-            .stroke(egui::Stroke::new(1.0, egui::Color32::from_gray(200)))
+            .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_gray(200)))
             .shadow(egui::epaint::Shadow {
                 offset: egui::vec2(0.0, 2.0),
                 blur: 4.0,
