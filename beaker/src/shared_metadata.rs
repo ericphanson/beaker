@@ -143,7 +143,7 @@ impl IoTiming {
 
     pub fn time_image_read<P: AsRef<Path>>(&mut self, path: P) -> Result<DynamicImage> {
         let start = Instant::now();
-        let img = image::open(path)?;
+        let img = crate::image_input::load_image(path)?;
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
         self.read_time_ms = Some(self.read_time_ms.unwrap_or(0.0) + elapsed_ms);
         Ok(img)

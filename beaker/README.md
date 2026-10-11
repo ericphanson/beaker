@@ -138,6 +138,8 @@ This reference documents every field currently present in `/Users/eph/beaker/exa
 
 The metadata sidecar can include multiple top-level tool sections (`[detect]`, `[cutout]`, `[quality]`) when multiple tools have been run for the same image over time.
 
+All image dimensions and pixel coordinates in the sidecar refer to the image after its EXIF Orientation tag has been applied, that is, upright as an image viewer shows it. For a portrait photo stored sideways, `input_img_width` is the shorter side.
+
 ### Detect section (`[detect]`)
 
 - `model_version`: The detection model version string used for inference.

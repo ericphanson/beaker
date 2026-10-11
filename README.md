@@ -82,6 +82,12 @@ and the bounding-box image:
 
 Here we draw a bounding box around each `head` and `bird` detection, with an arrow showing the detected orientation. The `head` orientation is defined as the angle from the eye-to-beak line (vs the positive horizontal axis) and similarly the `bird` orientation is defined as the angle from the crown-to-tail line (vs the positive horizontal axis). The lines with arrows are drawn simply from the center of the bounding-box for the detection, at the angle predicted by the model.
 
+### Rotated photos
+
+Cameras store portrait shots sideways and record the rotation in the EXIF Orientation tag. Beaker applies that tag when it reads a JPEG, so the models see the photo upright, as an image viewer shows it. Bounding boxes, crops, heatmaps, cutouts and the `input_img_width`/`input_img_height` metadata fields all refer to the upright image.
+
+Versions up to 0.6.0 ignored the tag and worked on the pixels as stored. For photos with a rotation tag, later versions therefore give different detections and scores, box coordinates in a different frame, and swapped `input_img_width`/`input_img_height`.
+
 **Limitations:**
 - Works best on clear, well-lit images of single birds
 - False positives possible on non-bird objects. The detection model has _only_ been finetuned on bird images.

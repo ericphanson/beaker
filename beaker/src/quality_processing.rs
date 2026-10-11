@@ -1,6 +1,7 @@
 use crate::blur_detection::{compute_raw_tenengrad, relative_blur_ratio};
 use crate::color_utils::symbols;
 use crate::config::QualityConfig;
+use crate::image_input::load_image;
 use crate::model_access::{ModelAccess, ModelInfo};
 use crate::onnx_session::ModelSource;
 use crate::quality_types::QualityRawData;
@@ -160,7 +161,7 @@ impl ModelProcessor for QualityProcessor {
 
             // Load and preprocess the image for debug visualization
             let img =
-                image::open(image_path).context("Failed to open image for debug visualization")?;
+                load_image(image_path).context("Failed to open image for debug visualization")?;
             let input_array = preprocess_image_for_quality(&img)?;
 
             // Generate debug images using blur_weights_from_nchw
@@ -183,7 +184,7 @@ impl ModelProcessor for QualityProcessor {
             let heatmap_img = if config.overlay {
                 // Load original image for overlay
                 let original_img =
-                    image::open(image_path).context("Failed to open image for heatmap overlay")?;
+                    load_image(image_path).context("Failed to open image for heatmap overlay")?;
                 quality_visualization::render_overlay(
                     &original_img,
                     &scores.blur_probability,
@@ -273,7 +274,7 @@ pub fn compute_quality_raw(
     path: impl AsRef<Path>,
     session: &mut Session,
 ) -> Result<QualityRawData> {
-    let img = image::open(path.as_ref()).context("Failed to open image")?;
+    let img = load_image(path).context("Failed to open image")?;
     compute_quality_raw_from_image(&img, session)
 }
 

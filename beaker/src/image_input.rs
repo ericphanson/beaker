@@ -1,4 +1,5 @@
 use anyhow::Result;
+use image::{DynamicImage, ImageDecoder, ImageReader, Limits};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -70,6 +71,18 @@ pub fn is_supported_image_file(path: &Path) -> bool {
     } else {
         false
     }
+}
+
+/// Decode an image and apply its EXIF Orientation tag, so the pixels are upright
+/// (as an image viewer shows them) rather than as stored in the file.
+pub fn load_image(path: impl AsRef<Path>) -> Result<DynamicImage> {
+    let mut decoder = ImageReader::open(path)?.into_decoder()?;
+    // `into_decoder` skips the allocation check that `ImageReader::decode` makes
+    Limits::default().reserve(decoder.total_bytes())?;
+    let orientation = decoder.orientation()?;
+    let mut img = DynamicImage::from_decoder(decoder)?;
+    img.apply_orientation(orientation);
+    Ok(img)
 }
 
 /// Find all image files in a directory
